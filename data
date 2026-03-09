@@ -1,17 +1,77 @@
+const flattenChangedValues = (obj, prefix = "") => {
+  const result = {};
+
+  Object.keys(obj).forEach((key) => {
+    const val = obj[key];
+    const newKey = prefix ? `${prefix}.${key}` : key;
+
+    // If this object has oldValue/newValue
+    if (val && val.hasOwnProperty("oldValue") && val.hasOwnProperty("newValue")) {
+      // Check if oldValue/newValue are objects themselves
+      const isOldObj = val.oldValue && typeof val.oldValue === "object" && !Array.isArray(val.oldValue);
+      const isNewObj = val.newValue && typeof val.newValue === "object" && !Array.isArray(val.newValue);
+
+      if (isOldObj || isNewObj) {
+        // Recursively flatten nested oldValue/newValue objects
+        const nestedOld = isOldObj ? flattenChangedValues(val.oldValue, newKey + ".oldValue") : {};
+        const nestedNew = isNewObj ? flattenChangedValues(val.newValue, newKey + ".newValue") : {};
+        Object.assign(result, nestedOld, nestedNew);
+      } else {
+        result[newKey] = val;
+      }
+    } else if (val && typeof val === "object" && !Array.isArray(val)) {
+      // Recursively flatten other nested objects
+      Object.assign(result, flattenChangedValues(val, newKey));
+    }
+  });
+
+  return result;
+};
+
+
+
+
 const renderChangedTable = (changedValues) => {
-  // Flatten nested keys for easier label mapping
+  if (!changedValues || Object.keys(changedValues).length === 0) {
+    return <Typography>No changes detected.</Typography>;
+  }
+
+  // Flatten nested changedValues for easier label mapping
   const flattenChangedValues = (obj, prefix = "") => {
-    return Object.keys(obj).reduce((acc, key) => {
+    const result = {};
+
+    Object.keys(obj).forEach((key) => {
       const val = obj[key];
       const newKey = prefix ? `${prefix}.${key}` : key;
 
-      if (val && typeof val === "object" && val.hasOwnProperty("oldValue") && val.hasOwnProperty("newValue")) {
-        acc[newKey] = val;
+      // If object has oldValue and newValue
+      if (val && val.hasOwnProperty("oldValue") && val.hasOwnProperty("newValue")) {
+        const isOldObj =
+          val.oldValue &&
+          typeof val.oldValue === "object" &&
+          !Array.isArray(val.oldValue) &&
+          Object.keys(val.oldValue).length > 0;
+        const isNewObj =
+          val.newValue &&
+          typeof val.newValue === "object" &&
+          !Array.isArray(val.newValue) &&
+          Object.keys(val.newValue).length > 0;
+
+        if (isOldObj || isNewObj) {
+          // Recursively flatten nested oldValue/newValue
+          const nestedOld = isOldObj ? flattenChangedValues(val.oldValue, newKey + ".oldValue") : {};
+          const nestedNew = isNewObj ? flattenChangedValues(val.newValue, newKey + ".newValue") : {};
+          Object.assign(result, nestedOld, nestedNew);
+        } else {
+          result[newKey] = val;
+        }
       } else if (val && typeof val === "object" && !Array.isArray(val)) {
-        acc = { ...acc, ...flattenChangedValues(val, newKey) };
+        // Recursively flatten other objects
+        Object.assign(result, flattenChangedValues(val, newKey));
       }
-      return acc;
-    }, {});
+    });
+
+    return result;
   };
 
   const flatValues = flattenChangedValues(changedValues);
@@ -46,7 +106,6 @@ const renderChangedTable = (changedValues) => {
 
             return (
               <TableRow key={i}>
-                {/* Use labelConfig via getLabel */}
                 <TableCell>{getLabel(k)}</TableCell>
 
                 <TableCell>
