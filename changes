@@ -227,7 +227,8 @@ export default function AuditDataGrid({
     if (!Array.isArray(data) || !data.length) return renderBlank();
 
     return data.map((item, idx) => {
-      if (cfg?.displayKey) return <Typography key={idx}>{item?.[cfg.displayKey]}</Typography>;
+      if (cfg?.displayKey)
+        return <Typography key={idx}>{item?.[cfg.displayKey]}</Typography>;
 
       if (typeof item === "object") {
         return (
@@ -247,52 +248,68 @@ export default function AuditDataGrid({
     });
   };
 
-const renderAutoTable = (data, path) => {
-  if (!Array.isArray(data) || !data.length) return renderBlank();
+  /* ------------------- CHANGES / UPDATES ------------------- */
+  // 1. Added renderAutoTable to render array of objects as scrollable tables
+  // 2. Added maxHeight and overflow for tables to prevent dialog overflow
+  // 3. Dynamic field rendering via getFieldConfig and autoRender
+  // 4. HTML sanitization using DOMPurify
+  // 5. Sub-entities display with Paper + nested renderFullValuesTable
+  // ------------------------------------------------------------
 
-  const columns = Object.keys(data[0]).filter((c) => !IGNORED_FIELDS.includes(c));
+  const renderAutoTable = (data, path) => {
+    if (!Array.isArray(data) || !data.length) return renderBlank();
 
-  return (
-    <Box
-      sx={{
-        // width: "100%",
-        maxWidth:400,
-        overflowX: "auto", // horizontal scroll if columns exceed width
-        overflowY: "auto", // vertical scroll if rows exceed height
-        maxHeight: 400,    // adjust max height as needed
-        border: "1px solid #ddd",
-        borderRadius: 1,
-      }}
-    >
-      <Table size="small">
-        <TableHead>
-          <TableRow sx={{ backgroundColor: HEADER_BG, position: "sticky", top: 0, zIndex: 1 }}>
-            {columns.map((col) => (
-              <TableCell
-                key={col}
-                sx={{ color: HEADER_TEXT, fontWeight: "bold", minWidth: 120 }}
-              >
-                {getLabel(col)}
-              </TableCell>
-            ))}
-          </TableRow>
-        </TableHead>
+    const columns = Object.keys(data[0]).filter(
+      (c) => !IGNORED_FIELDS.includes(c)
+    );
 
-        <TableBody>
-          {data.map((row, i) => (
-            <TableRow key={i}>
+    return (
+      <Box
+        sx={{
+          maxWidth: 400,
+          overflowX: "auto",
+          overflowY: "auto",
+          maxHeight: 400,
+          border: "1px solid #ddd",
+          borderRadius: 1,
+        }}
+      >
+        <Table size="small">
+          <TableHead>
+            <TableRow
+              sx={{
+                backgroundColor: HEADER_BG,
+                position: "sticky",
+                top: 0,
+                zIndex: 1,
+              }}
+            >
               {columns.map((col) => (
-                <TableCell key={col} sx={{ minWidth: 120 }}>
-                  {renderDynamicValue(row[col], `${path}.${col}`)}
+                <TableCell
+                  key={col}
+                  sx={{ color: HEADER_TEXT, fontWeight: "bold", minWidth: 120 }}
+                >
+                  {getLabel(col)}
                 </TableCell>
               ))}
             </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    </Box>
-  );
-};
+          </TableHead>
+
+          <TableBody>
+            {data.map((row, i) => (
+              <TableRow key={i}>
+                {columns.map((col) => (
+                  <TableCell key={col} sx={{ minWidth: 120 }}>
+                    {renderDynamicValue(row[col], `${path}.${col}`)}
+                  </TableCell>
+                ))}
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </Box>
+    );
+  };
 
   const renderConfigTable = (data, cfg, path) => {
     if (!Array.isArray(data) || !data.length) return renderBlank();
@@ -325,10 +342,15 @@ const renderAutoTable = (data, path) => {
   };
 
   const autoRender = (value, path) => {
-    if (value === null || value === undefined || value === "") return renderBlank();
+    if (value === null || value === undefined || value === "")
+      return renderBlank();
 
     if (isHtml(value)) {
-      return <Box dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(value) }} />;
+      return (
+        <Box
+          dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(value) }}
+        />
+      );
     }
 
     if (Array.isArray(value)) {
@@ -361,9 +383,16 @@ const renderAutoTable = (data, path) => {
       case "boolean":
         return <Typography>{formatBoolean(value)}</Typography>;
       case "date":
-        return <Typography>{moment(value).format("DD MMM YYYY")}</Typography>;
+        return (
+          <Typography>{moment(value).format("DD MMM YYYY")}</Typography>
+        );
       case "html":
-        return <Box sx={{ maxHeight: 250, overflow: "auto" }} dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(value) }} />;
+        return (
+          <Box
+            sx={{ maxHeight: 250, overflow: "auto" }}
+            dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(value) }}
+          />
+        );
       case "list":
         return renderList(value, config, path);
       case "table":
@@ -390,8 +419,12 @@ const renderAutoTable = (data, path) => {
         <TableHead>
           <TableRow sx={{ backgroundColor: HEADER_BG }}>
             <TableCell sx={{ color: HEADER_TEXT }}>Field</TableCell>
-            {event !== "INSERT" && <TableCell sx={{ color: HEADER_TEXT }}>Old Value</TableCell>}
-            {event !== "DELETE" && <TableCell sx={{ color: HEADER_TEXT }}>New Value</TableCell>}
+            {event !== "INSERT" && (
+              <TableCell sx={{ color: HEADER_TEXT }}>Old Value</TableCell>
+            )}
+            {event !== "DELETE" && (
+              <TableCell sx={{ color: HEADER_TEXT }}>New Value</TableCell>
+            )}
           </TableRow>
         </TableHead>
 
@@ -399,8 +432,12 @@ const renderAutoTable = (data, path) => {
           {keys.map((k) => (
             <TableRow key={k}>
               <TableCell>{getLabel(k)}</TableCell>
-              {event !== "INSERT" && <TableCell>{renderDynamicValue(oldS[k], k)}</TableCell>}
-              {event !== "DELETE" && <TableCell>{renderDynamicValue(newS[k], k)}</TableCell>}
+              {event !== "INSERT" && (
+                <TableCell>{renderDynamicValue(oldS[k], k)}</TableCell>
+              )}
+              {event !== "DELETE" && (
+                <TableCell>{renderDynamicValue(newS[k], k)}</TableCell>
+              )}
             </TableRow>
           ))}
         </TableBody>
@@ -435,14 +472,20 @@ const renderAutoTable = (data, path) => {
       headerName: "Last Modified",
       width: 200,
       renderCell: (params) =>
-        params.row?.lastModified ? new Date(params.row.lastModified).toLocaleString() : "-",
+        params.row?.lastModified
+          ? new Date(params.row.lastModified).toLocaleString()
+          : "-",
     },
     {
       field: "viewDetails",
       headerName: "Details",
       width: 120,
       renderCell: (params) => (
-        <Button size="small" variant="outlined" onClick={() => handleViewDetails(params.row?.userId)}>
+        <Button
+          size="small"
+          variant="outlined"
+          onClick={() => handleViewDetails(params.row?.userId)}
+        >
           View
         </Button>
       ),
@@ -462,7 +505,9 @@ const renderAutoTable = (data, path) => {
         fullWidth
         onClose={() => setAuditDialogOpen(false)}
       >
-        <DialogTitle sx={{ backgroundColor: HEADER_BG, color: "#fff", fontWeight: "bold" }}>
+        <DialogTitle
+          sx={{ backgroundColor: HEADER_BG, color: "#fff", fontWeight: "bold" }}
+        >
           Audit Summary
         </DialogTitle>
 
@@ -485,7 +530,11 @@ const renderAutoTable = (data, path) => {
         </DialogContent>
 
         <DialogActions>
-          <Button variant="contained" sx={{ backgroundColor: HEADER_BG }} onClick={() => setAuditDialogOpen(false)}>
+          <Button
+            variant="contained"
+            sx={{ backgroundColor: HEADER_BG }}
+            onClick={() => setAuditDialogOpen(false)}
+          >
             Close
           </Button>
         </DialogActions>
@@ -498,7 +547,9 @@ const renderAutoTable = (data, path) => {
         fullWidth
         onClose={() => setDetailDialogOpen(false)}
       >
-        <DialogTitle sx={{ backgroundColor: HEADER_BG, color: "#fff", fontWeight: "bold" }}>
+        <DialogTitle
+          sx={{ backgroundColor: HEADER_BG, color: "#fff", fontWeight: "bold" }}
+        >
           Audit Details
         </DialogTitle>
 
@@ -511,7 +562,8 @@ const renderAutoTable = (data, path) => {
                 <Tooltip title="Click to view log">
                   <AccordionSummary expandIcon={<ExpandMore />}>
                     <Typography fontWeight="bold">
-                      {main.auditableType} | Last Modified: {new Date(lastModified).toLocaleString()}
+                      {main.auditableType} | Last Modified:{" "}
+                      {new Date(lastModified).toLocaleString()}
                     </Typography>
                   </AccordionSummary>
                 </Tooltip>
@@ -543,7 +595,11 @@ const renderAutoTable = (data, path) => {
 
           {auditDetailsList.length < auditDetailsTotal && (
             <Box textAlign="center" mt={3}>
-              <Button variant="outlined" disabled={auditDetailsLoading} onClick={loadMoreAuditDetails}>
+              <Button
+                variant="outlined"
+                disabled={auditDetailsLoading}
+                onClick={loadMoreAuditDetails}
+              >
                 {auditDetailsLoading ? "Loading..." : "Load More"}
               </Button>
             </Box>
@@ -551,7 +607,11 @@ const renderAutoTable = (data, path) => {
         </DialogContent>
 
         <DialogActions>
-          <Button variant="contained" sx={{ backgroundColor: HEADER_BG }} onClick={() => setDetailDialogOpen(false)}>
+          <Button
+            variant="contained"
+            sx={{ backgroundColor: HEADER_BG }}
+            onClick={() => setDetailDialogOpen(false)}
+          >
             Close
           </Button>
         </DialogActions>
