@@ -1,234 +1,544 @@
+import React, { useState, useEffect } from "react";
+import {
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Button,
+  Typography,
+  Box,
+  Accordion,
+  AccordionSummary,
+  AccordionDetails,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableRow,
+  Paper,
+  Tooltip,
+} from "@mui/material";
+import { ExpandMore } from "@mui/icons-material";
+import { DataGrid } from "@mui/x-data-grid";
+import DOMPurify from "dompurify";
+import moment from "moment";
+import apiClient from "@/utils/apiClient";
+import { auditAdapters } from "@/utils/audit/auditAdapters";
+import { simplifyAuditJson } from "@/utils/simplifyJsonStructureHelper";
+
 /* -------------------------------------------------- */
-/* DYNAMIC RENDER ENGINE (UPDATED) */
+/* CONSTANTS */
 /* -------------------------------------------------- */
 
-const renderBlank = () => (
-  <Typography variant="body2" fontWeight="bold">
-    Blank
-  </Typography>
-);
+const HEADER_BG = "#45154F";
+const HEADER_TEXT = "#FFFFFF";
 
-const getFieldConfig = (path) => renderConfig?.[path] || { type: "auto" };
+const IGNORED_FIELDS = [
+  "id",
+  "uuid",
+  "createdAt",
+  "updatedAt",
+  "created_by",
+  "updated_by",
+  "deleted_at",
+  "deletedBy",
+];
 
-const isHtml = (str) =>
-  typeof str === "string" && /<\/?[a-z][\s\S]*>/i.test(str);
+/* -------------------------------------------------- */
+/* COMPONENT */
+/* -------------------------------------------------- */
 
-/* -------------------- */
-/* LIST RENDERER */
-/* -------------------- */
+export default function AuditDataGrid({
+  auditDialogOpen,
+  setAuditDialogOpen,
+  renderConfig = {},
+  labelConfig = {},
+  ...rest
+}) {
+  const auditableId = rest?.auditableId;
+  const sectionId = rest?.sectionId;
 
-const renderList = (data, cfg, path) => {
-  if (!Array.isArray(data) || !data.length) return renderBlank();
+  const [usersSummary, setUsersSummary] = useState([]);
+  const [totalRows, setTotalRows] = useState(0);
+  const [loading, setLoading] = useState(false);
 
-  return data.map((item, idx) => {
-    if (cfg?.displayKey) {
-      return (
-        <Typography key={idx}>{item?.[cfg.displayKey]}</Typography>
-      );
-    }
+  const [detailDialogOpen, setDetailDialogOpen] = useState(false);
+  const [auditDetailsList, setAuditDetailsList] = useState([]);
+  const [auditDetailsPage, setAuditDetailsPage] = useState(1);
+  const [auditDetailsTotal, setAuditDetailsTotal] = useState(0);
+  const [auditDetailsLoading, setAuditDetailsLoading] = useState(false);
+  const [selectedUserId, setSelectedUserId] = useState(null);
 
-    if (typeof item === "object") {
-      return (
-        <Box key={idx} mb={1}>
-          {Object.entries(item)
-            .filter(([k]) => !IGNORED_FIELDS.includes(k))
-            .map(([k, v]) => (
-              <Typography key={k}>
-                {getLabel(k)}: {renderDynamicValue(v, `${path}.${k}`)}
-              </Typography>
-            ))}
-        </Box>
-      );
-    }
-
-    return <Typography key={idx}>{item}</Typography>;
+  const [paginationModel, setPaginationModel] = useState({
+    page: 0,
+    pageSize: 5,
   });
-};
 
-/* -------------------- */
-/* AUTO TABLE */
-/* -------------------- */
+  const auditDetailsPageSize = 10;
 
-const renderAutoTable = (data, path) => {
-  if (!Array.isArray(data) || !data.length) return renderBlank();
+  /* -------------------------------------------------- */
+  /* HELPERS */
+  /* -------------------------------------------------- */
 
-  const columns = Object.keys(data[0]).filter(
-    (c) => !IGNORED_FIELDS.includes(c)
+  const capitalize = (str) =>
+    str
+      ?.replace(/_/g, " ")
+      .split(" ")
+      .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+      .join(" ");
+
+  const getLabel = (key) => labelConfig?.[key] || capitalize(key);
+
+  const formatStatus = (val) => {
+    if (val === true) return "Active";
+    if (val === false) return "Inactive";
+    return val;
+  };
+
+  const formatBoolean = (val) => {
+    if (val === true) return "Yes";
+    if (val === false) return "No";
+    return val;
+  };
+
+  const getAdapter = () => auditAdapters?.[sectionId] ?? null;
+
+  /* -------------------------------------------------- */
+  /* FETCH SUMMARY */
+  /* -------------------------------------------------- */
+
+  const fetchSummary = async (page, pageSize) => {
+    try {
+      setLoading(true);
+
+      const res = await apiClient.post("/api/audit/get-audit-summary", {
+        auditableId,
+        sectionId,
+        page: page + 1,
+        pageSize,
+      });
+
+      const adapter = getAdapter();
+      const adapted = adapter?.adaptSummary?.(res.data?.data) ?? [];
+
+      const offset = page * pageSize;
+
+      const enriched = adapted.map((u, idx) => ({
+        id: offset + idx + 1,
+        ...u,
+        userName:
+          (u.userDetails?.first_name || "") +
+          " " +
+          (u.userDetails?.last_name || ""),
+        userEmail: u.userDetails?.email || "",
+        userOrgType: u.userDetails?.organizationType || "",
+      }));
+
+      setUsersSummary(enriched);
+      setTotalRows(res?.data?.total || 0);
+    } catch (err) {
+      console.error("Audit summary error", err);
+      setUsersSummary([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (auditDialogOpen && auditableId && sectionId) {
+      fetchSummary(paginationModel.page, paginationModel.pageSize);
+    }
+  }, [auditDialogOpen]);
+
+  /* -------------------------------------------------- */
+  /* FETCH DETAILS */
+  /* -------------------------------------------------- */
+
+  const handleViewDetails = async (userId) => {
+    try {
+      setAuditDetailsLoading(true);
+      setSelectedUserId(userId);
+      setAuditDetailsPage(1);
+
+      const res = await apiClient.post("/api/audit/get-audit-details", {
+        auditableId,
+        sectionId,
+        userId,
+        page: 1,
+        pageSize: auditDetailsPageSize,
+      });
+
+      const adapter = getAdapter();
+      const adapted = adapter?.adaptDetails?.(res.data?.data) ?? [];
+
+      setAuditDetailsList(adapted);
+      setAuditDetailsTotal(res?.data?.pagination?.total || 0);
+
+      setDetailDialogOpen(true);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setAuditDetailsLoading(false);
+    }
+  };
+
+  const loadMoreAuditDetails = async () => {
+    try {
+      setAuditDetailsLoading(true);
+
+      const nextPage = auditDetailsPage + 1;
+
+      const res = await apiClient.post("/api/audit/get-audit-details", {
+        auditableId,
+        sectionId,
+        userId: selectedUserId,
+        page: nextPage,
+        pageSize: auditDetailsPageSize,
+      });
+
+      const adapter = getAdapter();
+      const adapted = adapter?.adaptDetails?.(res.data?.data) ?? [];
+
+      setAuditDetailsList((prev) => [...prev, ...adapted]);
+      setAuditDetailsPage(nextPage);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setAuditDetailsLoading(false);
+    }
+  };
+
+  /* -------------------------------------------------- */
+  /* DYNAMIC RENDER ENGINE (UPDATED) */
+  /* -------------------------------------------------- */
+
+  const renderBlank = () => (
+    <Typography variant="body2" fontWeight="bold">
+      Blank
+    </Typography>
   );
 
-  return (
-    <Table size="small">
-      <TableHead>
-        <TableRow>
-          {columns.map((col) => (
-            <TableCell key={col}>{getLabel(col)}</TableCell>
-          ))}
-        </TableRow>
-      </TableHead>
+  const getFieldConfig = (path) => renderConfig?.[path] || { type: "auto" };
 
-      <TableBody>
-        {data.map((row, i) => (
-          <TableRow key={i}>
-            {columns.map((col) => (
-              <TableCell key={col}>
-                {renderDynamicValue(row[col], `${path}.${col}`)}
-              </TableCell>
-            ))}
-          </TableRow>
-        ))}
-      </TableBody>
-    </Table>
-  );
-};
+  const isHtml = (str) =>
+    typeof str === "string" && /<\/?[a-z][\s\S]*>/i.test(str);
 
-/* -------------------- */
-/* CONFIG TABLE */
-/* -------------------- */
+  const renderList = (data, cfg, path) => {
+    if (!Array.isArray(data) || !data.length) return renderBlank();
 
-const renderConfigTable = (data, cfg, path) => {
-  if (!Array.isArray(data) || !data.length) return renderBlank();
+    return data.map((item, idx) => {
+      if (cfg?.displayKey) return <Typography key={idx}>{item?.[cfg.displayKey]}</Typography>;
 
-  return (
-    <Table size="small">
-      <TableHead>
-        <TableRow>
-          {cfg.columns.map((col) => (
-            <TableCell key={col.key}>{col.label}</TableCell>
-          ))}
-        </TableRow>
-      </TableHead>
+      if (typeof item === "object") {
+        return (
+          <Box key={idx} mb={1}>
+            {Object.entries(item)
+              .filter(([k]) => !IGNORED_FIELDS.includes(k))
+              .map(([k, v]) => (
+                <Typography key={k}>
+                  {getLabel(k)}: {renderDynamicValue(v, `${path}.${k}`)}
+                </Typography>
+              ))}
+          </Box>
+        );
+      }
 
-      <TableBody>
-        {data.map((row, idx) => (
-          <TableRow key={idx}>
-            {cfg.columns.map((col) => (
-              <TableCell key={col.key}>
-                {col.type === "list"
-                  ? renderList(row[col.key], col, `${path}.${col.key}`)
-                  : renderDynamicValue(row[col.key], `${path}.${col.key}`)}
-              </TableCell>
-            ))}
-          </TableRow>
-        ))}
-      </TableBody>
-    </Table>
-  );
-};
+      return <Typography key={idx}>{item}</Typography>;
+    });
+  };
 
-/* -------------------- */
-/* AUTO RENDER */
-/* -------------------- */
+  const renderAutoTable = (data, path) => {
+    if (!Array.isArray(data) || !data.length) return renderBlank();
 
-const autoRender = (value, path) => {
-  if (value === null || value === undefined || value === "")
-    return renderBlank();
+    const columns = Object.keys(data[0]).filter((c) => !IGNORED_FIELDS.includes(c));
 
-  if (isHtml(value)) {
     return (
-      <Box
-        dangerouslySetInnerHTML={{
-          __html: DOMPurify.sanitize(value),
-        }}
-      />
-    );
-  }
+      <Table size="small">
+        <TableHead>
+          <TableRow>
+            {columns.map((col) => (
+              <TableCell key={col}>{getLabel(col)}</TableCell>
+            ))}
+          </TableRow>
+        </TableHead>
 
-  if (Array.isArray(value)) {
-    if (typeof value[0] === "object") {
-      return renderAutoTable(value, path);
+        <TableBody>
+          {data.map((row, i) => (
+            <TableRow key={i}>
+              {columns.map((col) => (
+                <TableCell key={col}>
+                  {renderDynamicValue(row[col], `${path}.${col}`)}
+                </TableCell>
+              ))}
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    );
+  };
+
+  const renderConfigTable = (data, cfg, path) => {
+    if (!Array.isArray(data) || !data.length) return renderBlank();
+
+    return (
+      <Table size="small">
+        <TableHead>
+          <TableRow>
+            {cfg.columns.map((col) => (
+              <TableCell key={col.key}>{col.label}</TableCell>
+            ))}
+          </TableRow>
+        </TableHead>
+
+        <TableBody>
+          {data.map((row, idx) => (
+            <TableRow key={idx}>
+              {cfg.columns.map((col) => (
+                <TableCell key={col.key}>
+                  {col.type === "list"
+                    ? renderList(row[col.key], col, `${path}.${col.key}`)
+                    : renderDynamicValue(row[col.key], `${path}.${col.key}`)}
+                </TableCell>
+              ))}
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    );
+  };
+
+  const autoRender = (value, path) => {
+    if (value === null || value === undefined || value === "") return renderBlank();
+
+    if (isHtml(value)) {
+      return <Box dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(value) }} />;
     }
 
-    return value.map((v, i) => (
-      <Typography key={i}>{v}</Typography>
-    ));
-  }
+    if (Array.isArray(value)) {
+      if (typeof value[0] === "object") return renderAutoTable(value, path);
+      return value.map((v, i) => <Typography key={i}>{v}</Typography>);
+    }
 
-  if (typeof value === "object") {
-    return Object.entries(value)
-      .filter(([k]) => !IGNORED_FIELDS.includes(k))
-      .map(([k, v]) => (
-        <Typography key={k}>
-          {getLabel(k)}: {renderDynamicValue(v, `${path}.${k}`)}
-        </Typography>
-      ));
-  }
+    if (typeof value === "object") {
+      return Object.entries(value)
+        .filter(([k]) => !IGNORED_FIELDS.includes(k))
+        .map(([k, v]) => (
+          <Typography key={k}>
+            {getLabel(k)}: {renderDynamicValue(v, `${path}.${k}`)}
+          </Typography>
+        ));
+    }
 
-  return <Typography>{value.toString()}</Typography>;
-};
+    return <Typography>{value.toString()}</Typography>;
+  };
 
-/* -------------------- */
-/* MAIN RENDER */
-/* -------------------- */
+  const renderDynamicValue = (value, path) => {
+    const config = getFieldConfig(path);
+    const type = config.type;
 
-const renderDynamicValue = (value, path) => {
-  const config = getFieldConfig(path);
-  const type = config.type;
+    if (value == null || value === "") return renderBlank();
 
-  if (value == null || value === "") return renderBlank();
+    switch (type) {
+      case "status":
+        return <Typography>{formatStatus(value)}</Typography>;
+      case "boolean":
+        return <Typography>{formatBoolean(value)}</Typography>;
+      case "date":
+        return <Typography>{moment(value).format("DD MMM YYYY")}</Typography>;
+      case "html":
+        return <Box sx={{ maxHeight: 250, overflow: "auto" }} dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(value) }} />;
+      case "list":
+        return renderList(value, config, path);
+      case "table":
+        return renderConfigTable(value, config, path);
+      case "custom":
+        return config.render(value);
+      default:
+        return autoRender(value, path);
+    }
+  };
 
-  switch (type) {
-    case "status":
-      return <Typography>{formatStatus(value)}</Typography>;
+  /* -------------------------------------------------- */
+  /* FULL VALUES TABLE */
+  /* -------------------------------------------------- */
 
-    case "boolean":
-      return <Typography>{formatBoolean(value)}</Typography>;
+  const renderFullValuesTable = (oldValues, newValues, event) => {
+    const oldS = simplifyAuditJson(oldValues);
+    const newS = simplifyAuditJson(newValues);
 
-    case "date":
-      return (
-        <Typography>
-          {moment(value).format("DD MMM YYYY")}
-        </Typography>
-      );
+    const keys = Array.from(new Set([...Object.keys(oldS), ...Object.keys(newS)]));
 
-    case "html":
-      return (
-        <Box
-          sx={{ maxHeight: 250, overflow: "auto" }}
-          dangerouslySetInnerHTML={{
-            __html: DOMPurify.sanitize(value),
-          }}
-        />
-      );
+    return (
+      <Table size="small">
+        <TableHead>
+          <TableRow sx={{ backgroundColor: HEADER_BG }}>
+            <TableCell sx={{ color: HEADER_TEXT }}>Field</TableCell>
+            {event !== "INSERT" && <TableCell sx={{ color: HEADER_TEXT }}>Old Value</TableCell>}
+            {event !== "DELETE" && <TableCell sx={{ color: HEADER_TEXT }}>New Value</TableCell>}
+          </TableRow>
+        </TableHead>
 
-    case "list":
-      return renderList(value, config, path);
+        <TableBody>
+          {keys.map((k) => (
+            <TableRow key={k}>
+              <TableCell>{getLabel(k)}</TableCell>
+              {event !== "INSERT" && <TableCell>{renderDynamicValue(oldS[k], k)}</TableCell>}
+              {event !== "DELETE" && <TableCell>{renderDynamicValue(newS[k], k)}</TableCell>}
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    );
+  };
 
-    case "table":
-      return renderConfigTable(value, config, path);
+  /* -------------------------------------------------- */
+  /* SUMMARY GRID */
+  /* -------------------------------------------------- */
 
-    case "custom":
-      return config.render(value);
-
-    default:
-      return autoRender(value, path);
-  }
-};
-
-
-
-const renderConfig = {
-  "jsonData.sdgAlignment": {
-    type: "list",
-    displayKey: "name",
-  },
-
-  "jsonData.nodalMinistry": {
-    type: "list",
-    displayKey: "name",
-  },
-
-  "jsonData.schemeFinancialYearWiseBudgetDetails": {
-    type: "table",
-    columns: [
-      { key: "financialYear", label: "Financial Year" },
-      { key: "revisedBudget", label: "Revised Budget" },
-      { key: "estimatedBudget", label: "Estimated Budget" },
-      {
-        key: "associatedFrameworks",
-        label: "Frameworks",
-        type: "list",
-        displayKey: "name",
+  const columns = [
+    { field: "id", headerName: "S.No", width: 90 },
+    { field: "userName", headerName: "User Name", width: 160 },
+    { field: "userEmail", headerName: "User Email", width: 200 },
+    { field: "userOrgType", headerName: "User Type", width: 150 },
+    {
+      field: "actions",
+      headerName: "Actions",
+      width: 220,
+      renderCell: (params) => {
+        const actions = params.row?.actions || {};
+        return (
+          <Typography>
+            Created: {actions.created ?? 0} | Updated: {actions.updated ?? 0}
+          </Typography>
+        );
       },
-    ],
-  },
-};
+    },
+    {
+      field: "lastModified",
+      headerName: "Last Modified",
+      width: 200,
+      renderCell: (params) =>
+        params.row?.lastModified ? new Date(params.row.lastModified).toLocaleString() : "-",
+    },
+    {
+      field: "viewDetails",
+      headerName: "Details",
+      width: 120,
+      renderCell: (params) => (
+        <Button size="small" variant="outlined" onClick={() => handleViewDetails(params.row?.userId)}>
+          View
+        </Button>
+      ),
+    },
+  ];
+
+  /* -------------------------------------------------- */
+  /* RENDER */
+  /* -------------------------------------------------- */
+
+  return (
+    <>
+      {/* SUMMARY */}
+      <Dialog
+        open={auditDialogOpen}
+        maxWidth="lg"
+        fullWidth
+        onClose={() => setAuditDialogOpen(false)}
+      >
+        <DialogTitle sx={{ backgroundColor: HEADER_BG, color: "#fff", fontWeight: "bold" }}>
+          Audit Summary
+        </DialogTitle>
+
+        <DialogContent>
+          <DataGrid
+            rows={usersSummary}
+            columns={columns}
+            loading={loading}
+            pagination
+            paginationMode="server"
+            rowCount={totalRows}
+            paginationModel={paginationModel}
+            pageSizeOptions={[5, 10, 20]}
+            onPaginationModelChange={(model) => {
+              setPaginationModel(model);
+              fetchSummary(model.page, model.pageSize);
+            }}
+            autoHeight
+          />
+        </DialogContent>
+
+        <DialogActions>
+          <Button variant="contained" sx={{ backgroundColor: HEADER_BG }} onClick={() => setAuditDialogOpen(false)}>
+            Close
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* DETAILS */}
+      <Dialog
+        open={detailDialogOpen}
+        maxWidth="lg"
+        fullWidth
+        onClose={() => setDetailDialogOpen(false)}
+      >
+        <DialogTitle sx={{ backgroundColor: HEADER_BG, color: "#fff", fontWeight: "bold" }}>
+          Audit Details
+        </DialogTitle>
+
+        <DialogContent dividers>
+          {auditDetailsList.map((item, idx) => {
+            const { main, subEntities = [], lastModified } = item;
+
+            return (
+              <Accordion key={idx}>
+                <Tooltip title="Click to view log">
+                  <AccordionSummary expandIcon={<ExpandMore />}>
+                    <Typography fontWeight="bold">
+                      {main.auditableType} | Last Modified: {new Date(lastModified).toLocaleString()}
+                    </Typography>
+                  </AccordionSummary>
+                </Tooltip>
+
+                <AccordionDetails>
+                  <Paper sx={{ p: 2, mb: 2 }}>
+                    {renderFullValuesTable(main.oldValues, main.newValues, main.event)}
+                  </Paper>
+
+                  {subEntities.length > 0 && (
+                    <Paper sx={{ p: 2 }}>
+                      <Typography fontWeight="bold">Related Entities</Typography>
+
+                      {subEntities.map((sub, i) => (
+                        <Paper sx={{ p: 2, mb: 1 }} key={i}>
+                          <Typography>
+                            {sub.auditableType} | {sub.event}
+                          </Typography>
+
+                          {renderFullValuesTable(sub.oldValues, sub.newValues, sub.event)}
+                        </Paper>
+                      ))}
+                    </Paper>
+                  )}
+                </AccordionDetails>
+              </Accordion>
+            );
+          })}
+
+          {auditDetailsList.length < auditDetailsTotal && (
+            <Box textAlign="center" mt={3}>
+              <Button variant="outlined" disabled={auditDetailsLoading} onClick={loadMoreAuditDetails}>
+                {auditDetailsLoading ? "Loading..." : "Load More"}
+              </Button>
+            </Box>
+          )}
+        </DialogContent>
+
+        <DialogActions>
+          <Button variant="contained" sx={{ backgroundColor: HEADER_BG }} onClick={() => setDetailDialogOpen(false)}>
+            Close
+          </Button>
+        </DialogActions>
+      </Dialog>
+    </>
+  );
+}
