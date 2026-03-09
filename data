@@ -1,268 +1,76 @@
-{
-    "success": true,
-    "data": [
-        {
-            "relationshipId": "1659252",
-            "alert": {
-                "auditableType": "ALERT",
-                "alertType": "EMAIL",
-                "auditableId": "36",
-                "event": "UPDATE",
-                "userId": 1,
-                "oldValues": {
-                    "type": "EMAIL",
-                    "status": "Open",
-                    "frequency": "NONE",
-                    "startDate": "2026-01-21",
-                    "endDate": null,
-                    "specificCondition": "",
-                    "frequencyPattern": {
-                        "frequencyPattern": {
-                            "range": {
-                                "endType": "noEnd",
-                                "endValue": "",
-                                "startDate": "2026-01-21"
-                            },
-                            "pattern": {},
-                            "frequencyType": "None"
-                        }
-                    },
-                    "content": {
-                        "subject": "Submission Pending || DGQI 3.0",
-                        "body": "<p>Dear Sir/Ma'am,</p><p></p><p>It is observed that the DGQI Round 8 questionnaire for your Ministry/ Department is yet to be submitted. In this regard, it is requested that the same may be submitted on or before 30th Jan 2026 (11:59pm).</p><p></p><p>Regards,,</p><p>DGQI Team</p>"
-                    },
-                    "dept_ids": "Department of Animal Husbandry and Dairying",
-                    "user_ids": "Dr. Renuka Mishra (renuka.mishra@nic.in), Dr. Akhilesh Mishra (dsu21-dst@gov.in), Prachi Gupta (jd1-nwic-mowr@gov.in), Rana Pratap Singh Rathore (r.rathore@gov.in), Suresh Kumar (suresh1967@nic.in), Rajeev Kumar (jscpg-mha@mha.gov.in), Anshu Singh (anshu.s@nic.in), Akhilesh Kumar (akhilesh.kumar99@gov.in), Ajay Srivastava (ajaysri@nic.in)",
-                    "ministry_ids": "Ministry of Textiles , Ministry of Fisheries Animal Husbandry and Dairying, Ministry of Law and Justice, Ministry of Home Affairs, Ministry of Science and Technology, Ministry of Jal Shakti, Ministry of Heavy Industries and Public Enterprises , Ministry of Tribal Affairs",
-                    "orgType_ids": "Department",
-                    "targetModule": "DGQI"
-                },
-                "newValues": {
-                    "type": "EMAIL",
-                    "status": "Open",
-                    "frequency": "WEEKLY",
-                    "startDate": "2026-03-09",
-                    "endDate": null,
-                    "specificCondition": "",
-                    "frequencyPattern": {
-                        "frequencyPattern": {
-                            "range": {
-                                "endType": "noEnd",
-                                "endValue": "",
-                                "startDate": "2026-03-09"
-                            },
-                            "pattern": {
-                                "interval": 2,
-                                "weekdays": [
-                                    "Monday",
-                                    "Tuesday",
-                                    "Sunday"
-                                ]
-                            },
-                            "frequencyType": "Weekly"
-                        }
-                    },
-                    "content": {
-                        "subject": "Submission Pending || DGQI 3.0",
-                        "body": "<p>Dear Sir/Ma'am,</p><p></p><p>It is observed that the DGQI Round 8 questionnaire for your Ministry/ Department is yet to be submitted. In this regard, it is requested that the same may be submitted on or before 30th Jan 2026 (11:59pm).</p><p></p><p>Regards,,</p><p>DGQI Team</p>"
-                    },
-                    "dept_ids": "Department of Animal Husbandry and Dairying",
-                    "user_ids": "Dr. Renuka Mishra (renuka.mishra@nic.in), Dr. Akhilesh Mishra (dsu21-dst@gov.in), Prachi Gupta (jd1-nwic-mowr@gov.in), Rana Pratap Singh Rathore (r.rathore@gov.in), Suresh Kumar (suresh1967@nic.in), Rajeev Kumar (jscpg-mha@mha.gov.in), Anshu Singh (anshu.s@nic.in), Akhilesh Kumar (akhilesh.kumar99@gov.in), Ajay Srivastava (ajaysri@nic.in)",
-                    "ministry_ids": "Ministry of Textiles , Ministry of Fisheries Animal Husbandry and Dairying, Ministry of Law and Justice, Ministry of Home Affairs, Ministry of Science and Technology, Ministry of Jal Shakti, Ministry of Heavy Industries and Public Enterprises , Ministry of Tribal Affairs",
-                    "orgType_ids": "Department",
-                    "targetModule": "DGQI"
-                },
-                "changedValues": {
-                    "frequency": {
-                        "newValue": "WEEKLY",
-                        "oldValue": "NONE"
-                    },
-                    "frequencyPattern": {
-                        "oldValue": {
-                            "frequencyPattern": {
-                                "range": {
-                                    "endType": "noEnd",
-                                    "endValue": "",
-                                    "startDate": "2026-01-21"
-                                },
-                                "pattern": {},
-                                "frequencyType": "None"
-                            }
-                        },
-                        "newValue": {
-                            "frequencyPattern": {
-                                "range": {
-                                    "endType": "noEnd",
-                                    "endValue": "",
-                                    "startDate": "2026-03-09"
-                                },
-                                "pattern": {
-                                    "interval": 2,
-                                    "weekdays": [
-                                        "Monday",
-                                        "Tuesday",
-                                        "Sunday"
-                                    ]
-                                },
-                                "frequencyType": "Weekly"
-                            }
-                        }
-                    },
-                    "startDate": {
-                        "oldValue": "2026-01-21",
-                        "newValue": "2026-03-09"
-                    },
-                    "endDate": {
-                        "oldValue": null,
-                        "newValue": null
-                    }
-                },
-                "createdAt": "2026-03-09T11:21:32.485Z"
-            },
-            "lastModified": "2026-03-09T11:21:32.485Z"
-        },
-        {
-            "relationshipId": "1659240",
-            "alert": {
-                "auditableType": "ALERT",
-                "alertType": "EMAIL",
-                "auditableId": "36",
-                "event": "UPDATE",
-                "userId": 1,
-                "oldValues": {
-                    "type": "EMAIL",
-                    "status": "Open",
-                    "frequency": "NONE",
-                    "startDate": "2026-01-21",
-                    "endDate": null,
-                    "specificCondition": "",
-                    "frequencyPattern": {
-                        "frequencyPattern": {
-                            "range": {
-                                "endType": "noEnd",
-                                "endValue": "",
-                                "startDate": "2026-01-21"
-                            },
-                            "pattern": {},
-                            "frequencyType": "None"
-                        }
-                    },
-                    "content": {
-                        "subject": "Submission Pending || DGQI 3.0",
-                        "body": "<p>Dear Sir/Ma'am,</p><p></p><p>It is observed that the DGQI Round 8 questionnaire for your Ministry/ Department is yet to be submitted. In this regard, it is requested that the same may be submitted on or before 30th Jan 2026 (11:59pm).</p><p></p><p>Regards,</p><p>DGQI Team</p>"
-                    },
-                    "dept_ids": "Department of Animal Husbandry and Dairying, Department of Fisheries, Department of Heavy Industry, Department of Justice, Department of Science and Technology, Department of Water Resources, River Development & Ganga Rejuvenation, Ministry of Home Affairs, Ministry of Textiles, Ministry of Tribal Affairs",
-                    "user_ids": "Dr. Renuka Mishra (renuka.mishra@nic.in), Rana Pratap Singh Rathore (r.rathore@gov.in), Suresh Kumar (suresh1967@nic.in), Rajeev Kumar (jscpg-mha@mha.gov.in), Dr. Akhilesh Mishra (dsu21-dst@gov.in), Prachi Gupta (jd1-nwic-mowr@gov.in), Anshu Singh (anshu.s@nic.in), Akhilesh Kumar (akhilesh.kumar99@gov.in), Ajay Srivastava (ajaysri@nic.in)",
-                    "ministry_ids": "Ministry of Textiles , Ministry of Fisheries Animal Husbandry and Dairying, Ministry of Law and Justice, Ministry of Home Affairs, Ministry of Science and Technology, Ministry of Jal Shakti, Ministry of Heavy Industries and Public Enterprises , Ministry of Tribal Affairs",
-                    "orgType_ids": "Department",
-                    "targetModule": "DGQI"
-                },
-                "newValues": {
-                    "type": "EMAIL",
-                    "status": "Open",
-                    "frequency": "NONE",
-                    "startDate": "2026-01-21",
-                    "endDate": null,
-                    "specificCondition": "",
-                    "frequencyPattern": {
-                        "frequencyPattern": {
-                            "range": {
-                                "endType": "noEnd",
-                                "endValue": "",
-                                "startDate": "2026-01-21"
-                            },
-                            "pattern": {},
-                            "frequencyType": "None"
-                        }
-                    },
-                    "content": {
-                        "subject": "Submission Pending || DGQI 3.0",
-                        "body": "<p>Dear Sir/Ma'am,</p><p></p><p>It is observed that the DGQI Round 8 questionnaire for your Ministry/ Department is yet to be submitted. In this regard, it is requested that the same may be submitted on or before 30th Jan 2026 (11:59pm).</p><p></p><p>Regards,,</p><p>DGQI Team</p>"
-                    },
-                    "dept_ids": "Department of Animal Husbandry and Dairying",
-                    "user_ids": "Dr. Renuka Mishra (renuka.mishra@nic.in), Dr. Akhilesh Mishra (dsu21-dst@gov.in), Prachi Gupta (jd1-nwic-mowr@gov.in), Rana Pratap Singh Rathore (r.rathore@gov.in), Suresh Kumar (suresh1967@nic.in), Rajeev Kumar (jscpg-mha@mha.gov.in), Anshu Singh (anshu.s@nic.in), Akhilesh Kumar (akhilesh.kumar99@gov.in), Ajay Srivastava (ajaysri@nic.in)",
-                    "ministry_ids": "Ministry of Textiles , Ministry of Fisheries Animal Husbandry and Dairying, Ministry of Law and Justice, Ministry of Home Affairs, Ministry of Science and Technology, Ministry of Jal Shakti, Ministry of Heavy Industries and Public Enterprises , Ministry of Tribal Affairs",
-                    "orgType_ids": "Department",
-                    "targetModule": "DGQI"
-                },
-                "changedValues": {
-                    "startDate": {
-                        "newValue": "2026-03-09T00:00:00",
-                        "oldValue": "2026-01-21T00:00:00"
-                    },
-                    "endDate": {
-                        "newValue": "2026-03-09T00:00:00",
-                        "oldValue": "2026-01-21T00:00:00"
-                    },
-                    "content": {
-                        "oldValue": {
-                            "subject": null,
-                            "body": "<p>Dear Sir/Ma'am,</p><p></p><p>It is observed that the DGQI Round 8 questionnaire for your Ministry/ Department is yet to be submitted. In this regard, it is requested that the same may be submitted on or before 30th Jan 2026 (11:59pm).</p><p></p><p>Regards,</p><p>DGQI Team</p>"
-                        },
-                        "newValue": {
-                            "subject": null,
-                            "body": "<p>Dear Sir/Ma'am,</p><p></p><p>It is observed that the DGQI Round 8 questionnaire for your Ministry/ Department is yet to be submitted. In this regard, it is requested that the same may be submitted on or before 30th Jan 2026 (11:59pm).</p><p></p><p>Regards,,</p><p>DGQI Team</p>"
-                        }
-                    },
-                    "dept_ids": {
-                        "newValue": [
-                            {
-                                "id": 3,
-                                "label": "Department of Animal Husbandry and Dairying"
-                            }
-                        ],
-                        "oldValue": [
-                            {
-                                "id": 3,
-                                "label": "Department of Animal Husbandry and Dairying"
-                            },
-                            {
-                                "id": 57,
-                                "label": "Department of Fisheries"
-                            },
-                            {
-                                "id": 20,
-                                "label": "Department of Heavy Industry"
-                            },
-                            {
-                                "id": 22,
-                                "label": "Department of Justice"
-                            },
-                            {
-                                "id": 26,
-                                "label": "Department of Science and Technology"
-                            },
-                            {
-                                "id": 66,
-                                "label": "Department of Water Resources, River Development & Ganga Rejuvenation"
-                            },
-                            {
-                                "id": 44,
-                                "label": "Ministry of Home Affairs"
-                            },
-                            {
-                                "id": 63,
-                                "label": "Ministry of Textiles"
-                            },
-                            {
-                                "id": 65,
-                                "label": "Ministry of Tribal Affairs"
-                            }
-                        ]
-                    },
-                    "user_ids": {
-                        "newValue": "Dr. Renuka Mishra (renuka.mishra@nic.in), Dr. Akhilesh Mishra (dsu21-dst@gov.in), Prachi Gupta (jd1-nwic-mowr@gov.in), Rana Pratap Singh Rathore (r.rathore@gov.in), Suresh Kumar (suresh1967@nic.in), Rajeev Kumar (jscpg-mha@mha.gov.in), Anshu Singh (anshu.s@nic.in), Akhilesh Kumar (akhilesh.kumar99@gov.in), Ajay Srivastava (ajaysri@nic.in)",
-                        "oldValue": "Dr. Renuka Mishra (renuka.mishra@nic.in), Rana Pratap Singh Rathore (r.rathore@gov.in), Suresh Kumar (suresh1967@nic.in), Rajeev Kumar (jscpg-mha@mha.gov.in), Dr. Akhilesh Mishra (dsu21-dst@gov.in), Prachi Gupta (jd1-nwic-mowr@gov.in), Anshu Singh (anshu.s@nic.in), Akhilesh Kumar (akhilesh.kumar99@gov.in), Ajay Srivastava (ajaysri@nic.in)"
-                    }
-                },
-                "createdAt": "2026-03-09T11:19:39.006Z"
-            },
-            "lastModified": "2026-03-09T11:19:39.006Z"
-        }
-    ],
-    "pagination": {
-        "page": 1,
-        "pageSize": 10,
-        "total": 2
-    }
-}
+const renderChangedTable = (changedValues) => {
+  // Flatten nested keys for easier label mapping
+  const flattenChangedValues = (obj, prefix = "") => {
+    return Object.keys(obj).reduce((acc, key) => {
+      const val = obj[key];
+      const newKey = prefix ? `${prefix}.${key}` : key;
+
+      if (val && typeof val === "object" && val.hasOwnProperty("oldValue") && val.hasOwnProperty("newValue")) {
+        acc[newKey] = val;
+      } else if (val && typeof val === "object" && !Array.isArray(val)) {
+        acc = { ...acc, ...flattenChangedValues(val, newKey) };
+      }
+      return acc;
+    }, {});
+  };
+
+  const flatValues = flattenChangedValues(changedValues);
+  const keys = Object.keys(flatValues);
+
+  if (!keys.length) return <Typography>No changes detected.</Typography>;
+
+  return (
+    <Box mb={2}>
+      <Typography
+        variant="subtitle1"
+        fontWeight="bold"
+        gutterBottom
+        sx={{ color: HEADER_BG }}
+      >
+        Highlighted Changes
+      </Typography>
+
+      <Table size="small">
+        <TableHead>
+          <TableRow sx={{ backgroundColor: HEADER_BG }}>
+            <TableCell sx={{ color: HEADER_TEXT }}>Field</TableCell>
+            <TableCell sx={{ color: HEADER_TEXT }}>Old Value</TableCell>
+            <TableCell sx={{ color: HEADER_TEXT }}>New Value</TableCell>
+          </TableRow>
+        </TableHead>
+
+        <TableBody>
+          {keys.map((k, i) => {
+            const oldVal = formatDateIfNeeded(k, flatValues[k]?.oldValue);
+            const newVal = formatDateIfNeeded(k, flatValues[k]?.newValue);
+
+            return (
+              <TableRow key={i}>
+                {/* Use labelConfig via getLabel */}
+                <TableCell>{getLabel(k)}</TableCell>
+
+                <TableCell>
+                  {renderCellValue(
+                    k.toLowerCase().includes("status")
+                      ? formatStatus(oldVal)
+                      : oldVal,
+                    k
+                  )}
+                </TableCell>
+
+                <TableCell>
+                  {renderCellValue(
+                    k.toLowerCase().includes("status")
+                      ? formatStatus(newVal)
+                      : newVal,
+                    k
+                  )}
+                </TableCell>
+              </TableRow>
+            );
+          })}
+        </TableBody>
+      </Table>
+    </Box>
+  );
+};
