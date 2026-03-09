@@ -17,6 +17,9 @@ import {
   TableRow,
   Paper,
   Tooltip,
+  Switch,
+  FormControlLabel,
+   Tabs, Tab
 } from "@mui/material";
 import { ExpandMore } from "@mui/icons-material";
 import { DataGrid } from "@mui/x-data-grid";
@@ -25,11 +28,9 @@ import moment from "moment";
 import apiClient from "@/utils/apiClient";
 import { auditAdapters } from "@/utils/audit/auditAdapters";
 import { simplifyAuditJson } from "@/utils/simplifyJsonStructureHelper";
-
 /* -------------------------------------------------- */
 /* CONSTANTS */
 /* -------------------------------------------------- */
-
 const HEADER_BG = "#45154F";
 const HEADER_TEXT = "#FFFFFF";
 
@@ -52,7 +53,9 @@ export default function AuditDataGrid({
   auditDialogOpen,
   setAuditDialogOpen,
   renderConfig = {},
-  labelConfig = {},
+  labelConfig = {
+    "frequencyType":"Frequency Pattern"
+  },
   ...rest
 }) {
   const auditableId = rest?.auditableId;
@@ -76,10 +79,11 @@ export default function AuditDataGrid({
 
   const auditDetailsPageSize = 10;
 
+  const [showHighlightedChanges, setShowHighlightedChanges] = useState(true);
+
   /* -------------------------------------------------- */
   /* HELPERS */
   /* -------------------------------------------------- */
-
   const capitalize = (str) =>
     str
       ?.replace(/_/g, " ")
@@ -87,7 +91,9 @@ export default function AuditDataGrid({
       .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
       .join(" ");
 
-  const getLabel = (key) => labelConfig?.[key] || capitalize(key);
+  const getLabel = (key) => {
+    console.log("LC::",labelConfig?.[key] || capitalize(key))
+    return labelConfig?.[key] || capitalize(key);}
 
   const formatStatus = (val) => {
     if (val === true) return "Active";
@@ -103,10 +109,58 @@ export default function AuditDataGrid({
 
   const getAdapter = () => auditAdapters?.[sectionId] ?? null;
 
+  const formatDateIfNeeded = (key, val) => {
+    if (!val) return val;
+    if (key.toLowerCase().includes("date")) return moment(val).format("DD MMM YYYY");
+    return val;
+  };
+  
+  const renderAutoTable = (data, path) => {
+  if (!Array.isArray(data) || !data.length) return renderBlank();
+
+  const columns = Object.keys(data[0]).filter((c) => !IGNORED_FIELDS.includes(c));
+
+  return (
+    <Box
+      sx={{
+        maxWidth: 400,
+        overflowX: "auto", // horizontal scroll if columns exceed width
+        overflowY: "auto", // vertical scroll if rows exceed height
+        maxHeight: 400,    // adjust max height as needed
+        border: "1px solid #ddd",
+        borderRadius: 1,
+      }}
+    >
+      <Table size="small">
+        <TableHead>
+          <TableRow sx={{ backgroundColor: HEADER_BG, position: "sticky", top: 0, zIndex: 1 }}>
+            {columns.map((col) => (
+              <TableCell key={col} sx={{ color: HEADER_TEXT, fontWeight: "bold", minWidth: 120 }}>
+                {getLabel(col)}
+              </TableCell>
+            ))}
+          </TableRow>
+        </TableHead>
+
+        <TableBody>
+          {data.map((row, i) => (
+            <TableRow key={i}>
+              {columns.map((col) => (
+                <TableCell key={col} sx={{ minWidth: 120 }}>
+                  {renderDynamicValue(row[col], `${path}.${col}`)}
+                </TableCell>
+              ))}
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </Box>
+  );
+};
+
   /* -------------------------------------------------- */
   /* FETCH SUMMARY */
   /* -------------------------------------------------- */
-
   const fetchSummary = async (page, pageSize) => {
     try {
       setLoading(true);
@@ -153,7 +207,6 @@ export default function AuditDataGrid({
   /* -------------------------------------------------- */
   /* FETCH DETAILS */
   /* -------------------------------------------------- */
-
   const handleViewDetails = async (userId) => {
     try {
       setAuditDetailsLoading(true);
@@ -209,9 +262,8 @@ export default function AuditDataGrid({
   };
 
   /* -------------------------------------------------- */
-  /* DYNAMIC RENDER ENGINE (UPDATED) */
+  /* RENDERING HELPERS */
   /* -------------------------------------------------- */
-
   const renderBlank = () => (
     <Typography variant="body2" fontWeight="bold">
       Blank
@@ -222,90 +274,6 @@ export default function AuditDataGrid({
 
   const isHtml = (str) =>
     typeof str === "string" && /<\/?[a-z][\s\S]*>/i.test(str);
-
-  const renderList = (data, cfg, path) => {
-    if (!Array.isArray(data) || !data.length) return renderBlank();
-
-    return data.map((item, idx) => {
-      if (cfg?.displayKey) return <Typography key={idx}>{item?.[cfg.displayKey]}</Typography>;
-
-      if (typeof item === "object") {
-        return (
-          <Box key={idx} mb={1}>
-            {Object.entries(item)
-              .filter(([k]) => !IGNORED_FIELDS.includes(k))
-              .map(([k, v]) => (
-                <Typography key={k}>
-                  {getLabel(k)}: {renderDynamicValue(v, `${path}.${k}`)}
-                </Typography>
-              ))}
-          </Box>
-        );
-      }
-
-      return <Typography key={idx}>{item}</Typography>;
-    });
-  };
-
-  const renderAutoTable = (data, path) => {
-    if (!Array.isArray(data) || !data.length) return renderBlank();
-
-    const columns = Object.keys(data[0]).filter((c) => !IGNORED_FIELDS.includes(c));
-
-    return (
-      <Table size="small">
-        <TableHead>
-          <TableRow>
-            {columns.map((col) => (
-              <TableCell key={col}>{getLabel(col)}</TableCell>
-            ))}
-          </TableRow>
-        </TableHead>
-
-        <TableBody>
-          {data.map((row, i) => (
-            <TableRow key={i}>
-              {columns.map((col) => (
-                <TableCell key={col}>
-                  {renderDynamicValue(row[col], `${path}.${col}`)}
-                </TableCell>
-              ))}
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    );
-  };
-
-  const renderConfigTable = (data, cfg, path) => {
-    if (!Array.isArray(data) || !data.length) return renderBlank();
-
-    return (
-      <Table size="small">
-        <TableHead>
-          <TableRow>
-            {cfg.columns.map((col) => (
-              <TableCell key={col.key}>{col.label}</TableCell>
-            ))}
-          </TableRow>
-        </TableHead>
-
-        <TableBody>
-          {data.map((row, idx) => (
-            <TableRow key={idx}>
-              {cfg.columns.map((col) => (
-                <TableCell key={col.key}>
-                  {col.type === "list"
-                    ? renderList(row[col.key], col, `${path}.${col.key}`)
-                    : renderDynamicValue(row[col.key], `${path}.${col.key}`)}
-                </TableCell>
-              ))}
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    );
-  };
 
   const autoRender = (value, path) => {
     if (value === null || value === undefined || value === "") return renderBlank();
@@ -361,7 +329,6 @@ export default function AuditDataGrid({
   /* -------------------------------------------------- */
   /* FULL VALUES TABLE */
   /* -------------------------------------------------- */
-
   const renderFullValuesTable = (oldValues, newValues, event) => {
     const oldS = simplifyAuditJson(oldValues);
     const newS = simplifyAuditJson(newValues);
@@ -392,9 +359,55 @@ export default function AuditDataGrid({
   };
 
   /* -------------------------------------------------- */
-  /* SUMMARY GRID */
+  /* HIGHLIGHTED CHANGES TABLE */
   /* -------------------------------------------------- */
+  const renderChangedTable = (oldValues, newValues) => {
+    const oldS = simplifyAuditJson(oldValues);
+    const newS = simplifyAuditJson(newValues);
 
+    const changedKeys = Object.keys({ ...oldS, ...newS }).filter(
+      (k) => oldS[k] !== newS[k]
+    );
+
+    if (!changedKeys.length)
+      return <Typography>No changes detected.</Typography>;
+
+    return (
+      <Box mb={2} sx={{ overflowX: "auto" }}>
+        <Typography
+          variant="subtitle1"
+          fontWeight="bold"
+          gutterBottom
+          sx={{ color: HEADER_BG }}
+        >
+          Highlighted Changes
+        </Typography>
+
+        <Table size="small" sx={{ minWidth: 350 }}>
+          <TableHead>
+            <TableRow sx={{ backgroundColor: HEADER_BG, position: "sticky", top: 0, zIndex: 1 }}>
+              <TableCell sx={{ color: HEADER_TEXT, fontWeight: "bold" }}>Field</TableCell>
+              <TableCell sx={{ color: HEADER_TEXT, fontWeight: "bold" }}>Old Value</TableCell>
+              <TableCell sx={{ color: HEADER_TEXT, fontWeight: "bold" }}>New Value</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {changedKeys.map((k, i) => (
+              <TableRow key={i}>
+                <TableCell>{capitalize(k)}</TableCell>
+                <TableCell>{renderDynamicValue(oldS[k], k)}</TableCell>
+                <TableCell>{renderDynamicValue(newS[k], k)}</TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </Box>
+    );
+  };
+
+  /* -------------------------------------------------- */
+  /* SUMMARY GRID COLUMNS */
+  /* -------------------------------------------------- */
   const columns = [
     { field: "id", headerName: "S.No", width: 90 },
     { field: "userName", headerName: "User Name", width: 160 },
@@ -407,7 +420,7 @@ export default function AuditDataGrid({
       renderCell: (params) => {
         const actions = params.row?.actions || {};
         return (
-          <Typography>
+          <Typography sx={{mt:2,fontSize:"14px"}}>
             Created: {actions.created ?? 0} | Updated: {actions.updated ?? 0}
           </Typography>
         );
@@ -435,7 +448,6 @@ export default function AuditDataGrid({
   /* -------------------------------------------------- */
   /* RENDER */
   /* -------------------------------------------------- */
-
   return (
     <>
       {/* SUMMARY */}
@@ -500,8 +512,38 @@ export default function AuditDataGrid({
                 </Tooltip>
 
                 <AccordionDetails>
+                  {/* Toggle for Full vs Highlighted Changes */}
+                 
+<Box display="flex" alignItems="center" gap={2}>
+  {/* Tabs control */}
+  <Tabs
+    value={showHighlightedChanges ? "highlighted" : "full"}
+    onChange={(_, newValue) => {
+      // Map tab value back to your boolean state
+      setShowHighlightedChanges(newValue === "highlighted");
+    }}
+    aria-label="View mode tabs"
+    // Optional: make tabs compact
+    variant="standard"
+  >
+    <Tab
+      label="View Highlighted Changes"
+      value="highlighted"
+      sx={{ textTransform: "none", minHeight: 36, minWidth: 0, paddingX: 1.5 }}
+    />
+    <Tab
+      label="View Full Values"
+      value="full"
+      sx={{ textTransform: "none", minHeight: 36, minWidth: 0, paddingX: 1.5 }}
+    />
+  </Tabs>
+</Box>
+
+
                   <Paper sx={{ p: 2, mb: 2 }}>
-                    {renderFullValuesTable(main.oldValues, main.newValues, main.event)}
+                    {showHighlightedChanges
+                      ? renderChangedTable(main.oldValues, main.newValues)
+                      : renderFullValuesTable(main.oldValues, main.newValues, main.event)}
                   </Paper>
 
                   {subEntities.length > 0 && (
@@ -514,7 +556,9 @@ export default function AuditDataGrid({
                             {sub.auditableType} | {sub.event}
                           </Typography>
 
-                          {renderFullValuesTable(sub.oldValues, sub.newValues, sub.event)}
+                          {showHighlightedChanges
+                            ? renderChangedTable(sub.oldValues, sub.newValues)
+                            : renderFullValuesTable(sub.oldValues, sub.newValues, sub.event)}
                         </Paper>
                       ))}
                     </Paper>
