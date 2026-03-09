@@ -14,9 +14,9 @@ const renderAutoTable = (data, path) => {
         borderRadius: 1,
       }}
     >
-      <Table size="small" stickyHeader>
-        <TableHead sx={{ backgroundColor: HEADER_BG }}>
-          <TableRow>
+      <Table size="small">
+        <TableHead>
+          <TableRow sx={{ backgroundColor: HEADER_BG, position: "sticky", top: 0, zIndex: 1 }}>
             {columns.map((col) => (
               <TableCell
                 key={col}
