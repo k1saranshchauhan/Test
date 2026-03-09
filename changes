@@ -1,0 +1,81 @@
+const renderAutoTable = (data, path) => {
+  if (!Array.isArray(data) || !data.length) return renderBlank();
+
+  const columns = Object.keys(data[0])
+    .filter((c) => !IGNORED_FIELDS.includes(c))
+    .map((key) => ({
+      field: key,
+      headerName: getLabel(key),
+      flex: 1,
+      renderCell: (params) => renderDynamicValue(params.value, `${path}.${key}`),
+    }));
+
+  const rows = data.map((row, idx) => ({ id: idx, ...row }));
+
+  return (
+    <Box sx={{ height: 300, width: "100%" }}>
+      <DataGrid
+        rows={rows}
+        columns={columns}
+        pageSize={5}
+        rowsPerPageOptions={[5, 10, 20]}
+        disableSelectionOnClick
+        sx={{
+          "& .MuiDataGrid-columnHeaders": {
+            backgroundColor: HEADER_BG,
+            color: HEADER_TEXT,
+            fontWeight: "bold",
+          },
+          "& .MuiDataGrid-cell": {
+            whiteSpace: "normal",
+            wordBreak: "break-word",
+          },
+        }}
+      />
+    </Box>
+  );
+};
+
+
+const renderFullValuesTable = (oldValues, newValues, event) => {
+  const oldS = simplifyAuditJson(oldValues);
+  const newS = simplifyAuditJson(newValues);
+
+  const keys = Array.from(new Set([...Object.keys(oldS), ...Object.keys(newS)]));
+
+  const columns = [
+    { field: "field", headerName: "Field", flex: 1 },
+    ...(event !== "INSERT" ? [{ field: "oldValue", headerName: "Old Value", flex: 2 }] : []),
+    ...(event !== "DELETE" ? [{ field: "newValue", headerName: "New Value", flex: 2 }] : []),
+  ];
+
+  const rows = keys.map((k, idx) => ({
+    id: idx,
+    field: getLabel(k),
+    oldValue: renderDynamicValue(oldS[k], k),
+    newValue: renderDynamicValue(newS[k], k),
+  }));
+
+  return (
+    <Box sx={{ height: 350, width: "100%", mb: 2 }}>
+      <DataGrid
+        rows={rows}
+        columns={columns}
+        pageSize={5}
+        rowsPerPageOptions={[5, 10, 20]}
+        disableSelectionOnClick
+        sx={{
+          "& .MuiDataGrid-columnHeaders": {
+            backgroundColor: HEADER_BG,
+            color: HEADER_TEXT,
+            fontWeight: "bold",
+          },
+          "& .MuiDataGrid-cell": {
+            whiteSpace: "normal",
+            wordBreak: "break-word",
+          },
+        }}
+      />
+    </Box>
+  );
+};
