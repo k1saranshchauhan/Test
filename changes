@@ -1,14 +1,29 @@
-  const renderAutoTable = (data, path) => {
-    if (!Array.isArray(data) || !data.length) return renderBlank();
+const renderAutoTable = (data, path) => {
+  if (!Array.isArray(data) || !data.length) return renderBlank();
 
-    const columns = Object.keys(data[0]).filter((c) => !IGNORED_FIELDS.includes(c));
+  const columns = Object.keys(data[0]).filter((c) => !IGNORED_FIELDS.includes(c));
 
-    return (
-      <Table size="small">
-        <TableHead>
+  return (
+    <Box
+      sx={{
+        width: "100%",
+        overflowX: "auto", // horizontal scroll if columns exceed width
+        overflowY: "auto", // vertical scroll if rows exceed height
+        maxHeight: 400,    // adjust max height as needed
+        border: "1px solid #ddd",
+        borderRadius: 1,
+      }}
+    >
+      <Table size="small" stickyHeader>
+        <TableHead sx={{ backgroundColor: HEADER_BG }}>
           <TableRow>
             {columns.map((col) => (
-              <TableCell key={col}>{getLabel(col)}</TableCell>
+              <TableCell
+                key={col}
+                sx={{ color: HEADER_TEXT, fontWeight: "bold", minWidth: 120 }}
+              >
+                {getLabel(col)}
+              </TableCell>
             ))}
           </TableRow>
         </TableHead>
@@ -17,7 +32,7 @@
           {data.map((row, i) => (
             <TableRow key={i}>
               {columns.map((col) => (
-                <TableCell key={col}>
+                <TableCell key={col} sx={{ minWidth: 120 }}>
                   {renderDynamicValue(row[col], `${path}.${col}`)}
                 </TableCell>
               ))}
@@ -25,5 +40,6 @@
           ))}
         </TableBody>
       </Table>
-    );
-  };
+    </Box>
+  );
+};
