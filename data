@@ -1,135 +1,237 @@
-const flattenChangedValues = (obj, prefix = "") => {
-  const result = {};
-
-  Object.keys(obj).forEach((key) => {
-    const val = obj[key];
-    const newKey = prefix ? `${prefix}.${key}` : key;
-
-    // If this object has oldValue/newValue
-    if (val && val.hasOwnProperty("oldValue") && val.hasOwnProperty("newValue")) {
-      // Check if oldValue/newValue are objects themselves
-      const isOldObj = val.oldValue && typeof val.oldValue === "object" && !Array.isArray(val.oldValue);
-      const isNewObj = val.newValue && typeof val.newValue === "object" && !Array.isArray(val.newValue);
-
-      if (isOldObj || isNewObj) {
-        // Recursively flatten nested oldValue/newValue objects
-        const nestedOld = isOldObj ? flattenChangedValues(val.oldValue, newKey + ".oldValue") : {};
-        const nestedNew = isNewObj ? flattenChangedValues(val.newValue, newKey + ".newValue") : {};
-        Object.assign(result, nestedOld, nestedNew);
-      } else {
-        result[newKey] = val;
-      }
-    } else if (val && typeof val === "object" && !Array.isArray(val)) {
-      // Recursively flatten other nested objects
-      Object.assign(result, flattenChangedValues(val, newKey));
+{
+    "success": true,
+    "message": "Framework updated successfully",
+    "submission": {
+        "id": 8,
+        "form_values": {
+            "financialYear": "2026-2027",
+            "ministryId": {
+                "id": 4,
+                "name": "Ministry of Agriculture and Farmers Welfare"
+            },
+            "departmentId": {
+                "id": 1,
+                "name": "Department of Agriculture and Farmers Welfare"
+            },
+            "schemeTypeId": {
+                "id": 1,
+                "name": "Centrally Sponsored"
+            },
+            "schemeId": {
+                "id": 1128,
+                "name": "Food and Nutrition Security"
+            },
+            "financialOutlay": 0,
+            "indicatorData": [
+                {
+                    "indicatorType": {
+                        "id": 2,
+                        "name": "Outcome"
+                    },
+                    "sections": [
+                        {
+                            "id": 4978,
+                            "name": "Self- sufficiency  in food grains  production",
+                            "active": true,
+                            "indicators": [
+                                {
+                                    "name": "",
+                                    "footNoteIndicatorName": "",
+                                    "footNoteIndicatorTarget": "",
+                                    "active": true,
+                                    "targets": {},
+                                    "preTarget": "5",
+                                    "prePreTarget": "5",
+                                    "targetAmenable": "",
+                                    "measurementType": {
+                                        "id": 2,
+                                        "name": "Quantitative"
+                                    },
+                                    "unit": {
+                                        "id": 62,
+                                        "name": "MT"
+                                    },
+                                    "scale": {
+                                        "id": 1,
+                                        "name": "Actuals"
+                                    },
+                                    "measurementArea": {
+                                        "id": 2,
+                                        "name": "National"
+                                    },
+                                    "indicatorRise": {
+                                        "id": 1,
+                                        "name": "Yes"
+                                    },
+                                    "period": {
+                                        "id": 2,
+                                        "name": "Duration"
+                                    },
+                                    "frequency": "",
+                                    "indicator": {
+                                        "id": 22623,
+                                        "name": "Additional food  grain production (in  million tonnes)"
+                                    }
+                                },
+                                {
+                                    "name": "",
+                                    "footNoteIndicatorName": "",
+                                    "footNoteIndicatorTarget": "",
+                                    "active": true,
+                                    "targets": {},
+                                    "preTarget": "3",
+                                    "prePreTarget": "3",
+                                    "targetAmenable": "",
+                                    "measurementType": {
+                                        "id": 2,
+                                        "name": "Quantitative"
+                                    },
+                                    "unit": {
+                                        "id": 62,
+                                        "name": "MT"
+                                    },
+                                    "scale": {
+                                        "id": 1,
+                                        "name": "Actuals"
+                                    },
+                                    "measurementArea": {
+                                        "id": 2,
+                                        "name": "National"
+                                    },
+                                    "indicatorRise": {
+                                        "id": 1,
+                                        "name": "Yes"
+                                    },
+                                    "period": {
+                                        "id": 2,
+                                        "name": "Duration"
+                                    },
+                                    "frequency": "",
+                                    "indicator": {
+                                        "id": 22625,
+                                        "name": "Additional food grain production (MT)"
+                                    }
+                                }
+                            ],
+                            "footNote": ""
+                        }
+                    ]
+                },
+                {
+                    "indicatorType": {
+                        "id": 1,
+                        "name": "Output"
+                    },
+                    "sections": [
+                        {
+                            "id": 14443,
+                            "name": "Increased yield /productivity",
+                            "active": true,
+                            "indicators": [
+                                {
+                                    "name": "",
+                                    "footNoteIndicatorName": "",
+                                    "footNoteIndicatorTarget": "",
+                                    "active": true,
+                                    "targets": {},
+                                    "preTarget": "5",
+                                    "prePreTarget": "5",
+                                    "targetAmenable": "",
+                                    "measurementType": {
+                                        "id": 2,
+                                        "name": "Quantitative"
+                                    },
+                                    "unit": {
+                                        "id": 36,
+                                        "name": "in lakh ha"
+                                    },
+                                    "scale": {
+                                        "id": 1,
+                                        "name": "Actuals"
+                                    },
+                                    "measurementArea": {
+                                        "id": 2,
+                                        "name": "National"
+                                    },
+                                    "indicatorRise": {
+                                        "id": 1,
+                                        "name": "Yes"
+                                    },
+                                    "period": {
+                                        "id": 2,
+                                        "name": "Duration"
+                                    },
+                                    "frequency": "",
+                                    "indicator": {
+                                        "id": 22612,
+                                        "name": "Additional gross cropped  area in rice fallow states for  cultivation of pulses (in Lakh  Ha)"
+                                    }
+                                },
+                                {
+                                    "name": "",
+                                    "footNoteIndicatorName": "",
+                                    "footNoteIndicatorTarget": "",
+                                    "active": true,
+                                    "targets": {},
+                                    "preTarget": "5",
+                                    "prePreTarget": "5",
+                                    "targetAmenable": "",
+                                    "measurementType": {
+                                        "id": 2,
+                                        "name": "Quantitative"
+                                    },
+                                    "unit": {
+                                        "id": 101,
+                                        "name": "nos."
+                                    },
+                                    "scale": {
+                                        "id": 1,
+                                        "name": "Actuals"
+                                    },
+                                    "measurementArea": {
+                                        "id": 2,
+                                        "name": "National"
+                                    },
+                                    "indicatorRise": {
+                                        "id": 1,
+                                        "name": "Yes"
+                                    },
+                                    "period": {
+                                        "id": 2,
+                                        "name": "Duration"
+                                    },
+                                    "frequency": "",
+                                    "indicator": {
+                                        "id": 22614,
+                                        "name": "Number of trainings"
+                                    }
+                                }
+                            ],
+                            "footNote": ""
+                        }
+                    ]
+                }
+            ]
+        },
+        "user_id": 1,
+        "submission_on": "2026-02-26T17:18:47.704Z",
+        "updated_on": "2026-03-11T18:15:45.851Z",
+        "status": "Pending",
+        "payment_id": 0,
+        "pending_on_level": 2,
+        "pending_with_role_id": null,
+        "country_id": null,
+        "state_id": null,
+        "ip_address": null,
+        "orgTypeId": null,
+        "ministryId": 4,
+        "departmentId": 1,
+        "schemeId": 1128,
+        "subSchemeId": null,
+        "source": null,
+        "scheme": true,
+        "initialPlan": true,
+        "mappingDone": false,
+        "isParentScheme": true
     }
-  });
-
-  return result;
-};
-
-
-
-
-const renderChangedTable = (changedValues) => {
-  if (!changedValues || Object.keys(changedValues).length === 0) {
-    return <Typography>No changes detected.</Typography>;
-  }
-
-  // Flatten nested changedValues for easier label mapping
-  const flattenChangedValues = (obj, prefix = "") => {
-    const result = {};
-
-    Object.keys(obj).forEach((key) => {
-      const val = obj[key];
-      const newKey = prefix ? `${prefix}.${key}` : key;
-
-      // If object has oldValue and newValue
-      if (val && val.hasOwnProperty("oldValue") && val.hasOwnProperty("newValue")) {
-        const isOldObj =
-          val.oldValue &&
-          typeof val.oldValue === "object" &&
-          !Array.isArray(val.oldValue) &&
-          Object.keys(val.oldValue).length > 0;
-        const isNewObj =
-          val.newValue &&
-          typeof val.newValue === "object" &&
-          !Array.isArray(val.newValue) &&
-          Object.keys(val.newValue).length > 0;
-
-        if (isOldObj || isNewObj) {
-          // Recursively flatten nested oldValue/newValue
-          const nestedOld = isOldObj ? flattenChangedValues(val.oldValue, newKey + ".oldValue") : {};
-          const nestedNew = isNewObj ? flattenChangedValues(val.newValue, newKey + ".newValue") : {};
-          Object.assign(result, nestedOld, nestedNew);
-        } else {
-          result[newKey] = val;
-        }
-      } else if (val && typeof val === "object" && !Array.isArray(val)) {
-        // Recursively flatten other objects
-        Object.assign(result, flattenChangedValues(val, newKey));
-      }
-    });
-
-    return result;
-  };
-
-  const flatValues = flattenChangedValues(changedValues);
-  const keys = Object.keys(flatValues);
-
-  if (!keys.length) return <Typography>No changes detected.</Typography>;
-
-  return (
-    <Box mb={2}>
-      <Typography
-        variant="subtitle1"
-        fontWeight="bold"
-        gutterBottom
-        sx={{ color: HEADER_BG }}
-      >
-        Highlighted Changes
-      </Typography>
-
-      <Table size="small">
-        <TableHead>
-          <TableRow sx={{ backgroundColor: HEADER_BG }}>
-            <TableCell sx={{ color: HEADER_TEXT }}>Field</TableCell>
-            <TableCell sx={{ color: HEADER_TEXT }}>Old Value</TableCell>
-            <TableCell sx={{ color: HEADER_TEXT }}>New Value</TableCell>
-          </TableRow>
-        </TableHead>
-
-        <TableBody>
-          {keys.map((k, i) => {
-            const oldVal = formatDateIfNeeded(k, flatValues[k]?.oldValue);
-            const newVal = formatDateIfNeeded(k, flatValues[k]?.newValue);
-
-            return (
-              <TableRow key={i}>
-                <TableCell>{getLabel(k)}</TableCell>
-
-                <TableCell>
-                  {renderCellValue(
-                    k.toLowerCase().includes("status")
-                      ? formatStatus(oldVal)
-                      : oldVal,
-                    k
-                  )}
-                </TableCell>
-
-                <TableCell>
-                  {renderCellValue(
-                    k.toLowerCase().includes("status")
-                      ? formatStatus(newVal)
-                      : newVal,
-                    k
-                  )}
-                </TableCell>
-              </TableRow>
-            );
-          })}
-        </TableBody>
-      </Table>
-    </Box>
-  );
-};
+}
