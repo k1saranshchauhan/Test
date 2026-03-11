@@ -1,28 +1,34 @@
-const getUnforwardedSchemes = async ({
-  orgTypeId,
-  subRoleIds = [],
-  userId,
-}) => {
+const getForwardedSchemes = async ({ orgTypeId, subRoleIds = [], userId }) => {
   try {
-    if (!Array.isArray(subRoleIds) || subRoleIds.length === 0) return [];
+    if (!Number.isInteger(Number(orgTypeId))) {
+      throw new Error("Invalid orgTypeId: must be a number");
+    }
 
-    /* ---------------------------------------------------
-     STEP 0: Allowed scheme IDs for user
-    --------------------------------------------------- */
+    if (!Array.isArray(subRoleIds) || !subRoleIds.length) {
+      return { latestRecord: [], error: null };
+    }
+
+    if (!userId) {
+      throw new Error("userId is required");
+    }
+
+    // -----------------------------
+    // STEP 0: Allowed scheme IDs for user
+    // -----------------------------
     const userRelations = await prisma.userRelationships.findMany({
       where: { userId: Number(userId) },
       select: { schemeIdsArray: true },
     });
 
     const allowedSchemeIds = userRelations
-      .map((ur) => ur.schemeIdsArray || [])
+      .map((rel) => rel.schemeIdsArray || [])
       .flat();
 
-    if (!allowedSchemeIds.length) return [];
+    if (!allowedSchemeIds.length) return { latestRecord: [], error: null };
 
-    /* ---------------------------------------------------
-     STEP 1: ACTIVE schemes only
-    --------------------------------------------------- */
+    // -----------------------------
+    // STEP 1: Active schemes only (from allowed)
+    // -----------------------------
     const activeSchemeIds = (
       await prisma.schemes.findMany({
         where: {
@@ -33,94 +39,58 @@ const getUnforwardedSchemes = async ({
       })
     ).map((s) => s.id);
 
-    if (!activeSchemeIds.length) return [];
+    if (!activeSchemeIds.length) return { latestRecord: [], error: null };
 
-    /* ---------------------------------------------------
-     STEP 2: Pending submissions (single query)
-    --------------------------------------------------- */
-    const allSubmissions = await prisma.applicationSubmission.findMany({
-      where: {
-        status: SubmissionStatus.Pending, // enum-safe
-        OR: [
-          { schemeId: { in: activeSchemeIds } },
-          { subSchemeId: { in: activeSchemeIds } },
-        ],
-      },
-      select: {
-        id: true,
-        status: true,
-        ministryId: true,
-        departmentId: true,
-        schemeId: true,
-        subSchemeId: true,
-        initialPlan: true,
-        mappingDone: true,
-        isParentScheme: true,
-        submission_on: true,
-        updated_on: true,
-        form_values: true,
-        User: {
-          select: {
-            id: true,
-            first_name: true,
-            last_name: true,
-          },
-        },
-      },
-    });
-
-    if (!allSubmissions.length) return [];
-
-    /* ---------------------------------------------------
-     STEP 3: Normalize + dedupe by scheme / subScheme
-    --------------------------------------------------- */
-    const latestByScheme = new Map();
-
-    for (const s of allSubmissions) {
-      const schemeKeyId = s.subSchemeId ?? s.schemeId;
-
-      const currDate = s.submission_on
-        ? new Date(s.submission_on)
-        : new Date(0);
-
-      const existing = latestByScheme.get(schemeKeyId);
-      const existingDate = existing?.submission_on
-        ? new Date(existing.submission_on)
-        : new Date(0);
-
-      if (!existing || currDate > existingDate) {
-        latestByScheme.set(schemeKeyId, s);
-      }
-    }
-
-    const latestSubmissions = Array.from(latestByScheme.values());
-    if (!latestSubmissions.length) return [];
-
-    /* ---------------------------------------------------
-     STEP 4: Filter already-forwarded submissions
-    --------------------------------------------------- */
-    const forwarded = await prisma.forwardStep.findMany({
-      where: {
-        submissionId: { in: latestSubmissions.map((s) => s.id) },
-      },
-      select: { submissionId: true },
-    });
-
-    const forwardedIds = new Set(forwarded.map((f) => f.submissionId));
-
-    const unforwarded = latestSubmissions.filter(
-      (s) => !forwardedIds.has(s.id),
-    );
-
-    if (!unforwarded.length) return [];
-
-    /* ---------------------------------------------------
-     STEP 5: Fetch workflows ONCE (no N+1)
-    --------------------------------------------------- */
+    // -----------------------------
+    // STEP 2: Fetch workflows for user
+    // -----------------------------
     const workflows = await prisma.oomfWorkflow.findMany({
       where: {
         orgTypeId: { has: Number(orgTypeId) },
         subRoleId: { in: subRoleIds.map(Number) },
+      },
+      select: { id: true, orderIndex: true },
+      orderBy: { orderIndex: "asc" },
+    });
+
+    if (!workflows.length) return { latestRecord: [], error: null };
+    const orderIndexes = workflows.map((w) => w.orderIndex);
+
+    // -----------------------------
+    // STEP 3: Fetch relevant forward steps
+    // -----------------------------
+    const forwardSteps = await prisma.forwardStep.findMany({
+      where: {
+        OR: [
+          { fromStep: { in: orderIndexes } },
+          { toStep: { in: orderIndexes } },
+        ],
+      },
+      orderBy: { created_at: "asc" },
+      select: {
+        id: true,
+        submissionId: true,
+        fromStep: true,
+        toStep: true,
+        created_at: true,
+        fromLabel: true,
+        toLabel: true,
+      },
+    });
+
+    if (!forwardSteps.length) return { latestRecord: [], error: null };
+
+    const toStepIndexes = Array.from(
+      new Set(forwardSteps.map((s) => s.toStep)),
+    );
+
+    // -----------------------------
+    // STEP 4: Fetch toWorkflows mapping
+    // -----------------------------
+    const toWorkflows = await prisma.oomfWorkflow.findMany({
+      where: {
+        orgTypeId: { has: Number(orgTypeId) },
+        orderIndex: { in: toStepIndexes },
       },
       select: {
         id: true,
@@ -141,26 +111,104 @@ const getUnforwardedSchemes = async ({
         canSetFrequency: true,
         canUpdateProgress: true,
       },
-      orderBy: { orderIndex: "asc" },
     });
 
-    const nextWorkflow = workflows.length ? workflows[0] : null;
+    const toWorkflowMap = Object.fromEntries(
+      toWorkflows.map((w) => [w.orderIndex, w]),
+    );
 
-    /* ---------------------------------------------------
-     STEP 6: Build final response
-    --------------------------------------------------- */
-    return unforwarded.map((submission) => ({
-      id: null,
-      submissionId: submission.id,
-      fromStep: null,
-      toStep: null,
-      created_at: submission.submission_on ?? null,
-      fromWorkflow: null,
-      toWorkflow: nextWorkflow,
-      submissionData: submission,
-    }));
-  } catch (err) {
-    console.error("Error in getUnforwardedSchemes:", err);
-    return [];
+    // -----------------------------
+    // STEP 5: Fetch submissions linked to steps AND active schemes
+    // -----------------------------
+    const submissionIds = Array.from(
+      new Set(forwardSteps.map((s) => s.submissionId)),
+    );
+
+    const submissions = await prisma.applicationSubmission.findMany({
+      where: {
+        id: { in: submissionIds },
+        OR: [
+          { schemeId: { in: activeSchemeIds } },
+          { subSchemeId: { in: activeSchemeIds } },
+        ],
+      },
+      select: {
+        id: true,
+        status: true,
+        ministryId: true,
+        departmentId: true,
+        schemeId: true,
+        subSchemeId: true,
+        initialPlan: true,
+        mappingDone: true,
+        isParentScheme: true,
+        submission_on: true,
+        updated_on: true,
+        form_values: true,
+        User: {
+          select: { id: true, first_name: true, last_name: true },
+        },
+      },
+    });
+
+    if (!submissions.length) return { latestRecord: [], error: null };
+
+    const submissionMap = Object.fromEntries(submissions.map((s) => [s.id, s]));
+
+    // -----------------------------
+    // STEP 6: Allowed schemes set
+    // -----------------------------
+    const allowedSchemeSet = new Set(activeSchemeIds);
+
+    // -----------------------------
+    // STEP 7: Group steps by submissionId
+    // -----------------------------
+    const stepsBySubmission = forwardSteps.reduce((acc, step) => {
+      if (!acc[step.submissionId]) acc[step.submissionId] = [];
+      acc[step.submissionId].push(step);
+      return acc;
+    }, {});
+
+    // -----------------------------
+    // STEP 8: Pick latest step per submission
+    // -----------------------------
+    const latestRecord = [];
+
+    for (const submissionId in stepsBySubmission) {
+      const steps = stepsBySubmission[submissionId];
+      if (!steps || !steps.length) continue;
+
+      const sortedSteps = steps.sort(
+        (a, b) => new Date(a.created_at) - new Date(b.created_at),
+      );
+
+      const latestStep = sortedSteps[sortedSteps.length - 1];
+      const submission = submissionMap[latestStep.submissionId];
+      if (!submission) continue;
+
+      const schemeId =
+        submission.form_values?.subSchemeId?.id ??
+        submission.form_values?.schemeId?.id;
+
+      if (!schemeId || !allowedSchemeSet.has(Number(schemeId))) continue;
+
+      latestRecord.push({
+        id: null,
+        submissionId: submission.id,
+        fromStep: latestStep.fromStep,
+        toStep: latestStep.toStep,
+        fromLabel: latestStep?.fromLabel,
+        toLabel: latestStep?.toLabel,
+        created_at: latestStep.created_at,
+        fromWorkflow: null,
+        toWorkflow: toWorkflowMap[latestStep.toStep] || null,
+        submissionData: submission,
+      });
+    }
+
+    return { latestRecord, error: null };
+  } catch (error) {
+    console.error("Error in getForwardedSchemes:", error);
+    return { latestRecord: [], error: error.message };
   }
 };
