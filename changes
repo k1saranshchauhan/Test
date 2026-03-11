@@ -1,25 +1,2 @@
-const getOomfWorkflowSubmissionDocumentDownload = async (req, res) => {
-  try {
-    const requestedData = req.body;
-    const documentBuffer =
-      await workflowService.getOomfWorkflowSubmissionDocument(requestedData);
-    const filename = "oomf_workflow_document.docx";
-
-    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
-    res.setHeader(
-      "Content-Type",
-      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    );
-    res.setHeader("Content-Length", documentBuffer.length);
-    res.send(documentBuffer);
-  } catch (error) {
-    console.error("Error downloading OOMF workflow document:", error);
-    res.status(500).json({
-      status: 500,
-      success: false,
-      message: "Failed to download OOMF workflow document",
-      data: null,
-    });
-  }
-};
-while downloading document it is currently postfix extra underscore at the end of filename which is wrong.Please fix it
+ // Remove accidental trailing underscores before extension
+    filename = filename.replace(/_+\.docx$/, ".docx");
