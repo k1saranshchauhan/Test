@@ -1,2 +1,166 @@
- // Remove accidental trailing underscores before extension
-    filename = filename.replace(/_+\.docx$/, ".docx");
+const getUnforwardedSchemes = async ({
+  orgTypeId,
+  subRoleIds = [],
+  userId,
+}) => {
+  try {
+    if (!Array.isArray(subRoleIds) || subRoleIds.length === 0) return [];
+
+    /* ---------------------------------------------------
+     STEP 0: Allowed scheme IDs for user
+    --------------------------------------------------- */
+    const userRelations = await prisma.userRelationships.findMany({
+      where: { userId: Number(userId) },
+      select: { schemeIdsArray: true },
+    });
+
+    const allowedSchemeIds = userRelations
+      .map((ur) => ur.schemeIdsArray || [])
+      .flat();
+
+    if (!allowedSchemeIds.length) return [];
+
+    /* ---------------------------------------------------
+     STEP 1: ACTIVE schemes only
+    --------------------------------------------------- */
+    const activeSchemeIds = (
+      await prisma.schemes.findMany({
+        where: {
+          id: { in: allowedSchemeIds },
+          status: true,
+        },
+        select: { id: true },
+      })
+    ).map((s) => s.id);
+
+    if (!activeSchemeIds.length) return [];
+
+    /* ---------------------------------------------------
+     STEP 2: Pending submissions (single query)
+    --------------------------------------------------- */
+    const allSubmissions = await prisma.applicationSubmission.findMany({
+      where: {
+        status: SubmissionStatus.Pending, // enum-safe
+        OR: [
+          { schemeId: { in: activeSchemeIds } },
+          { subSchemeId: { in: activeSchemeIds } },
+        ],
+      },
+      select: {
+        id: true,
+        status: true,
+        ministryId: true,
+        departmentId: true,
+        schemeId: true,
+        subSchemeId: true,
+        initialPlan: true,
+        mappingDone: true,
+        isParentScheme: true,
+        submission_on: true,
+        updated_on: true,
+        form_values: true,
+        User: {
+          select: {
+            id: true,
+            first_name: true,
+            last_name: true,
+          },
+        },
+      },
+    });
+
+    if (!allSubmissions.length) return [];
+
+    /* ---------------------------------------------------
+     STEP 3: Normalize + dedupe by scheme / subScheme
+    --------------------------------------------------- */
+    const latestByScheme = new Map();
+
+    for (const s of allSubmissions) {
+      const schemeKeyId = s.subSchemeId ?? s.schemeId;
+
+      const currDate = s.submission_on
+        ? new Date(s.submission_on)
+        : new Date(0);
+
+      const existing = latestByScheme.get(schemeKeyId);
+      const existingDate = existing?.submission_on
+        ? new Date(existing.submission_on)
+        : new Date(0);
+
+      if (!existing || currDate > existingDate) {
+        latestByScheme.set(schemeKeyId, s);
+      }
+    }
+
+    const latestSubmissions = Array.from(latestByScheme.values());
+    if (!latestSubmissions.length) return [];
+
+    /* ---------------------------------------------------
+     STEP 4: Filter already-forwarded submissions
+    --------------------------------------------------- */
+    const forwarded = await prisma.forwardStep.findMany({
+      where: {
+        submissionId: { in: latestSubmissions.map((s) => s.id) },
+      },
+      select: { submissionId: true },
+    });
+
+    const forwardedIds = new Set(forwarded.map((f) => f.submissionId));
+
+    const unforwarded = latestSubmissions.filter(
+      (s) => !forwardedIds.has(s.id),
+    );
+
+    if (!unforwarded.length) return [];
+
+    /* ---------------------------------------------------
+     STEP 5: Fetch workflows ONCE (no N+1)
+    --------------------------------------------------- */
+    const workflows = await prisma.oomfWorkflow.findMany({
+      where: {
+        orgTypeId: { has: Number(orgTypeId) },
+        subRoleId: { in: subRoleIds.map(Number) },
+      },
+      select: {
+        id: true,
+        orderIndex: true,
+        label: true,
+        stepKind: true,
+        orgTypeId: true,
+        subRoleId: true,
+        isPostBudget: true,
+        minBudget: true,
+        canCreate: true,
+        canDownload: true,
+        canUpload: true,
+        canEditMapping: true,
+        canModifyFramework: true,
+        canAddFootnotes: true,
+        canSetRevisedTarget: true,
+        canSetFrequency: true,
+        canUpdateProgress: true,
+      },
+      orderBy: { orderIndex: "asc" },
+    });
+
+    const nextWorkflow = workflows.length ? workflows[0] : null;
+
+    /* ---------------------------------------------------
+     STEP 6: Build final response
+    --------------------------------------------------- */
+    return unforwarded.map((submission) => ({
+      id: null,
+      submissionId: submission.id,
+      fromStep: null,
+      toStep: null,
+      created_at: submission.submission_on ?? null,
+      fromWorkflow: null,
+      toWorkflow: nextWorkflow,
+      submissionData: submission,
+    }));
+  } catch (err) {
+    console.error("Error in getUnforwardedSchemes:", err);
+    return [];
+  }
+};
