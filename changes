@@ -1,144 +1,25 @@
-const getPendingSchemes = async ({ orgTypeId, subRoleIds = [], userId }) => {
-  const STEP_WINDOW_MS = 2000; // 2-second window for near-simultaneous steps
+const getOomfWorkflowSubmissionDocumentDownload = async (req, res) => {
+  try {
+    const requestedData = req.body;
+    const documentBuffer =
+      await workflowService.getOomfWorkflowSubmissionDocument(requestedData);
+    const filename = "oomf_workflow_document.docx";
 
-  if (!Array.isArray(subRoleIds) || subRoleIds.length === 0) return [];
-
-  // STEP 0: Allowed scheme IDs
-  const userRelations = await prisma.userRelationships.findMany({
-    where: { userId: Number(userId) },
-    select: { schemeIdsArray: true },
-  });
-  const allowedSchemeIds = userRelations.flatMap(
-    (ur) => ur.schemeIdsArray || [],
-  );
-  if (!allowedSchemeIds.length) return [];
-
-  // STEP 1: Active schemes
-  const activeSchemes = await prisma.schemes.findMany({
-    where: { id: { in: allowedSchemeIds }, status: true },
-    select: { id: true },
-  });
-
-  const activeSchemeIds = activeSchemes.map((s) => s.id);
-  if (!activeSchemeIds.length) return [];
-
-  // STEP 2: Workflows
-  const workflows = await prisma.oomfWorkflow.findMany({
-    where: {
-      orgTypeId: { has: Number(orgTypeId) },
-      subRoleId: { in: subRoleIds.map(Number) },
-    },
-    select: {
-      id: true,
-      orderIndex: true,
-      label: true,
-      stepKind: true,
-      orgTypeId: true,
-      subRoleId: true,
-      isPostBudget: true,
-      minBudget: true,
-      canCreate: true,
-      canDownload: true,
-      canUpload: true,
-      canEditMapping: true,
-      canModifyFramework: true,
-      canAddFootnotes: true,
-      canSetRevisedTarget: true,
-      canSetFrequency: true,
-      canUpdateProgress: true,
-    },
-    orderBy: { orderIndex: "asc" },
-  });
-  if (!workflows.length) return [];
-  const workflowMap = new Map(workflows.map((w) => [w.orderIndex, w]));
-  const workflowOrderIndexes = workflows.map((w) => w.orderIndex);
-  // STEP 3: Latest forwardStep timestamp per submissionId
-  const grouped = await prisma.forwardStep.groupBy({
-    by: ["submissionId"],
-    _max: { created_at: true },
-  });
-  if (!grouped.length) return [];
-
-  // STEP 4: Fetch all steps within 2-second window of latest created_at
-  const latestSteps = await prisma.forwardStep.findMany({
-    where: {
-      OR: grouped.map((g) => ({
-        submissionId: g.submissionId,
-        created_at: {
-          gte: new Date(new Date(g._max.created_at).getTime() - STEP_WINDOW_MS),
-        },
-      })),
-    },
-    select: {
-      id: true,
-      workFlowId: true,
-      fromLabel: true,
-      fromStep: true,
-      toLabel: true,
-      toStep: true,
-      fromDocumentIds: true,
-      fromRemarks: true,
-      submissionId: true,
-      created_at: true,
-      updated_at: true,
-    },
-    orderBy: [{ created_at: "desc" }, { id: "desc" }],
-  });
-  if (!latestSteps.length) return [];
-
-  // STEP 5: Keep only steps matching workflow orderIndexes
-  const filteredSteps = latestSteps.filter((step) =>
-    workflowOrderIndexes.includes(step.toStep),
-  );
-  if (!filteredSteps.length) return [];
-
-  // STEP 6: Fetch all submissions in one query
-  const submissionIds = filteredSteps.map((s) => s.submissionId);
-  const submissions = await prisma.applicationSubmission.findMany({
-    where: {
-      id: { in: submissionIds },
-      status: "Pending",
-      OR: [
-        { schemeId: { in: activeSchemeIds } },
-        { subSchemeId: { in: activeSchemeIds } },
-      ],
-    },
-    select: {
-      id: true,
-      status: true,
-      ministryId: true,
-      departmentId: true,
-      schemeId: true,
-      subSchemeId: true,
-      initialPlan: true,
-      mappingDone: true,
-      isParentScheme: true,
-      submission_on: true,
-      updated_on: true,
-      form_values: true,
-      User: { select: { id: true, first_name: true, last_name: true } },
-    },
-  });
-  const submissionMap = new Map(submissions.map((s) => [s.id, s]));
-
-  // STEP 7: Enrich steps with fromWorkflow + toWorkflow + submissionData
-  // const activeSet = new Set(activeSchemeIds);
-  const enrichedSteps = filteredSteps
-    .map((step) => {
-      const submissionData = submissionMap.get(step.submissionId);
-      if (!submissionData) return null;
-
-      // const schemeKeyId = submissionData.subSchemeId ?? submissionData.schemeId;
-      // if (!schemeKeyId || !activeSet.has(schemeKeyId)) return null;
-
-      return {
-        ...step,
-        fromWorkflow: workflowMap.get(step.fromStep) ?? null,
-        toWorkflow: workflowMap.get(step.toStep) ?? null,
-        submissionData,
-      };
-    })
-    .filter(Boolean);
-
-  return enrichedSteps;
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+    res.setHeader(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    );
+    res.setHeader("Content-Length", documentBuffer.length);
+    res.send(documentBuffer);
+  } catch (error) {
+    console.error("Error downloading OOMF workflow document:", error);
+    res.status(500).json({
+      status: 500,
+      success: false,
+      message: "Failed to download OOMF workflow document",
+      data: null,
+    });
+  }
 };
+while downloading document it is currently postfix extra underscore at the end of filename which is wrong.Please fix it
