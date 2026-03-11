@@ -1,214 +1,2690 @@
-const getForwardedSchemes = async ({ orgTypeId, subRoleIds = [], userId }) => {
-  try {
-    if (!Number.isInteger(Number(orgTypeId))) {
-      throw new Error("Invalid orgTypeId: must be a number");
-    }
+import { useEffect, useMemo, useState, useRef } from "react";
+import { Box, Button, Divider, IconButton } from "@mui/material";
+import { Add } from "@mui/icons-material";
+import apiClient from "@/utils/apiClient";
+import ForwardStepper from "../ForwardStepper";
+import { useDispatch, useSelector } from "react-redux";
+import { setError, setSuccess } from "@/store/slices/errorSlice";
+import { useRouter } from "next/router";
+import IndicatorTypeSelector from "../IndicatorTypeSelector";
+import OomfFormHeader from "../OomfFormHeader";
+import OomfFormSubSchemeHeader from "../OomfFormSubSchemeHeader";
+import AddRemarkFrequency from "../DynamicFrequencyUpdateDialog";
+import ArrowBackIosIcon from "@mui/icons-material/ArrowBackIos";
+import BookmarkAddedIcon from "@mui/icons-material/BookmarkAdded";
+import { oomfFrameworkId } from "@/src/constants/unified/frameworkConstants";
+import { startLoader, stopLoader } from "@/store/slices/errorSlice";
 
-    if (!Array.isArray(subRoleIds) || !subRoleIds.length) {
-      return { latestRecord: [], error: null };
-    }
+import {
+  getTargetLabels,
+  getNextFinancialYear,
+  createNewIndicator,
+  createNewSection,
+  buildTargetsByMeasurementArea,
+  computeTotals,
+  validateIndicatorSections,
+} from "./utils/helpers";
+import SubmissionDialog from "./SubmissionDialog";
+import FootnoteDialog from "./FootnoteDialog";
+import SectionCard from "./SectionCard";
+import {
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Typography,
+  Tooltip,
+} from "@mui/material";
+import TaskAltIcon from "@mui/icons-material/TaskAlt";
+import PublishedWithChangesIcon from "@mui/icons-material/PublishedWithChanges";
+import ArrowForwardIosIcon from "@mui/icons-material/ArrowForwardIos";
+import ForwardDialog from "./ForwardDialog";
+import BeenhereIcon from "@mui/icons-material/Beenhere";
+import { useSearchParams } from "next/navigation";
+import { decryptData } from "@/utils/niti/encryption";
+import { usePrivileges } from "@/src/context/privilegeContextProvider";
+import { SECTION_KEY } from "@/src/constants/privilegesSectionKeys/sectionKeys";
 
-    if (!userId) {
-      throw new Error("userId is required");
-    }
+export default function OomfFormRefactored({
+  data,
+  initialPlan,
+  isReadOnly,
+  type,
+  moto,
+  isPostBudget,
+  draftId,
+}) {
+  const userData = useSelector((state) => state.config.userData);
+  const userMinistryIds = userData?.userRelationships[0]?.ministryIds;
+  const userDepartmentIds = userData?.userRelationships[0]?.departmentIds;
+  const userSchemeIds = userData?.userRelationships[0]?.schemeIds;
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [hasChecked, setHasChecked] = useState(false);
+  const [openRemarkModal, setOpenRemarkModal] = useState(false);
+  const [currentField, setCurrentField] = useState(null);
 
-    // -----------------------------
-    // STEP 0: Allowed scheme IDs for user
-    // -----------------------------
-    const userRelations = await prisma.userRelationships.findMany({
-      where: { userId: Number(userId) },
-      select: { schemeIdsArray: true },
-    });
+  const [footnote, setFootnote] = useState("");
+  const [footnoteContext, setFootnoteContext] = useState({});
+  const [footnoteIndicatorType, setFootnoteIndicatorType] = useState({});
+  const [filtersComplete, setFiltersCompleted] = useState(false);
+  const [alertDialogOpen, setAlertDialogOpen] = useState(false);
+  const [previousSubmissionId, setPreviousSubmissionId] = useState(null);
+  const [footnoteValue, setFootnoteValue] = useState("");
+  const [openForwardDialog, setOpenForwardDialog] = useState(false);
 
-    const allowedSchemeIds = userRelations
-      .map((rel) => rel.schemeIdsArray || [])
-      .flat();
+  const {
+    mappedPrivileges,
+    hasAddAccess,
+    hasEditAccess,
+    hasViewAccess,
+    refresh,
+  } = usePrivileges(SECTION_KEY.OUTPUT_OUTCOME_STATEMENT_WITH_INDICATOR);
+  const searchParams = useSearchParams();
 
-    if (!allowedSchemeIds.length) return { latestRecord: [], error: null };
+  const handleDialogOpen = ({
+    field,
+    sectionIndex,
+    indicatorIndex,
+    defaultValue = "",
+  }) => {
+    setFootnoteContext({ field, sectionIndex, indicatorIndex });
+    setFootnoteValue(defaultValue);
+    setDialogOpen(true);
+  };
 
-    // -----------------------------
-    // STEP 1: Active schemes only (from allowed)
-    // -----------------------------
-    const activeSchemeIds = (
-      await prisma.schemes.findMany({
-        where: {
-          id: { in: allowedSchemeIds },
-          status: true,
-        },
-        select: { id: true },
-      })
-    ).map((s) => s.id);
+  const handleDialogClose = () => {
+    setDialogOpen(false);
+  };
 
-    if (!activeSchemeIds.length) return { latestRecord: [], error: null };
+  const handleFootnoteSave = () => {
+    const valueToSave = footnoteValue;
 
-    // -----------------------------
-    // STEP 2: Fetch workflows for user
-    // -----------------------------
-    const workflows = await prisma.oomfWorkflow.findMany({
-      where: {
-        orgTypeId: { has: Number(orgTypeId) },
-        subRoleId: { in: subRoleIds.map(Number) },
-      },
-      select: { id: true, orderIndex: true },
-      orderBy: { orderIndex: "asc" },
-    });
+    if (!footnoteContext) return;
 
-    if (!workflows.length) return { latestRecord: [], error: null };
-    const orderIndexes = workflows.map((w) => w.orderIndex);
+    const { field, sectionIndex, indicatorIndex } = footnoteContext;
 
-    // -----------------------------
-    // STEP 3: Fetch relevant forward steps
-    // -----------------------------
-    const forwardSteps = await prisma.forwardStep.findMany({
-      where: {
-        OR: [
-          { fromStep: { in: orderIndexes } },
-          { toStep: { in: orderIndexes } },
-        ],
-      },
-      orderBy: { created_at: "asc" },
-      select: {
-        id: true,
-        submissionId: true,
-        fromStep: true,
-        toStep: true,
-        created_at: true,
-        fromLabel: true,
-        toLabel: true,
-      },
-    });
-
-    if (!forwardSteps.length) return { latestRecord: [], error: null };
-
-    const toStepIndexes = Array.from(
-      new Set(forwardSteps.map((s) => s.toStep)),
-    );
-
-    // -----------------------------
-    // STEP 4: Fetch toWorkflows mapping
-    // -----------------------------
-    const toWorkflows = await prisma.oomfWorkflow.findMany({
-      where: {
-        orgTypeId: { has: Number(orgTypeId) },
-        orderIndex: { in: toStepIndexes },
-      },
-      select: {
-        id: true,
-        orderIndex: true,
-        label: true,
-        stepKind: true,
-        orgTypeId: true,
-        subRoleId: true,
-        isPostBudget: true,
-        minBudget: true,
-        canCreate: true,
-        canDownload: true,
-        canUpload: true,
-        canEditMapping: true,
-        canModifyFramework: true,
-        canAddFootnotes: true,
-        canSetRevisedTarget: true,
-        canSetFrequency: true,
-        canUpdateProgress: true,
-      },
-    });
-
-    const toWorkflowMap = Object.fromEntries(
-      toWorkflows.map((w) => [w.orderIndex, w]),
-    );
-
-    // -----------------------------
-    // STEP 5: Fetch submissions linked to steps AND active schemes
-    // -----------------------------
-    const submissionIds = Array.from(
-      new Set(forwardSteps.map((s) => s.submissionId)),
-    );
-
-    const submissions = await prisma.applicationSubmission.findMany({
-      where: {
-        id: { in: submissionIds },
-        OR: [
-          { schemeId: { in: activeSchemeIds } },
-          { subSchemeId: { in: activeSchemeIds } },
-        ],
-      },
-      select: {
-        id: true,
-        status: true,
-        ministryId: true,
-        departmentId: true,
-        schemeId: true,
-        subSchemeId: true,
-        initialPlan: true,
-        mappingDone: true,
-        isParentScheme: true,
-        submission_on: true,
-        updated_on: true,
-        form_values: true,
-        User: {
-          select: { id: true, first_name: true, last_name: true },
-        },
-      },
-    });
-
-    if (!submissions.length) return { latestRecord: [], error: null };
-
-    const submissionMap = Object.fromEntries(submissions.map((s) => [s.id, s]));
-
-    // -----------------------------
-    // STEP 6: Allowed schemes set
-    // -----------------------------
-    const allowedSchemeSet = new Set(activeSchemeIds);
-
-    // -----------------------------
-    // STEP 7: Group steps by submissionId
-    // -----------------------------
-    const stepsBySubmission = forwardSteps.reduce((acc, step) => {
-      if (!acc[step.submissionId]) acc[step.submissionId] = [];
-      acc[step.submissionId].push(step);
-      return acc;
-    }, {});
-
-    // -----------------------------
-    // STEP 8: Pick latest step per submission
-    // -----------------------------
-    const latestRecord = [];
-
-    for (const submissionId in stepsBySubmission) {
-      const steps = stepsBySubmission[submissionId];
-      if (!steps || !steps.length) continue;
-
-      const sortedSteps = steps.sort(
-        (a, b) => new Date(a.created_at) - new Date(b.created_at),
+    // Indicator footnotes
+    if (footnoteContext?.field === "indicatorName") {
+      handleIndicatorChange(
+        footnoteContext.sectionIndex,
+        footnoteContext.indicatorIndex,
+        "footNoteIndicatorName",
+        valueToSave,
       );
-
-      const latestStep = sortedSteps[sortedSteps.length - 1];
-      const submission = submissionMap[latestStep.submissionId];
-      if (!submission) continue;
-
-      const schemeId =
-        submission.form_values?.subSchemeId?.id ??
-        submission.form_values?.schemeId?.id;
-
-      if (!schemeId || !allowedSchemeSet.has(Number(schemeId))) continue;
-
-      latestRecord.push({
-        id: null,
-        submissionId: submission.id,
-        fromStep: latestStep.fromStep,
-        toStep: latestStep.toStep,
-        fromLabel: latestStep?.fromLabel,
-        toLabel: latestStep?.toLabel,
-        created_at: latestStep.created_at,
-        fromWorkflow: null,
-        toWorkflow: toWorkflowMap[latestStep.toStep] || null,
-        submissionData: submission,
+    } else if (footnoteContext?.field === "indicatorTarget") {
+      handleIndicatorChange(
+        footnoteContext.sectionIndex,
+        footnoteContext.indicatorIndex,
+        "footNoteIndicatorTarget",
+        valueToSave,
+      );
+    }
+    // Output/Outcome footnotes
+    else if (field === "Output" || field === "Outcome") {
+      setSectionsByType((prev) => {
+        const updatedSections = [...(prev[field] || [])];
+        while (updatedSections.length <= sectionIndex) updatedSections.push({});
+        updatedSections[sectionIndex] = {
+          ...updatedSections[sectionIndex],
+          footNote: valueToSave,
+        };
+        return { ...prev, [field]: updatedSections };
       });
     }
 
-    return { latestRecord, error: null };
-  } catch (error) {
-    console.error("Error in getForwardedSchemes:", error);
-    return { latestRecord: [], error: error.message };
+    handleDialogClose();
+  };
+
+  const router = useRouter();
+  // const { id } = router.query;
+  const token = searchParams.get("tk");
+  const decrypted = token ? decryptData(token) : null;
+  const id = decrypted?.id;
+
+  const [initialDraft, setInitialDraft] = useState(true);
+  const [financialYear, setFinancialYear] = useState(() =>
+    initialDraft ? getNextFinancialYear() : "",
+  );
+
+  // Master selections
+  const [selectedMinistry, setSelectedMinistry] = useState(null);
+  const [selectedDepartment, setSelectedDepartment] = useState(null);
+  const [selectedSchemeType, setSelectedSchemeType] = useState(null);
+  const [financialOutlay, setFinancialOutlay] = useState(0);
+  const [selectedScheme, setSelectedScheme] = useState(null);
+  const [selectedState, setSelectedState] = useState(null);
+  const [selectedDistrict, setSelectedDistrict] = useState([]);
+
+  const [selectedSubScheme, setSelectedSubScheme] = useState(null);
+  const [isSubScheme, setIsSubScheme] = useState(false);
+
+  // Master data lists
+  const [dummyMinistries, setDummyMinistries] = useState([]);
+  const [dummyDepartments, setDummyDepartments] = useState([]);
+  const [dummySchemeTypes, setDummySchemeTypes] = useState([]);
+  const [dummySchemes, setDummySchemes] = useState([]);
+  const [dummyIndicatorTypes, setDummyIndicatorTypes] = useState([]);
+  const [dummyMeasurementTypes, setDummyMeasurementTypes] = useState([]);
+  const [dummyUnits, setDummyUnits] = useState([]);
+  const [dummyScales, setDummyScales] = useState([]);
+  const [dummyStates, setDummyStates] = useState([]);
+  const [dummyDistrict, setDummyDistrict] = useState([]);
+  const [dummyMeasurementArea, setDummyMeasurementArea] = useState([]);
+  const [dummyIndicatorRise, setDummyIndicatorRise] = useState([]);
+  const [dummySdg, setDummySdg] = useState([]);
+  const [dummyPeriod, setDummyPeriod] = useState([]);
+  const [dummyCategoty, setDummyCategoty] = useState([]);
+  const [dummyIndicator, setDummyIndicator] = useState([]);
+  const [originalDummyIndicator, setOriginalDummyIndicator] = useState([]);
+  const [dummyFrequencies, setDummyFrequencies] = useState([]);
+  const [originalOutputOutcomes, setOriginalOutputOutcome] = useState([]);
+  const [dummySubSchemes, setDummySubSchemes] = useState([]);
+  const [outputResponse, setOutputResponse] = useState({});
+  const [outcomeResponse, setOutcomeResponse] = useState({});
+
+  // Pre filled data
+  const [prefillData, setPrefillData] = useState(null);
+  const [errorRatioOrRange, setErrorRatioOrRange] = useState({});
+  const [helperText, setHelperText] = useState({});
+  const inputRefs = useRef({});
+  const [fieldErrors, setFieldErrors] = useState({});
+  const subRoleIds = [
+    ...new Set(
+      userData?.privileges?.flatMap(
+        (item) => item.accessRights?.oomfSubRoles?.map((role) => role.id) || [],
+      ) || [],
+    ),
+  ];
+
+  // Handle change for all types
+  const handleChange = (e, sIdx, iIdx, unitType, fieldName, extra = {}) => {
+    // Extract the raw value; in some custom calls (Autocomplete blur) we synthesize the event
+    const raw = e?.target?.value ?? "";
+    // Keep trimmed for consistency, but don't block typing anywhere
+    const value = typeof raw === "string" ? raw.trim() : raw;
+
+    let error = "";
+
+    // Run regex validation ONLY for targets with these unit types
+    if (fieldName === "targets") {
+      if (unitType === 10) {
+        const ratioRegex = /^\d+:\d+$/; // e.g., "3:4"
+        if (value && !ratioRegex.test(value)) {
+          error = "Enter a valid ratio (e.g., 3:4)";
+        }
+      } else if (unitType === 9) {
+        const rangeRegex = /^\d+-\d+$/; // e.g., "2-5"
+        if (value && !rangeRegex.test(value)) {
+          error = "Enter a valid range (e.g., 2-5)";
+        }
+      }
+    }
+
+    const fieldKey =
+      fieldName === "targets"
+        ? `${currentType}_${sIdx}_${iIdx}_${fieldName}_${extra.targetKey}`
+        : `${currentType}_${sIdx}_${iIdx}_${fieldName}`;
+
+    // Update UI field errors (regex-style validation errors)
+    setFieldErrors((prev) => {
+      const newErrors = { ...prev };
+      if (error) {
+        newErrors[fieldKey] = error;
+      } else {
+        delete newErrors[fieldKey];
+      }
+      return newErrors;
+    });
+
+    // Forward to your reducer; IMPORTANT: this preserves extra.strict for validation logic there
+    handleIndicatorChange(sIdx, iIdx, fieldName, value, extra);
+  };
+  const resetForm = () => {
+    setPrefillData(null);
+    setSelectedMinistry(null);
+    setSelectedDepartment(null);
+    setSelectedSchemeType(null);
+    setSelectedScheme(null);
+    setSelectedSubScheme(null);
+    setFinancialOutlay(0);
+    setSectionsByType({
+      Outcome: [createNewSection()],
+      Output: [createNewSection()],
+    });
+    setInitialDraft(true);
+  };
+
+  const handleSubmissionCheck = async (filters = {}) => {
+    dispatch(startLoader());
+    try {
+      if (id) {
+        return;
+      }
+      const res = await apiClient.post(
+        `/api/oomf/submissions/check-submission`,
+        filters,
+      );
+      const previousData = res?.data?.data;
+      if (previousData?.isPresent) {
+        setPrefillData(previousData?.data?.form_values);
+        setPreviousSubmissionId(previousData?.data?.id);
+        setAlertDialogOpen(true);
+      }
+    } catch (err) {
+      dispatch(setError(err.message));
+    } finally {
+      dispatch(stopLoader());
+    }
+  };
+
+  const fetchOutputOutcome = async (sectionId) => {
+    if (moto !== "edit") return;
+    if (!sectionId) return;
+    const res = await apiClient.get(`api/master/output-outcome/${sectionId}`);
+    return res?.data?.data;
+  };
+
+  useEffect(() => {
+    if (!data) {
+      resetForm();
+      return;
+    }
+
+    setPrefillData(data);
+    setInitialDraft(false);
+  }, [data]);
+
+  const dispatch = useDispatch();
+
+  // Pre-fill data useEffect
+  useEffect(() => {
+    if (
+      initialDraft ||
+      !prefillData ||
+      !dummyMinistries.length ||
+      !dummySchemeTypes.length ||
+      !dummyIndicatorTypes.length ||
+      !dummyMeasurementTypes.length ||
+      !dummyUnits.length ||
+      !dummyScales.length ||
+      !dummyMeasurementArea.length ||
+      !dummyIndicatorRise ||
+      !dummySdg ||
+      !dummyPeriod.length ||
+      !dummyCategoty.length ||
+      !dummyFrequencies.length
+    )
+      return;
+    setFinancialYear(prefillData.financialYear);
+    setSelectedMinistry(prefillData.ministryId);
+    setSelectedSchemeType(prefillData.schemeTypeId);
+  }, [prefillData, dummyMinistries, dummySchemeTypes]);
+
+  useEffect(() => {
+    if (initialDraft || !prefillData) return;
+    setSelectedDepartment(prefillData.departmentId);
+  }, [initialDraft, prefillData]);
+
+  // Set scheme when scheme list is ready
+  useEffect(() => {
+    if (initialDraft || !prefillData) return;
+    setSelectedScheme(prefillData.schemeId);
+    setFinancialOutlay(prefillData.financialOutlay);
+  }, [initialDraft, prefillData]);
+
+  useEffect(() => {
+    if (initialDraft || !prefillData || !dummySubSchemes.length) return;
+    setSelectedSubScheme(prefillData.subSchemeId);
+  }, [initialDraft, prefillData, dummySubSchemes]);
+
+  // Set indicator sections when everything is ready
+  useEffect(() => {
+    if (!prefillData) return;
+
+    const indicatorTypesReady =
+      dummyIndicatorTypes.length &&
+      dummyMeasurementTypes.length &&
+      dummyUnits.length &&
+      dummyScales.length &&
+      dummyMeasurementArea.length &&
+      dummyIndicatorRise.length &&
+      dummySdg.length &&
+      dummyFrequencies.length &&
+      dummyPeriod.length &&
+      dummyCategoty.length;
+
+    if (!indicatorTypesReady) return;
+
+    const buildSections = async () => {
+      const mappedSections = {};
+
+      for (const item of prefillData.indicatorData) {
+        const typeName = item.indicatorType.name;
+
+        mappedSections[typeName] = await Promise.all(
+          item.sections.map(async (sec) => {
+            let latestSectionName = sec.name;
+
+            // ✅ Fetch latest output–outcome name
+            if (sec?.name) {
+              try {
+                const res = await fetchOutputOutcome(sec.id); // sec.name = id
+                latestSectionName = res?.name || sec.name;
+              } catch (err) {
+                console.error("Failed to fetch output-outcome", err);
+              }
+            }
+
+            return {
+              ...sec,
+              name: latestSectionName, // ✅ APPLY updated name
+              indicators: sec.indicators.map((ind) => ({
+                ...ind,
+                measurementType: ind.measurementType?.id ?? "",
+                unit: ind.unit?.id ?? "",
+                scale: ind.scale?.id ?? "",
+                measurementArea: ind.measurementArea?.id ?? "",
+                indicatorRise: ind.indicatorRise?.id ?? "",
+                sdg: ind.sdg?.id ?? "",
+                frequency: ind.frequency?.id ?? "",
+                period: ind.period?.id ?? "",
+                applicableCategory: ind.applicableCategory?.id ?? "",
+                indicator: ind.indicator?.id ?? "",
+              })),
+            };
+          }),
+        );
+      }
+
+      setSectionsByType(mappedSections);
+    };
+
+    buildSections();
+  }, [
+    prefillData,
+    dummyIndicatorTypes,
+    dummyMeasurementTypes,
+    dummyUnits,
+    dummyScales,
+    dummyMeasurementArea,
+    dummyIndicatorRise,
+    dummySdg,
+    dummyFrequencies,
+    dummyPeriod,
+    dummyCategoty,
+  ]);
+
+  // Fetch dynamic departments when ministry changes
+  useEffect(() => {
+    if (!selectedMinistry) return;
+
+    async function getData() {
+      dispatch(startLoader());
+      try {
+        const payload = {
+          ministryIds: [selectedMinistry?.id],
+        };
+        const res = await apiClient.post(
+          `/api/master/get-departments-for-ministry`,
+          payload,
+        );
+        const departmentsData = res?.data?.data?.map((item) => ({
+          id: item?.id,
+          name: item?.name,
+          associatedFramework: item?.jsonData?.associatedFramework,
+        }));
+        setDummyDepartments(departmentsData);
+      } catch (err) {
+        dispatch(setError(err.message));
+      } finally {
+        dispatch(stopLoader());
+      }
+    }
+
+    if (selectedMinistry?.id) getData();
+  }, [selectedMinistry]);
+
+  useEffect(() => {
+    async function getDistrictsByState() {
+      try {
+        const payload = {
+          stateIds: [selectedState?.id],
+        };
+        const res = await apiClient.post(
+          `/api/master/get-district-for-state`,
+          payload,
+        );
+        const districtsData = res?.data?.data;
+        const formattedData = districtsData?.map((district) => ({
+          id: district?.id,
+          name: district?.district_name,
+        }));
+        setDummyDistrict(formattedData);
+      } catch (err) {
+        dispatch(setError(err.message));
+      }
+    }
+    if (selectedState?.id) {
+      getDistrictsByState();
+    }
+  }, [selectedState]);
+
+  // Fetch schemes when department changes
+  // useEffect(() => {
+  //   if (!selectedDepartment || !selectedSchemeType) return;
+
+  //   async function getData() {
+  //     try {
+  //       const appSubSchemeFilterData = await apiClient.get(
+  //         "api/master/schemes-subscheme-dropdown-application-submission"
+  //       );
+
+  //       const responseData = appSubSchemeFilterData?.data?.data || [];
+
+  //       // Unique schemeIds
+  //       const schemeIds = [
+  //         ...new Set(responseData.map((item) => item.schemeId)),
+  //       ];
+
+  //       // Unique subSchemeIds (flattened)
+  //       const subSchemeIds = [
+  //         ...new Set(responseData.flatMap((item) => item.subSchemeIds || [])),
+  //       ];
+
+  //       const payload = {
+  //         id: selectedDepartment?.id,
+  //         schemeTypeId: selectedSchemeType?.id,
+  //         financialYear: financialYear,
+  //       };
+  //       const res = await apiClient.post(`api/master/get-schemes`, payload);
+  //       const schemesData = res.data?.data?.map((item) => ({
+  //         ...item,
+  //         id: item?.id,
+  //         name: item?.name,
+  //         associatedFramework:
+  //           item?.jsonData?.schemeFinancialYearWiseBudgetDetails?.map(
+  //             (item) => item?.associatedFrameworks
+  //           ),
+  //       }));
+  //       setDummySchemes(schemesData);
+  //     } catch (err) {
+  //       dispatch(
+  //         setError(
+  //           err?.response?.data?.message || err.message || "Unknown error"
+  //         )
+  //       );
+  //     }
+  //   }
+
+  //   if (
+  //     selectedDepartment !== null &&
+  //     selectedSchemeType !== null &&
+  //     financialYear
+  //   )
+  //     getData();
+  // }, [selectedDepartment, selectedSchemeType, financialYear]);
+
+  useEffect(() => {
+    if (!selectedDepartment || !selectedSchemeType || !financialYear) return;
+
+    async function getData() {
+      dispatch(startLoader());
+      try {
+        // 1️⃣ Fetch application submission data
+        const appSubSchemeFilterData = await apiClient.get(
+          "api/master/schemes-subscheme-dropdown-application-submission",
+        );
+        const responseData = appSubSchemeFilterData?.data?.data || [];
+
+        // Map: schemeId -> Set(subSchemeIds submitted)
+        const schemeToSubSchemeMap = new Map();
+        responseData.forEach((item) => {
+          schemeToSubSchemeMap.set(
+            item.schemeId,
+            new Set(item.subSchemeIds || []),
+          );
+        });
+
+        // 2️⃣ Fetch all schemes
+        const payload = {
+          id: selectedDepartment?.id,
+          schemeTypeId: selectedSchemeType?.id,
+          financialYear: financialYear,
+        };
+        const res = await apiClient.post(`api/master/get-schemes`, payload);
+
+        const schemesData =
+          res.data?.data?.map((item) => ({
+            ...item,
+            id: item?.id,
+            name: item?.name,
+            subSchemes: item?.subSchemes || [],
+            associatedFramework:
+              item?.jsonData?.schemeFinancialYearWiseBudgetDetails?.map(
+                (i) => i?.associatedFrameworks,
+              ),
+          })) || [];
+
+        // 🚨 EDIT,VIEW,DRAFT MODE → DO NOT FILTER
+        if (id && ["edit", "view", "draft"].includes(moto)) {
+          setDummySchemes(schemesData);
+          return;
+        }
+
+        const allSchemeIds = schemesData.map((s) => s.id);
+
+        // 3️⃣ Fetch subschemes in bulk
+        const bulkSubSchemesRes = await apiClient.post(
+          "/api/master/get-subscheme-ids-by-scheme-bulk",
+          { schemeIds: allSchemeIds },
+        );
+
+        const schemeToAllSubSchemesMap = new Map();
+        (bulkSubSchemesRes?.data?.data || []).forEach((item) => {
+          schemeToAllSubSchemesMap.set(item.schemeId, item.subSchemeIds || []);
+        });
+
+        // 4️⃣ FILTER SCHEMES (Create mode only)
+        const filteredSchemes = schemesData.filter((scheme) => {
+          const schemeId = scheme.id;
+
+          const submittedSubSchemes =
+            schemeToSubSchemeMap.get(schemeId) || new Set();
+
+          const allSubSchemeIds = schemeToAllSubSchemesMap.get(schemeId) || [];
+
+          if (isSubScheme) {
+            if (allSubSchemeIds.length === 0) return false;
+
+            return allSubSchemeIds.some(
+              (subId) => !submittedSubSchemes.has(subId),
+            );
+          } else {
+            return !schemeToSubSchemeMap.has(schemeId);
+          }
+        });
+
+        // 5️⃣ Update dropdown
+        setDummySchemes(filteredSchemes);
+      } catch (err) {
+        dispatch(
+          setError(
+            err?.response?.data?.message || err.message || "Unknown error",
+          ),
+        );
+      } finally {
+        dispatch(stopLoader());
+      }
+    }
+
+    getData();
+  }, [selectedDepartment, selectedSchemeType, financialYear, id]);
+
+  // Initial fetch of all master data
+  useEffect(() => {
+    async function fetchMasters() {
+      try {
+        const res = await apiClient.get("api/master/all-oomf-masters");
+        const {
+          ministries,
+          schemeTypes,
+          indicatorTypes,
+          measurementTypes,
+          units,
+          scales,
+          states,
+          districts,
+          measurementAreas,
+          indicatorRises,
+          sdg,
+          frequencies,
+          periods,
+          categories,
+        } = res.data.data;
+        setDummyMinistries(
+          ministries?.map((item) => ({
+            id: item?.id,
+            name: item?.name,
+            associatedFramework: item?.jsonData?.associatedFramework,
+          })),
+        );
+        setDummyIndicatorTypes(indicatorTypes);
+        setDummyMeasurementTypes(measurementTypes);
+        setDummyUnits(units);
+        setDummyScales(scales);
+        setDummyStates(
+          states.map((item) => ({
+            id: item?.id,
+            name: item?.state_name,
+          })),
+        );
+        setDummyDistrict(
+          districts.map((item) => ({
+            id: item?.id,
+            name: item?.district_name,
+          })),
+        );
+        setDummyMeasurementArea(measurementAreas);
+        setDummyIndicatorRise(indicatorRises);
+        setDummySdg(sdg);
+        setDummyFrequencies(frequencies);
+        setDummyPeriod(periods);
+        setDummyCategoty(categories);
+      } catch (err) {
+        dispatch(setError(err.message));
+      }
+    }
+    async function fetchIndicators() {
+      const payload = {
+        ministryIds: userMinistryIds,
+        departmentIds: userDepartmentIds,
+        schemeIds: userSchemeIds,
+      };
+      const response = await apiClient.post(
+        "api/master/get-all-indicators",
+        payload,
+      );
+      const { data: res } = response?.data || [];
+      // setDummyIndicator(res);
+      setOriginalDummyIndicator(res);
+    }
+
+    fetchMasters();
+    fetchIndicators();
+  }, []);
+
+  // Fetch schemeType by framework
+  useEffect(() => {
+    const fetchSchemeTypeByFramework = async () => {
+      dispatch(startLoader());
+      try {
+        const response = await apiClient.post(
+          `api/master/schemeType/by-framework`,
+          {
+            associatedFrameworks: [oomfFrameworkId],
+          },
+        );
+
+        const { data } = response?.data || {};
+        if (Array.isArray(data)) {
+          const formattedData = data?.map((item) => ({
+            id: item?.id,
+            name: item?.name,
+          }));
+          setDummySchemeTypes(formattedData);
+        }
+      } catch (error) {
+        console.error("Failed to fetch scheme-type list:", error);
+      } finally {
+        dispatch(stopLoader());
+      }
+    };
+    fetchSchemeTypeByFramework();
+  }, []);
+
+  // Fetch sub-schemes when scheme changes
+  // useEffect(() => {
+  //   if (!selectedScheme || !isSubScheme) return;
+
+  //   async function getSubSchemes() {
+  //     try {
+  //       const payload = {
+  //         schemeIds: [selectedScheme?.id],
+  //         // financialYear: financialYear,
+  //       };
+  //       const res = await apiClient.post(
+  //         // `/api/master/get-sub-schemes`,
+  //         `/api/master/get-subschemes-for-schemes`,
+  //         payload
+  //       );
+  //       const subSchemesData = res.data?.data?.map((item) => ({
+  //         id: item?.id,
+  //         name: item?.name,
+  //       }));
+  //       setDummySubSchemes(subSchemesData);
+  //     } catch (err) {
+  //       dispatch(setError(err.message));
+  //     }
+  //   }
+
+  //   if (selectedScheme !== null && financialYear) getSubSchemes();
+  // }, [selectedScheme, financialYear, isSubScheme]);
+
+  useEffect(() => {
+    if (!selectedScheme || !isSubScheme || !financialYear) return;
+
+    async function getSubSchemes() {
+      try {
+        // 1️⃣ Fetch submitted subscheme data
+        const appSubSchemeFilterData = await apiClient.get(
+          "api/master/schemes-subscheme-dropdown-application-submission",
+        );
+
+        const responseData = appSubSchemeFilterData?.data?.data || [];
+
+        // schemeId -> Set(subSchemeIds already submitted)
+        const schemeToSubSchemeMap = new Map();
+        responseData.forEach((item) => {
+          schemeToSubSchemeMap.set(
+            item.schemeId,
+            new Set(item.subSchemeIds || []),
+          );
+        });
+
+        // 2️⃣ Fetch all subschemes with actual names
+        const payload = { schemeIds: [selectedScheme.id], financialYear };
+        const res = await apiClient.post(
+          "/api/master/get-subschemes-for-schemes",
+          payload,
+        );
+        const allSubSchemes = res.data?.data || [];
+
+        // 🔑 Build lookup: subSchemeId -> subSchemeName
+        const subSchemeNameMap = new Map(
+          allSubSchemes.map((item) => [item.id, item.name]),
+        );
+
+        // 3️⃣ Fetch all subscheme IDs for the scheme
+        const bulkSubSchemesRes = await apiClient.post(
+          "/api/master/get-subscheme-ids-by-scheme-bulk",
+          { schemeIds: [selectedScheme.id] },
+        );
+
+        const allSubSchemeIds =
+          bulkSubSchemesRes?.data?.data?.[0]?.subSchemeIds || [];
+
+        // 🚨 EDIT / VIEW / DRAFT → NO FILTER
+        if (id && ["edit", "view", "draft"].includes(moto)) {
+          setDummySubSchemes(
+            allSubSchemeIds.map((subId) => ({
+              id: subId,
+              name: subSchemeNameMap.get(subId) || "",
+            })),
+          );
+          return;
+        }
+
+        // 4️⃣ CREATE FLOW → filter already submitted subschemes
+        const submittedSubSchemes =
+          schemeToSubSchemeMap.get(selectedScheme.id) || new Set();
+
+        const filteredSubSchemes = allSubSchemeIds
+          .filter((subId) => !submittedSubSchemes.has(subId))
+          .map((subId) => ({
+            id: subId,
+            name: subSchemeNameMap.get(subId) || "",
+          }));
+
+        // 5️⃣ Update dropdown
+        setDummySubSchemes(filteredSubSchemes);
+      } catch (err) {
+        dispatch(
+          setError(
+            err?.response?.data?.message || err.message || "Unknown error",
+          ),
+        );
+      } finally {
+        dispatch(stopLoader());
+      }
+    }
+
+    getSubSchemes();
+  }, [selectedScheme, financialYear, isSubScheme]);
+
+  useEffect(() => {
+    if (router.asPath) {
+      const cleanPath = router.asPath.split("?")[0];
+      const pathParts = cleanPath.split("/");
+      const lastSegment = pathParts[pathParts.length - 1];
+      if (lastSegment === "create-sub-scheme-op-oc") {
+        setIsSubScheme(true);
+      } else {
+        setIsSubScheme(false);
+      }
+    }
+  }, [router.asPath]);
+
+  useEffect(() => {
+    if (!selectedScheme) return;
+
+    function getOutlayByIdAndYear(id, year) {
+      const match = dummySchemes.find((item) => item.id === id);
+      return match ? match.financialOutlay : 0;
+    }
+    let outlay = 0;
+    if (isSubScheme) {
+      outlay = getOutlayByIdAndYear(selectedSubScheme?.id, financialYear);
+    } else {
+      outlay = getOutlayByIdAndYear(selectedScheme?.id, financialYear);
+    }
+
+    if (id === undefined) setFinancialOutlay(outlay);
+  }, [
+    selectedScheme,
+    selectedSubScheme,
+    isSubScheme,
+    financialYear,
+    dummySubSchemes,
+    dummySchemes,
+    id,
+  ]);
+
+  useEffect(() => {
+    if (!selectedMinistry) return;
+
+    async function getData() {
+      dispatch(startLoader());
+      try {
+        const payload = {
+          isSubScheme: isSubScheme,
+          financialYear: financialYear.split("-")[0],
+          ministry: selectedMinistry?.id,
+          department: selectedDepartment?.id,
+          schemeType: selectedSchemeType?.id,
+          scheme: selectedScheme?.id,
+        };
+        if (selectedSubScheme) {
+          payload.subScheme = selectedSubScheme?.id;
+        }
+        const res = await apiClient.post(
+          `/api/oomf/master/output-outcome-indicator`,
+          payload,
+        );
+        setOutputResponse(res?.data?.data?.output);
+        setOutcomeResponse(res?.data?.data?.outcome);
+      } catch (err) {
+        dispatch(setError(err.message));
+      } finally {
+        dispatch(stopLoader());
+      }
+    }
+
+    if (selectedScheme !== null) getData();
+  }, [
+    selectedScheme,
+    financialYear,
+    selectedMinistry,
+    selectedDepartment,
+    selectedSchemeType,
+    isSubScheme,
+    selectedSubScheme,
+  ]);
+
+  const [sectionsByType, setSectionsByType] = useState({
+    Outcome: [createNewSection()],
+    Output: [createNewSection()],
+  });
+  const [currentType, setCurrentType] = useState("Output");
+
+  useEffect(() => {
+    if (currentType === "Output") {
+      setDummyIndicator(outputResponse?.indicatorList || []);
+    } else if (currentType === "Outcome") {
+      setDummyIndicator(outcomeResponse?.indicatorList || []);
+    } else {
+      setDummyIndicator([]);
+    }
+  }, [currentType, outputResponse, outcomeResponse]);
+
+  const handleAddSection = () =>
+    setSectionsByType((prev) => ({
+      ...prev,
+      [currentType]: [...prev[currentType], createNewSection()],
+    }));
+
+  const handleRemoveSection = (sIdx) => {
+    setSectionsByType((prev) => ({
+      ...prev,
+      [currentType]: prev[currentType].filter((_, i) => i !== sIdx),
+    }));
+    dispatch(
+      setSuccess(`${currentType} ${sIdx + 1} section removed successfully`),
+    );
+  };
+
+  // const handleSectionChange = (sIdx, key, value) =>
+  //   setSectionsByType((prev) => {
+  //     const list = [...prev[currentType]];
+  //     list[sIdx][key] = value;
+  //     return { ...prev, [currentType]: list };
+  //   });
+
+  const handleSectionChange = (sIdx, key, value) => {
+    setSectionsByType((prev) => {
+      const list = [...prev[currentType]];
+      const section = list[sIdx];
+
+      section[key] = value;
+
+      // If section is turned inactive → make all indicators inactive
+      if (key === "active" && value === false) {
+        section.indicators = section.indicators.map((ind) => ({
+          ...ind,
+          active: false,
+        }));
+      }
+
+      return { ...prev, [currentType]: list };
+    });
+  };
+
+  const handleAddIndicator = (sIdx) => {
+    setSectionsByType((prev) => {
+      const list = [...prev[currentType]];
+      list[sIdx].indicators.push(createNewIndicator());
+      return { ...prev, [currentType]: list };
+    });
+    dispatch(setSuccess(`New indicator added successfully`));
+  };
+
+  const handleRemoveIndicator = (sIdx, iIdx) => {
+    setSectionsByType((prev) => {
+      const list = [...prev[currentType]];
+      list[sIdx].indicators.splice(iIdx, 1);
+      return { ...prev, [currentType]: list };
+    });
+    dispatch(setSuccess(`Indicator ${iIdx + 1} deleted successfully`));
+  };
+
+  const handleMoveUp = (sIdx, iIdx) =>
+    setSectionsByType((prev) => {
+      const list = [...prev[currentType]];
+      if (iIdx > 0) {
+        const indicators = list[sIdx].indicators;
+        [indicators[iIdx - 1], indicators[iIdx]] = [
+          indicators[iIdx],
+          indicators[iIdx - 1],
+        ];
+      }
+      return { ...prev, [currentType]: list };
+    });
+
+  const handleMoveDown = (sIdx, iIdx) =>
+    setSectionsByType((prev) => {
+      const list = [...prev[currentType]];
+      const indicators = list[sIdx].indicators;
+      if (iIdx < indicators.length - 1) {
+        [indicators[iIdx], indicators[iIdx + 1]] = [
+          indicators[iIdx + 1],
+          indicators[iIdx],
+        ];
+      }
+      return { ...prev, [currentType]: list };
+    });
+
+  const handleMoveSectionUp = (sIdx) =>
+    setSectionsByType((prev) => {
+      const list = [...prev[currentType]];
+      if (sIdx > 0) {
+        [list[sIdx - 1], list[sIdx]] = [list[sIdx], list[sIdx - 1]];
+      }
+      return { ...prev, [currentType]: list };
+    });
+
+  const handleMoveSectionDown = (sIdx) =>
+    setSectionsByType((prev) => {
+      const list = [...prev[currentType]];
+      if (sIdx < list.length - 1) {
+        [list[sIdx], list[sIdx + 1]] = [list[sIdx + 1], list[sIdx]];
+      }
+      return { ...prev, [currentType]: list };
+    });
+
+  const [targetLimitError, setTargetLimitError] = useState({});
+  const mode = "edit";
+
+  // const handleIndicatorChange = (sIdx, iIdx, key, value, extra = {}) => {
+  //   return setSectionsByType((prev) => {
+  //     const list = [...prev[currentType]];
+  //     // 🚫 Block indicator activation if section inactive
+  //     const section = prev[currentType][sIdx];
+  //     if (key === "active" && value === true && section.active === false) {
+  //       return prev;
+  //     }
+  //     const indicator = list[sIdx].indicators[iIdx];
+  //     if (key === "targets") {
+  //       const { targetKey, newValue } = extra;
+  //       const unitType = indicator.unit;
+
+  //       const isSpecialUnit = unitType === 9 || unitType === 10;
+
+  //       if (indicator.measurementType === 2 && !isSpecialUnit) {
+  //         const total =
+  //           Object.entries(indicator.targets || {})
+  //             .filter(([k]) => k !== targetKey)
+  //             .reduce((sum, [, v]) => sum + parseInt(v || "0", 10), 0) +
+  //           parseInt(newValue || "0", 10);
+
+  //         const maxLimit = parseInt(indicator.preTarget || 0, 10);
+
+  //         if (total !== maxLimit) {
+  //           setTargetLimitError((prev) => ({
+  //             ...prev,
+  //             [`${sIdx}_${iIdx}_${targetKey}`]: true,
+  //           }));
+  //           return prev;
+  //         }
+
+  //         setTargetLimitError((prev) => {
+  //           const updated = { ...prev };
+  //           delete updated[`${sIdx}_${iIdx}_${targetKey}`];
+  //           return updated;
+  //         });
+  //       }
+
+  //       list[sIdx].indicators[iIdx].targets = {
+  //         ...indicator.targets,
+  //         [targetKey]: newValue,
+  //       };
+  //     } else {
+  //       indicator[key] = value;
+
+  //       if (key === "measurementType") {
+  //         indicator.unit = value === 1 ? 8 : "";
+  //       }
+
+  //       if (key === "preTarget" && id === undefined) {
+  //         indicator["prePreTarget"] = value;
+  //       }
+  //     }
+
+  //     return { ...prev, [currentType]: list };
+  //   });
+  // };
+
+  const toInt = (x) => {
+    const n = parseInt((x ?? "").toString().trim(), 10);
+    return Number.isFinite(n) ? n : 0;
+  };
+
+  // Same keys you already used in your other validation
+  const frequencyKeysMap = {
+    2: ["Year"], // Yearly (1 box)
+    3: ["First Quarter", "Second Quarter", "Third Quarter", "Fourth Quarter"], // Quarterly (4 boxes)
+    4: ["First Half", "Second Half"], // Half-Yearly (2 boxes)
+  };
+
+  const handleIndicatorChange = (sIdx, iIdx, key, value, extra = {}) => {
+    return setSectionsByType((prev) => {
+      const sections = prev[currentType];
+      const originalSection = sections[sIdx];
+
+      if (
+        key === "active" &&
+        value === true &&
+        originalSection.active === false
+      ) {
+        return prev;
+      }
+
+      const list = [...sections];
+      const section = { ...originalSection };
+      list[sIdx] = section;
+
+      const indicators = [...section.indicators];
+      section.indicators = indicators;
+
+      const indicator = { ...indicators[iIdx] };
+      indicators[iIdx] = indicator;
+
+      if (key === "targetsReset") {
+        indicator.targets = value; // {} or []
+        setFieldErrors((prev) => {
+          const next = { ...prev };
+          Object.keys(next).forEach((k) => {
+            if (k.startsWith(`${currentType}_${sIdx}_${iIdx}_targets_`)) {
+              delete next[k];
+            }
+          });
+          return next;
+        });
+        return { ...prev, [currentType]: list };
+      }
+
+      if (key === "targets") {
+        const { targetKey, newValue, strict = false } = extra;
+        const unitType = indicator.unit;
+        const isSpecialUnit = unitType === 9 || unitType === 10; // 9=range, 10=ratio
+
+        const nextTargets = {
+          ...(indicator.targets || {}),
+          [targetKey]: newValue,
+        };
+        if (
+          indicator.measurementType === 2 &&
+          !isSpecialUnit &&
+          !isSpecialUnit
+        ) {
+          const freq = indicator.frequency;
+          const freqKeys = frequencyKeysMap[freq] || [];
+          const keysToSum = freqKeys.length
+            ? freqKeys
+            : Object.keys(nextTargets);
+          const isNational = indicator.measurementArea === 2;
+
+          if (isNational) {
+            const total = keysToSum.reduce(
+              (sum, k) => sum + toInt(nextTargets[k]),
+              0,
+            );
+            const maxLimit = toInt(indicator.preTarget);
+
+            const allFilled = keysToSum.every((k) => {
+              const v = nextTargets[k];
+              if (v === undefined || v === null) return false;
+              return String(v).trim() !== "";
+            });
+
+            const isValidDuringTyping = total <= maxLimit;
+            const isValidOnBlur = allFilled && total === maxLimit;
+            const isValid = strict ? isValidOnBlur : isValidDuringTyping;
+
+            // 🔑 include currentType to disambiguate keys
+            setTargetLimitError((prevErr) => {
+              const updated = { ...prevErr };
+              keysToSum.forEach(
+                (k) => delete updated[`${currentType}_${sIdx}_${iIdx}_${k}`],
+              );
+              if (!isValid) {
+                keysToSum.forEach((k) => {
+                  updated[`${currentType}_${sIdx}_${iIdx}_${k}`] = true;
+                });
+              }
+              return updated;
+            });
+
+            // (Optional) inline helper text in fieldErrors (also type-aware)
+            // setFieldErrors((prev) => {
+            //   const next = { ...prev };
+            //   const msg = !isValid
+            //     ? `Sum ${total} must ${strict ? "equal" : "not exceed"} ${maxLimit}`
+            //     : undefined;
+            //   keysToSum.forEach((k) => {
+            //     const key = `${currentType}_${sIdx}_${iIdx}_targets_${k}`;
+            //     if (msg) next[key] = msg; else delete next[key];
+            //   });
+            //   return next;
+            // });
+          }
+        }
+
+        indicator.targets = nextTargets;
+      } else {
+        indicator[key] = value;
+
+        if (key === "measurementType") {
+          indicator.unit = value === 1 ? 8 : "";
+        }
+
+        if (key === "preTarget" && indicator.id === undefined) {
+          indicator["prePreTarget"] = value;
+        }
+      }
+
+      return { ...prev, [currentType]: list };
+    });
+  };
+  const handleSaveDraft = async () => {
+    const ministry = dummyMinistries.find((m) => m.id === selectedMinistry?.id);
+    const department = dummyDepartments.find(
+      (d) => d.id === selectedDepartment?.id,
+    );
+    const schemeType = dummySchemeTypes.find(
+      (st) => st.id === selectedSchemeType?.id,
+    );
+    const scheme = dummySchemes.find((s) => s.id === selectedScheme?.id);
+    const subScheme = dummySubSchemes.find(
+      (s) => s.id === selectedSubScheme?.id,
+    );
+
+    const payload = {
+      financialYear,
+      ministryId: ministry && { id: ministry.id, name: ministry.name },
+      departmentId: department && {
+        id: department.id,
+        name: department.name,
+      },
+      schemeTypeId: schemeType && {
+        id: schemeType.id,
+        name: schemeType.name,
+      },
+      schemeId: scheme && { id: scheme.id, name: scheme.name },
+      subSchemeId: subScheme && { id: subScheme.id, name: subScheme.name },
+      financialOutlay,
+      indicatorData: Object.entries(sectionsByType).map(([type, secs]) => ({
+        indicatorType: dummyIndicatorTypes.find((it) => it.name === type) && {
+          id: dummyIndicatorTypes.find((it) => it.name === type).id,
+          name: dummyIndicatorTypes.find((it) => it.name === type).name,
+          footNote: footnoteIndicatorType[type?.toLowerCase()],
+        },
+        sections: secs.map((section) => ({
+          ...section,
+          indicators: section.indicators.map((ind) => {
+            const measurementAreaObj =
+              ind.measurementArea &&
+              (() => {
+                const u = dummyMeasurementArea.find(
+                  (x) => x.id === ind.measurementArea,
+                );
+                return u && { id: u.id, name: u.name };
+              })();
+
+            const hasTargets =
+              ind.targets &&
+              (Array.isArray(ind.targets)
+                ? ind.targets.length > 0
+                : Object.keys(ind.targets).length > 0);
+
+            // Conditional targets logic
+            const targetsValue = hasTargets
+              ? ind.targets
+              : ind.measurementArea === 1 || ind.measurementArea === 3
+                ? []
+                : ind.measurementArea === 2
+                  ? {}
+                  : [];
+
+            return {
+              name: ind.name,
+              footNoteIndicatorName: ind?.footNoteIndicatorName,
+              footNoteIndicatorTarget: ind?.footNoteIndicatorTarget,
+              active: ind.active,
+              targets: targetsValue,
+              preTarget: ind.preTarget,
+              prePreTarget: ind?.prePreTarget,
+              targetAmenable: ind.targetAmenable,
+              measurementType:
+                ind.measurementType &&
+                (() => {
+                  const mt = dummyMeasurementTypes.find(
+                    (m) => m.id === ind.measurementType,
+                  );
+                  return mt && { id: mt.id, name: mt.name };
+                })(),
+              unit:
+                ind.unit &&
+                (() => {
+                  const u = dummyUnits.find((x) => x.id === ind.unit);
+                  return u && { id: u.id, name: u.name };
+                })(),
+              scale:
+                ind.scale &&
+                (() => {
+                  const u = dummyScales.find((x) => x.id === ind.scale);
+                  return u && { id: u.id, name: u.name };
+                })(),
+              measurementArea: measurementAreaObj,
+              indicatorRise:
+                ind.indicatorRise &&
+                (() => {
+                  const u = dummyIndicatorRise.find(
+                    (x) => x.id === ind.indicatorRise,
+                  );
+                  return u && { id: u.id, name: u.name };
+                })(),
+              sdg:
+                ind.sdg &&
+                (() => {
+                  const u = dummySdg.find((x) => x.id === ind.sdg);
+                  return u && { id: u.id, name: u.name };
+                })(),
+              period:
+                ind.period &&
+                (() => {
+                  const u = dummyPeriod.find((x) => x.id === ind.period);
+                  return u && { id: u.id, name: u.name };
+                })(),
+              applicableCategory:
+                ind.applicableCategory &&
+                (() => {
+                  const u = dummyCategoty.find(
+                    (x) => x.id === ind.applicableCategory,
+                  );
+                  return u && { id: u.id, name: u.name };
+                })(),
+              frequency:
+                ind.frequency &&
+                (() => {
+                  const f = dummyFrequencies.find(
+                    (x) => x.id === ind.frequency,
+                  );
+                  return f && { id: f.id, name: f.name };
+                })(),
+              indicator: (() => {
+                if (typeof ind.indicator === "number") {
+                  const f = originalDummyIndicator.find(
+                    (x) => x.id === ind.indicator,
+                  );
+                  return f && { id: f.id, name: f.name };
+                } else if (typeof ind.indicator === "string") {
+                  return { id: null, name: ind.indicator.trim() };
+                }
+                return null;
+              })(),
+            };
+          }),
+        })),
+      })),
+    };
+
+    const updatedPayload = {
+      metaData: payload,
+      moduleId: mappedPrivileges?.sectionId,
+      subModuleId: null,
+      userId: userData?.id,
+      created_by: userData?.id,
+      updated_by: userData?.id,
+      frameworkId: 3,
+      schemeId: scheme?.id,
+      subSchemeId: subScheme?.id,
+    };
+    dispatch(startLoader());
+    try {
+      // 3️⃣ Call the createOrUpdateDraft API
+      const response = await apiClient.post(
+        "/api/master/create-or-update-draft",
+        updatedPayload,
+      );
+      const { data, message } = response?.data;
+      dispatch(setSuccess(message || "Draft saved successfully"));
+      router.push("/niti/oomf/oomfDashboard/oomfDashboard");
+
+      // Optionally navigate or reset form
+    } catch (error) {
+      console.error("Failed to save draft:", error);
+      dispatch(
+        setError(error?.response?.data?.message || "Failed to save draft"),
+      );
+    } finally {
+      dispatch(stopLoader());
+    }
+  };
+
+  // ─────────────────────────────────────────────────────────────
+  // Helpers (put once, near your handler file)
+  // ─────────────────────────────────────────────────────────────
+
+  // NATIONAL (measurementArea === 2) — targets is an object: { "First Quarter": "10", ... }
+  function sumNationalTargetsForFrequency(ind) {
+    if (!ind || !ind.targets || Array.isArray(ind.targets)) return 0;
+    const keys = frequencyKeysMap[ind.frequency] || [];
+    if (!keys.length) return 0;
+    return keys.reduce((s, k) => s + toInt(ind.targets[k]), 0);
   }
-};
+
+  // STATE (measurementArea === 3) — targets is an array of states: [{ targets: { ... }}, ...]
+  function sumStateTargetsForFrequency(ind) {
+    if (!ind || !Array.isArray(ind.targets)) return 0;
+    const keys = frequencyKeysMap[ind.frequency] || [];
+    if (!keys.length) return 0;
+
+    let total = 0;
+    for (const state of ind.targets) {
+      const t = state?.targets || {};
+      for (const k of keys) total += toInt(t[k]);
+    }
+    return total;
+  }
+
+  // DISTRICT (measurementArea === 1) — targets is an array of states, each with connectedDistricts
+  function sumDistrictTargetsForFrequency(ind) {
+    if (!ind || !Array.isArray(ind.targets)) return 0;
+    const keys = frequencyKeysMap[ind.frequency] || [];
+    if (!keys.length) return 0;
+
+    let total = 0;
+    for (const state of ind.targets) {
+      for (const dist of state?.connectedDistricts || []) {
+        const t = dist?.targets || {};
+        for (const k of keys) total += toInt(t[k]);
+      }
+    }
+    return total;
+  }
+
+  const hasNonEmpty = (val) => {
+    if (val === null || val === undefined) return false;
+    if (typeof val === "number") return Number.isFinite(val);
+    if (typeof val === "string") return val.trim() !== "";
+    // For safety, stringify other primitives
+    return String(val).trim() !== "";
+  };
+
+  function buildTargetLimitErrorMessage(
+    targetLimitError,
+    sectionsByType,
+    inputRefs,
+  ) {
+    const firstKey = Object.keys(targetLimitError)[0];
+    if (!firstKey) return "Target totals do not match the required value.";
+
+    // Parse "Output_0_0_Year" -> type="Output", sIdx=0, iIdx=0, labelKey="Year"
+    const [type, sIdxStr, iIdxStr, ...rest] = firstKey.split("_");
+    const sIdx = Number(sIdxStr);
+    const iIdx = Number(iIdxStr);
+    const labelKey = rest.join("_");
+
+    const sectionList = sectionsByType[type] || [];
+    const section = sectionList[sIdx];
+
+    const sectionName = section?.name ?? `Section ${sIdx + 1}`;
+    const indicator = section?.indicators?.[iIdx];
+
+    // Focus the first offending input (type-aware key)
+    const refKey = `${type}_${sIdx}_${iIdx}_targets_${labelKey}`;
+    const el = inputRefs?.current?.[refKey];
+    if (el && typeof el.focus === "function") setTimeout(() => el.focus(), 0);
+
+    const indicatorTitle =
+      typeof indicator?.indicator === "string"
+        ? indicator.indicator
+        : (indicator?.indicator?.label ?? `Indicator ${iIdx + 1}`);
+
+    const preTarget = toInt(indicator?.preTarget);
+    const freq = indicator?.frequency;
+    const freqKeys = frequencyKeysMap[freq] || [];
+    const freqName =
+      freq === 2
+        ? "Yearly"
+        : freq === 3
+          ? "Quarterly"
+          : freq === 4
+            ? "Half-Yearly"
+            : "Selected frequency";
+    const keysList = freqKeys.length
+      ? ` [${freqKeys.join(", ")}]`
+      : ` (${labelKey})`;
+
+    // Compute grand total depending on measurementArea
+    let total = 0;
+    const isNumeric =
+      indicator?.measurementType === 2 && ![9, 10].includes(indicator?.unit);
+    if (isNumeric) {
+      if (
+        indicator?.measurementArea === 2 &&
+        !Array.isArray(indicator?.targets)
+      ) {
+        total = sumNationalTargetsForFrequency(indicator);
+      } else if (
+        indicator?.measurementArea === 3 &&
+        Array.isArray(indicator?.targets)
+      ) {
+        total = sumStateTargetsForFrequency(indicator);
+      } else if (
+        indicator?.measurementArea === 1 &&
+        Array.isArray(indicator?.targets)
+      ) {
+        total = sumDistrictTargetsForFrequency(indicator);
+      }
+    } else {
+      // Fallback single value (for completeness)
+      total = Array.isArray(indicator?.targets)
+        ? 0
+        : toInt(indicator?.targets?.[labelKey]);
+    }
+
+    if (Number.isFinite(preTarget)) {
+      return `For "${type}" → "${sectionName}" → "${indicatorTitle}" • ${freqName}${keysList}, the sum of targets is ${total} but must equal ${preTarget}. Please adjust the values.`;
+    }
+    return `For "${type}" → "${sectionName}" → "${indicatorTitle}" • ${freqName}${keysList}, the sum of targets must equal the required value. Please adjust the values.`;
+  }
+
+  function validateStateCoverage(ind) {
+    if (ind?.measurementArea !== 3) return { valid: true };
+    const allowed = frequencyKeysMap[ind.frequency] || [];
+    console.log(allowed, "coverage");
+    if (!Array.isArray(ind.targets) || allowed.length === 0)
+      return { valid: true };
+
+    const coverage = new Set();
+    const allowedSet = new Set(allowed);
+
+    for (const state of ind.targets) {
+      const t = state?.targets || {};
+      for (const [key, raw] of Object.entries(t)) {
+        if (allowedSet.has(key) && hasNonEmpty(raw)) coverage.add(key);
+      }
+    }
+
+    if (
+      (ind.frequency === 3 || ind.frequency === 4) &&
+      coverage.size < allowed.length
+    ) {
+      const missing = allowed.filter((k) => !coverage.has(k));
+      const fqName = ind.frequency === 3 ? "Quarterly" : "Half-Yearly";
+      return {
+        valid: false,
+        message: `For ${fqName} frequency, there must be at least one STATE entry for: ${missing.join(", ")}`,
+      };
+    }
+    return { valid: true };
+  }
+
+  function validateDistrictCoverage(ind) {
+    if (ind?.measurementArea !== 1) return { valid: true };
+    const allowed = frequencyKeysMap[ind.frequency] || [];
+    if (!Array.isArray(ind.targets) || allowed.length === 0)
+      return { valid: true };
+
+    const coverage = new Set();
+    const allowedSet = new Set(allowed);
+
+    for (const state of ind.targets) {
+      for (const dist of state?.connectedDistricts || []) {
+        const t = dist?.targets || {};
+        for (const [key, raw] of Object.entries(t)) {
+          if (allowedSet.has(key) && hasNonEmpty(raw)) coverage.add(key);
+        }
+      }
+    }
+
+    if (
+      (ind.frequency === 3 || ind.frequency === 4) &&
+      coverage.size < allowed.length
+    ) {
+      const missing = allowed.filter((k) => !coverage.has(k));
+      const fqName = ind.frequency === 3 ? "Quarterly" : "Half-Yearly";
+      return {
+        valid: false,
+        message: `For ${fqName} frequency, there must be at least one DISTRICT entry for: ${missing.join(", ")}`,
+      };
+    }
+    return { valid: true };
+  }
+
+  // State-level validator (quantitative, non-special units) + coverage for Q/H
+  function validateStateTargetsSum(ind) {
+    if (!ind || ind.measurementArea !== 3) {
+      return { valid: true, total: 0, preTarget: toInt(ind?.preTarget) };
+    }
+    const isNumeric = ind.measurementType === 2 && ![9, 10].includes(ind.unit);
+    if (!isNumeric)
+      return { valid: true, total: 0, preTarget: toInt(ind?.preTarget) };
+
+    const allowed = frequencyKeysMap[ind.frequency] || [];
+    const allowedSet = new Set(allowed);
+    const preTarget = toInt(ind.preTarget);
+    if (!Number.isFinite(preTarget)) {
+      return {
+        valid: false,
+        total: 0,
+        preTarget,
+        message: "preTarget must be a number for quantitative state indicators",
+      };
+    }
+    if (!Array.isArray(ind.targets) || allowed.length === 0) {
+      return { valid: true, total: 0, preTarget };
+    }
+
+    let total = 0;
+    const invalidKeys = new Set();
+    const coverage = new Set(); // <- track which periods have at least one entry
+
+    for (const state of ind.targets) {
+      const t = state?.targets || {};
+      for (const [key, raw] of Object.entries(t)) {
+        const s = (raw ?? "").toString().trim();
+        if (!allowedSet.has(key)) {
+          if (s !== "") invalidKeys.add(key);
+          continue;
+        }
+        if (hasNonEmpty(raw)) coverage.add(key);
+        total += toInt(s);
+      }
+    }
+
+    if (invalidKeys.size > 0) {
+      return {
+        valid: false,
+        total,
+        preTarget,
+        invalidKeys: [...invalidKeys],
+        message: `Found keys not allowed for selected frequency: ${[...invalidKeys].join(", ")}`,
+      };
+    }
+
+    // Enforce per-period coverage for Quarterly / Half-Yearly
+    if (
+      (ind.frequency === 3 || ind.frequency === 4) &&
+      coverage.size < allowed.length
+    ) {
+      const missing = allowed.filter((k) => !coverage.has(k));
+      const fqName = ind.frequency === 3 ? "Quarterly" : "Half-Yearly";
+      return {
+        valid: false,
+        total,
+        preTarget,
+        message: `For ${fqName} frequency, there must be at least one STATE entry for: ${missing.join(", ")}`,
+      };
+    }
+
+    if (total !== preTarget) {
+      return {
+        valid: false,
+        total,
+        preTarget,
+        message: `Sum of all state targets (${total}) must equal preTarget (${preTarget}).`,
+      };
+    }
+    return { valid: true, total, preTarget };
+  }
+
+  // District-level validator (quantitative, non-special units) + coverage for Q/H
+  function validateDistrictTargetsSum(ind) {
+    if (!ind || ind.measurementArea !== 1) {
+      return { valid: true, total: 0, preTarget: toInt(ind?.preTarget) };
+    }
+    const isNumeric = ind.measurementType === 2 && ![9, 10].includes(ind.unit);
+    if (!isNumeric)
+      return { valid: true, total: 0, preTarget: toInt(ind?.preTarget) };
+
+    const allowed = frequencyKeysMap[ind.frequency] || [];
+    const allowedSet = new Set(allowed);
+    const preTarget = toInt(ind.preTarget);
+    if (!Number.isFinite(preTarget)) {
+      return {
+        valid: false,
+        total: 0,
+        preTarget,
+        message:
+          "preTarget must be a number for quantitative district indicators",
+      };
+    }
+    if (!Array.isArray(ind.targets) || allowed.length === 0) {
+      return { valid: true, total: 0, preTarget };
+    }
+
+    let total = 0;
+    const invalidKeys = new Set();
+    const coverage = new Set(); // <- track which periods have at least one entry
+
+    for (const state of ind.targets) {
+      for (const dist of state?.connectedDistricts || []) {
+        const t = dist?.targets || {};
+        for (const [key, raw] of Object.entries(t)) {
+          const s = (raw ?? "").toString().trim();
+          if (!allowedSet.has(key)) {
+            if (s !== "") invalidKeys.add(key);
+            continue;
+          }
+          if (hasNonEmpty(raw)) coverage.add(key);
+          total += toInt(s);
+        }
+      }
+    }
+
+    if (invalidKeys.size > 0) {
+      return {
+        valid: false,
+        total,
+        preTarget,
+        invalidKeys: [...invalidKeys],
+        message: `Found keys not allowed for selected frequency: ${[...invalidKeys].join(", ")}`,
+      };
+    }
+
+    // Enforce per-period coverage for Quarterly / Half-Yearly
+    if (
+      (ind.frequency === 3 || ind.frequency === 4) &&
+      coverage.size < allowed.length
+    ) {
+      const missing = allowed.filter((k) => !coverage.has(k));
+      const fqName = ind.frequency === 3 ? "Quarterly" : "Half-Yearly";
+      return {
+        valid: false,
+        total,
+        preTarget,
+        message: `For ${fqName} frequency, there must be at least one DISTRICT entry for: ${missing.join(", ")}`,
+      };
+    }
+
+    if (total !== preTarget) {
+      return {
+        valid: false,
+        total,
+        preTarget,
+        message: `Sum of all district targets (${total}) must equal preTarget (${preTarget}).`,
+      };
+    }
+    return { valid: true, total, preTarget };
+  }
+  function sumTargetsForFrequency(ind) {
+    if (!ind || !ind.targets) return 0;
+    const keys = frequencyKeysMap[ind.frequency] || [];
+    if (!keys.length) return 0;
+    if (Array.isArray(ind.targets)) {
+      // If you ever need State/District sums here, aggregate nested lists.
+      // For now, we assume the sum-equality rule applies to National only.
+      return 0;
+    }
+    return keys.reduce((s, k) => s + toInt(ind.targets[k]), 0);
+  }
+  // Submit handler with mapping to only id/name objects
+  const handleSubmit = async () => {
+    if (!userData) return;
+
+    // BEFORE checking outputs / outcomes
+    if (targetLimitError && Object.keys(targetLimitError).length > 0) {
+      const msg = buildTargetLimitErrorMessage(
+        targetLimitError,
+        sectionsByType,
+        inputRefs,
+      );
+      dispatch(setError(msg));
+      return;
+    }
+
+    const outputs = sectionsByType["Output"] || [];
+    const outcomes = sectionsByType["Outcome"] || [];
+
+    // --- Must have at least one Output & Outcome with indicators ---
+    if (!outputs.length || !outputs.some((s) => s.indicators?.length > 0)) {
+      dispatch(
+        setError("At least one Output section with one indicator is required."),
+      );
+      return;
+    }
+
+    if (!outcomes.length || !outcomes.some((s) => s.indicators?.length > 0)) {
+      dispatch(
+        setError(
+          "At least one Outcome section with one indicator is required.",
+        ),
+      );
+      return;
+    }
+
+    // --- Validate targets ---
+    // const validateTargets = (ind) => {
+    //   if (type !== "addFrequency")
+    //     return {
+    //       valid: true,
+    //       message: "Completed",
+    //     };
+
+    //   if (
+    //     !ind.targets ||
+    //     (Array.isArray(ind.targets) && ind.targets.length === 0)
+    //   ) {
+    //     const msg =
+    //       ind.measurementArea === 2
+    //         ? "National targets missing"
+    //         : ind.measurementArea === 3
+    //           ? "State targets missing"
+    //           : "District targets missing";
+    //     return { valid: false, message: msg };
+    //   }
+
+    //   const frequencyKeysMap = {
+    //     2: ["Year"], // Yearly
+    //     3: [
+    //       "First Quarter",
+    //       "Second Quarter",
+    //       "Third Quarter",
+    //       "Fourth Quarter",
+    //     ], // Quarterly
+    //     4: ["First Half", "Second Half"], // Half-Yearly
+    //   };
+
+    //   const requiredKeys = frequencyKeysMap[ind.frequency] || [];
+
+    //   const checkValue = (val) => {
+    //     if (val === undefined || val === null) return false;
+    //     if (typeof val === "string") val = val.trim();
+    //     if (val === "") return false;
+
+    //     if (ind.unit === 10) return /^\d+:\d+$/.test(val); // ratio
+    //     if (ind.unit === 9) return /^\d+-\d+$/.test(val); // range
+    //     if (![8, 9, 10].includes(ind.unit)) return !isNaN(Number(val)); // numeric
+    //     return true; // descriptive/other
+    //   };
+
+    //   const missingKeys = [];
+
+    //   switch (ind.measurementArea) {
+    //     case 2: // National
+    //       requiredKeys.forEach((key) => {
+    //         if (!checkValue(ind.targets[key])) missingKeys.push(key);
+    //       });
+    //       break;
+
+    //     case 3: // State
+    //       requiredKeys.forEach((key) => {
+    //         const filled = ind.targets.some(
+    //           (state) => state.targets && checkValue(state.targets[key]),
+    //         );
+    //         if (!filled) missingKeys.push(key);
+    //       });
+    //       break;
+
+    //     case 1: // District
+    //       requiredKeys.forEach((key) => {
+    //         const filled = ind.targets.some(
+    //           (state) =>
+    //             Array.isArray(state.connectedDistricts) &&
+    //             state.connectedDistricts.some((dist) =>
+    //               checkValue(dist.targets[key]),
+    //             ),
+    //         );
+    //         if (!filled) missingKeys.push(key);
+    //       });
+    //       break;
+
+    //     default:
+    //       break;
+    //   }
+
+    //   if (missingKeys.length) {
+    //     return {
+    //       valid: false,
+    //       message: `Missing/invalid targets for: ${missingKeys.join("; ")}`,
+    //     };
+    //   }
+
+    //   return { valid: true };
+    // };
+
+    // --- Validate targets ---
+    const validateTargets = (ind) => {
+      // If we're not in addFrequency flow, skip strict target validation
+      if (type !== "addFrequency") {
+        return { valid: true, message: "Completed" };
+      }
+
+      // --- Basic presence check (same as your earlier logic) ---
+      const hasTargets =
+        ind.targets &&
+        (Array.isArray(ind.targets)
+          ? ind.targets.length > 0
+          : Object.keys(ind.targets).length > 0);
+
+      if (!hasTargets) {
+        const msg =
+          ind.measurementArea === 2
+            ? "National targets missing"
+            : ind.measurementArea === 3
+              ? "State targets missing"
+              : "District targets missing";
+        return { valid: false, message: msg };
+      }
+
+      // Quantitative and non-special units (skip sum-equality for ratio=10 / range=9 / descriptive=8)
+      const isNumericNonSpecial =
+        ind.measurementType === 2 && ![9, 10].includes(ind.unit);
+
+      // --- National (measurementArea === 2) ---
+      if (isNumericNonSpecial && ind.measurementArea === 2) {
+        const requiredKeys = frequencyKeysMap[ind.frequency] || [];
+        if (requiredKeys.length) {
+          const preTarget = toInt(ind.preTarget);
+          const total = sumTargetsForFrequency(ind); // sums only the relevant freq keys for National
+
+          if (!Number.isFinite(preTarget) || preTarget < 0) {
+            return {
+              valid: false,
+              message:
+                "Target (preTarget) must be a non-negative number for quantitative National indicators",
+            };
+          }
+
+          if (total !== preTarget) {
+            const fqName =
+              ind.frequency === 2
+                ? "Yearly"
+                : ind.frequency === 3
+                  ? "Quarterly"
+                  : ind.frequency === 4
+                    ? "Half-Yearly"
+                    : "Selected frequency";
+            return {
+              valid: false,
+              message: `${fqName} totals (${requiredKeys.join(
+                ", ",
+              )}) must sum to ${preTarget}, but current sum is ${total}`,
+            };
+          }
+        }
+
+        // if no required keys (unknown frequency), treat as valid
+        return { valid: true };
+      }
+
+      // --- State (measurementArea === 3) ---
+      if (isNumericNonSpecial && ind.measurementArea === 3) {
+        const result = validateStateTargetsSum(ind); // uses allowed keys per frequency + coverage
+        if (!result.valid) {
+          return {
+            valid: false,
+            message: result.message || "State targets sum mismatch",
+          };
+        }
+        return { valid: true };
+      }
+
+      // For NON-numeric state indicators, still enforce coverage for Q/H
+      if (!isNumericNonSpecial && ind.measurementArea === 3) {
+        const result = validateStateCoverage(ind);
+        if (!result.valid) return { valid: false, message: result.message };
+        return { valid: true };
+      }
+
+      // --- District (measurementArea === 1) ---
+      if (isNumericNonSpecial && ind.measurementArea === 1) {
+        const result = validateDistrictTargetsSum(ind); // uses allowed keys per frequency + coverage
+        if (!result.valid) {
+          return {
+            valid: false,
+            message: result.message || "District targets sum mismatch",
+          };
+        }
+        return { valid: true };
+      }
+
+      // For NON-numeric district indicators, still enforce coverage for Q/H
+      if (!isNumericNonSpecial && ind.measurementArea === 1) {
+        const result = validateDistrictCoverage(ind);
+        if (!result.valid) return { valid: false, message: result.message };
+        return { valid: true };
+      }
+
+      // For qualitative/descriptive/range/ratio, sum-equality is not enforced here
+      return { valid: true };
+    };
+    // --- Validate individual indicator ---
+    const isIndicatorComplete = (ind) => {
+      const requiredFields = [
+        "indicator",
+        "measurementType",
+        "unit",
+        "measurementArea",
+        "indicatorRise",
+        "period",
+      ];
+
+      for (const field of requiredFields) {
+        if (
+          ind[field] === undefined ||
+          ind[field] === null ||
+          ind[field] === ""
+        ) {
+          return { valid: false, message: `Missing field ${field}` };
+        }
+      }
+
+      if (!ind.frequency && type === "addFrequency")
+        return {
+          valid: false,
+          message: "Frequency is required for all indicators",
+        };
+
+      if (ind.measurementType === 1 && !ind.targetAmenable) {
+        return {
+          valid: false,
+          message: "Target amenable required for qualitative indicator",
+        };
+      }
+
+      if (ind.measurementType === 2) {
+        if (ind.unit === 8 && !ind.targetAmenable) {
+          return {
+            valid: false,
+            message: "Target amenable required for descriptive unit",
+          };
+        } else if (ind.unit !== 8 && !ind.preTarget) {
+          return {
+            valid: false,
+            // message: "Pre-target required for quantitative unit",
+            message: "Target required for quantitative unit",
+          };
+        }
+        if (!ind.scale)
+          return {
+            valid: false,
+            message: "Scale required for quantitative indicator",
+          };
+      }
+
+      return validateTargets(ind);
+    };
+
+    // --- Validate section ---
+    const isSectionValid = (section, sectionTypeName) => {
+      if (!section.name || section.name.trim() === "") {
+        return {
+          valid: false,
+          message: `${sectionTypeName} Section name is required`,
+        };
+      }
+
+      if (!section.indicators || section.indicators.length === 0) {
+        return {
+          valid: false,
+          message: `Section "${section.name}" must have at least one indicator`,
+        };
+      }
+
+      for (const ind of section.indicators) {
+        const result = isIndicatorComplete(ind);
+        if (!result.valid) {
+          return {
+            valid: false,
+            message: `Indicator in section "${section.name}" error: ${result.message}`,
+          };
+        }
+      }
+
+      return { valid: true };
+    };
+
+    // Validate outputs
+    for (const section of outputs) {
+      const check = isSectionValid(section, "Output");
+      if (!check.valid) {
+        dispatch(setError(check.message));
+        return; // STOP submission
+      }
+    }
+
+    // Validate outcomes
+    for (const section of outcomes) {
+      const check = isSectionValid(section, "Outcome");
+      if (!check.valid) {
+        dispatch(setError(check.message));
+        return; // STOP submission
+      }
+    }
+
+    // --- Create payload & call API ---
+    dispatch(startLoader());
+    try {
+      const ministry = dummyMinistries.find(
+        (m) => m.id === selectedMinistry?.id,
+      );
+
+      const department = dummyDepartments.find(
+        (d) => d.id === selectedDepartment?.id,
+      );
+      const schemeType = dummySchemeTypes.find(
+        (st) => st.id === selectedSchemeType?.id,
+      );
+      const scheme = dummySchemes.find((s) => s.id === selectedScheme?.id);
+
+      const subScheme = dummySubSchemes.find(
+        (s) => s.id === selectedSubScheme?.id,
+      );
+
+      const payload = {
+        financialYear,
+        ministryId: ministry && { id: ministry.id, name: ministry.name },
+        departmentId: department && {
+          id: department.id,
+          name: department.name,
+        },
+        schemeTypeId: schemeType && {
+          id: schemeType.id,
+          name: schemeType.name,
+        },
+        schemeId: scheme && { id: scheme.id, name: scheme.name },
+        subSchemeId: subScheme && { id: subScheme.id, name: subScheme.name },
+        financialOutlay,
+        indicatorData: Object.entries(sectionsByType).map(([type, secs]) => ({
+          indicatorType: dummyIndicatorTypes.find((it) => it.name === type) && {
+            id: dummyIndicatorTypes.find((it) => it.name === type).id,
+            name: dummyIndicatorTypes.find((it) => it.name === type).name,
+            footNote: footnoteIndicatorType[type?.toLowerCase()],
+          },
+          sections: secs.map((section) => ({
+            ...section,
+            indicators: section.indicators.map((ind) => {
+              const measurementAreaObj =
+                ind.measurementArea &&
+                (() => {
+                  const u = dummyMeasurementArea.find(
+                    (x) => x.id === ind.measurementArea,
+                  );
+                  return u && { id: u.id, name: u.name };
+                })();
+
+              const hasTargets =
+                ind.targets &&
+                (Array.isArray(ind.targets)
+                  ? ind.targets.length > 0
+                  : Object.keys(ind.targets).length > 0);
+
+              // Conditional targets logic
+              const targetsValue = hasTargets
+                ? ind.targets
+                : ind.measurementArea === 1 || ind.measurementArea === 3
+                  ? []
+                  : ind.measurementArea === 2
+                    ? {}
+                    : [];
+
+              return {
+                name: ind.name,
+                footNoteIndicatorName: ind?.footNoteIndicatorName,
+                footNoteIndicatorTarget: ind?.footNoteIndicatorTarget,
+                active: ind.active,
+                targets: targetsValue,
+                preTarget: ind.preTarget,
+                prePreTarget: ind?.prePreTarget,
+                targetAmenable: ind.targetAmenable,
+                measurementType:
+                  ind.measurementType &&
+                  (() => {
+                    const mt = dummyMeasurementTypes.find(
+                      (m) => m.id === ind.measurementType,
+                    );
+                    return mt && { id: mt.id, name: mt.name };
+                  })(),
+                unit:
+                  ind.unit &&
+                  (() => {
+                    const u = dummyUnits.find((x) => x.id === ind.unit);
+                    return u && { id: u.id, name: u.name };
+                  })(),
+                scale:
+                  ind.scale &&
+                  (() => {
+                    const u = dummyScales.find((x) => x.id === ind.scale);
+                    return u && { id: u.id, name: u.name };
+                  })(),
+                measurementArea: measurementAreaObj,
+                indicatorRise:
+                  ind.indicatorRise &&
+                  (() => {
+                    const u = dummyIndicatorRise.find(
+                      (x) => x.id === ind.indicatorRise,
+                    );
+                    return u && { id: u.id, name: u.name };
+                  })(),
+                sdg:
+                  ind.sdg &&
+                  (() => {
+                    const u = dummySdg.find((x) => x.id === ind.sdg);
+                    return u && { id: u.id, name: u.name };
+                  })(),
+                period:
+                  ind.period &&
+                  (() => {
+                    const u = dummyPeriod.find((x) => x.id === ind.period);
+                    return u && { id: u.id, name: u.name };
+                  })(),
+                applicableCategory:
+                  ind.applicableCategory &&
+                  (() => {
+                    const u = dummyCategoty.find(
+                      (x) => x.id === ind.applicableCategory,
+                    );
+                    return u && { id: u.id, name: u.name };
+                  })(),
+                frequency:
+                  ind.frequency &&
+                  (() => {
+                    const f = dummyFrequencies.find(
+                      (x) => x.id === ind.frequency,
+                    );
+                    return f && { id: f.id, name: f.name };
+                  })(),
+                indicator: (() => {
+                  if (typeof ind.indicator === "number") {
+                    const f = originalDummyIndicator.find(
+                      (x) => x.id === ind.indicator,
+                    );
+
+                    return f && { id: f.id, name: f.name };
+                  } else if (typeof ind.indicator === "string") {
+                    return { id: null, name: ind.indicator.trim() };
+                  }
+                  return null;
+                })(),
+              };
+            }),
+          })),
+        })),
+      };
+
+      const validate = validateIndicatorSections(payload);
+      if (!validate.valid) {
+        dispatch(setError(validate.messages[0]));
+        return;
+      }
+
+      const reqData = {
+        user_id: userData.id,
+        scheme: true,
+        data: payload,
+        submission_id: moto === "draft" ? null : id,
+        isSubScheme: isSubScheme,
+
+        draftId: draftId,
+        schemeId: selectedScheme?.id,
+        subSchemeId: selectedSubScheme?.id,
+      };
+
+      const response = await apiClient.post(
+        "api/oomf/submissions/submit-scheme",
+        reqData,
+      );
+      const { message } = response.data;
+      // if (type !== "addFrequency") {
+      router.push("/niti/oomf/oomfDashboard/oomfDashboard");
+      // }
+      dispatch(setSuccess(message));
+    } catch (error) {
+      dispatch(setError(error.message));
+    } finally {
+      dispatch(stopLoader());
+    }
+  };
+
+  const [hoveredCancelIdx, setHoveredCancelIdx] = useState(null);
+  const [hoveredSectionIdx, setHoveredSectionIdx] = useState(null);
+
+  const initialTargetsMap = useMemo(() => {
+    const map = {};
+    sectionsByType[currentType].forEach((sec, sIdx) => {
+      sec?.indicators?.forEach((ind, iIdx) => {
+        map[`${sIdx}_${iIdx}`] = buildTargetsByMeasurementArea(ind);
+      });
+    });
+    return map;
+  }, [sectionsByType[currentType]]);
+
+  const onOpenFrequencyModal = ({ sectionIndex, indicatorIndex, label }) => {
+    setFootnoteContext({
+      sectionIndex,
+      indicatorIndex,
+    });
+    setCurrentField(label);
+    setOpenRemarkModal(true);
+  };
+
+  const onAddSection = () => {
+    handleAddSection();
+    dispatch(setSuccess(`${currentType} section added successfully`));
+  };
+
+  const draftShowCondition =
+    subRoleIds?.includes(1) &&
+    [10, 11, 1, 9].includes(userData?.orgType_id) &&
+    ((moto === "draft" && !!draftId) || // draft requires draftId
+      (moto !== "draft" && !id));
+
+  return (
+    <Box>
+      <SubmissionDialog
+        open={alertDialogOpen}
+        onClose={() => setAlertDialogOpen(false)}
+        onUpdate={() => {
+          setAlertDialogOpen(false);
+          if (previousSubmissionId)
+            router.push({
+              pathname: router.pathname,
+              query: { ...router.query, id: previousSubmissionId },
+            });
+        }}
+      />
+
+      {isSubScheme ? (
+        <OomfFormSubSchemeHeader
+          id={id}
+          moto={moto}
+          financialYear={financialYear}
+          setFinancialYear={setFinancialYear}
+          selectedMinistry={selectedMinistry}
+          setSelectedMinistry={setSelectedMinistry}
+          selectedDepartment={selectedDepartment}
+          setSelectedDepartment={setSelectedDepartment}
+          dummyMinistries={dummyMinistries}
+          dummyDepartments={dummyDepartments}
+          selectedSchemeType={selectedSchemeType}
+          setSelectedSchemeType={setSelectedSchemeType}
+          dummySchemeTypes={dummySchemeTypes}
+          selectedScheme={selectedScheme}
+          setSelectedScheme={setSelectedScheme}
+          dummySchemes={dummySchemes}
+          selectedSubScheme={selectedSubScheme}
+          setSelectedSubScheme={setSelectedSubScheme}
+          setDummySubSchemes={setDummySubSchemes}
+          financialOutlay={financialOutlay}
+          setFinancialOutlay={setFinancialOutlay}
+          changeSubSchemeHandler={(e) => {
+            if (e === true) {
+              router.push("/niti/create-sub-scheme-op-oc");
+            } else {
+              router.push("/niti/create-output-outcomes");
+            }
+          }}
+          setFiltersCompleted={setFiltersCompleted}
+          initialDraft={initialDraft}
+          handleSubmissionCheck={handleSubmissionCheck}
+          hasChecked={hasChecked}
+          setHasChecked={setHasChecked}
+        />
+      ) : (
+        <OomfFormHeader
+          financialYear={financialYear}
+          selectedMinistry={selectedMinistry}
+          setSelectedMinistry={setSelectedMinistry}
+          dummyMinistries={dummyMinistries}
+          selectedDepartment={selectedDepartment}
+          setSelectedDepartment={setSelectedDepartment}
+          dummyDepartments={dummyDepartments}
+          selectedSchemeType={selectedSchemeType}
+          setSelectedSchemeType={setSelectedSchemeType}
+          dummySchemeTypes={dummySchemeTypes}
+          selectedScheme={selectedScheme}
+          setSelectedScheme={setSelectedScheme}
+          dummySchemes={dummySchemes}
+          financialOutlay={financialOutlay}
+          setFinancialOutlay={setFinancialOutlay}
+          changeSubSchemeHandler={(e) => {
+            if (e === true) {
+              router.push("/niti/create-sub-scheme-op-oc");
+            } else {
+              router.push("/niti/create-output-outcomes");
+            }
+          }}
+          setFiltersCompleted={setFiltersCompleted}
+          initialDraft={initialDraft}
+          handleSubmissionCheck={handleSubmissionCheck}
+          hasChecked={hasChecked}
+          setHasChecked={setHasChecked}
+        />
+      )}
+
+      {filtersComplete && (
+        <>
+          <Box m={3}>
+            <IndicatorTypeSelector
+              indicatorData={dummyIndicatorTypes}
+              currentType={currentType}
+              setCurrentType={setCurrentType}
+            />
+          </Box>
+
+          {/* {!isReadOnly ? (
+            <Box mt={4} alignItems="center">
+              <Divider textAlign="left">
+                Add {currentType} & Indicator Details{" "}
+                <IconButton onClick={handleAddSection} sx={{ ml: 1 }}>
+                  <Add color="primary" />
+                </IconButton>
+              </Divider>
+            </Box>
+          ) : null} */}
+          {!isReadOnly && (
+            <Box mt={5} display="flex" justifyContent="flex-end">
+              <Box
+                sx={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 2,
+                  px: 3.5,
+                  py: 1.5,
+                  borderRadius: 50,
+                  bgcolor: "rgba(69,21,79,0.06)",
+                  backdropFilter: "blur(6px)",
+                  border: "1px solid rgba(69,21,79,0.2)",
+                  boxShadow: "0 4px 15px rgba(0,0,0,0.08)",
+                  transition: "0.25s ease",
+                  "&:hover": {
+                    boxShadow: "0 6px 22px rgba(0,0,0,0.14)",
+                    borderColor: "rgba(69,21,79,0.4)",
+                  },
+                }}
+              >
+                <Typography
+                  sx={{
+                    fontSize: 15,
+                    fontWeight: 600,
+                    letterSpacing: 0.3,
+                    color: "#45154F",
+                    textTransform: "capitalize",
+                    userSelect: "none",
+                  }}
+                >
+                  Add {currentType} & Indicator Details
+                </Typography>
+
+                <Tooltip title="Add new section">
+                  <IconButton
+                    onClick={onAddSection}
+                    sx={{
+                      bgcolor: "#45154F",
+                      color: "#fff",
+                      width: 36,
+                      height: 36,
+                      borderRadius: "50%",
+                      boxShadow: "0 3px 10px rgba(69,21,79,0.3)",
+                      transition: "0.25s ease",
+                      "&:hover": {
+                        bgcolor: "#5C1C69",
+                        transform: "translateY(-2px)",
+                        boxShadow: "0 6px 16px rgba(69,21,79,0.35)",
+                      },
+                    }}
+                  >
+                    <Add fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              </Box>
+            </Box>
+          )}
+
+          {sectionsByType[currentType].map((sec, sIdx) => (
+            <SectionCard
+              key={sIdx}
+              moto={moto}
+              section={sec}
+              sectionIndex={sIdx}
+              currentType={currentType}
+              isReadOnly={isReadOnly}
+              type={type}
+              isPostBudget={isPostBudget}
+              outputResponse={outputResponse}
+              outcomeResponse={outcomeResponse}
+              sectionsByType={sectionsByType}
+              prefillData={prefillData}
+              dummyIndicator={dummyIndicator}
+              dummyMeasurementTypes={dummyMeasurementTypes}
+              dummyUnits={dummyUnits}
+              dummyScales={dummyScales}
+              dummyMeasurementArea={dummyMeasurementArea}
+              dummyIndicatorRise={dummyIndicatorRise}
+              dummyPeriod={dummyPeriod}
+              dummyCategoty={dummyCategoty}
+              dummySdg={dummySdg}
+              dummyFrequencies={dummyFrequencies}
+              fieldErrors={fieldErrors}
+              inputRefs={inputRefs}
+              handleSectionChange={handleSectionChange}
+              handleIndicatorChange={handleIndicatorChange}
+              handleChange={handleChange}
+              handleDialogOpen={handleDialogOpen}
+              handleAddIndicator={handleAddIndicator}
+              handleRemoveIndicator={handleRemoveIndicator}
+              handleMoveUp={handleMoveUp}
+              handleMoveDown={handleMoveDown}
+              handleMoveSectionUp={handleMoveSectionUp}
+              handleMoveSectionDown={handleMoveSectionDown}
+              handleRemoveSection={handleRemoveSection}
+              hoveredSectionIdx={hoveredSectionIdx}
+              hoveredCancelIdx={hoveredCancelIdx}
+              setHoveredSectionIdx={setHoveredSectionIdx}
+              setHoveredCancelIdx={setHoveredCancelIdx}
+              initialTargetsMap={initialTargetsMap}
+              buildTargetsByMeasurementArea={buildTargetsByMeasurementArea}
+              computeTotals={computeTotals}
+              dummyDistrict={dummyDistrict}
+              dummyStates={dummyStates}
+              onOpenFrequencyModal={onOpenFrequencyModal}
+            />
+          ))}
+
+          <FootnoteDialog
+            open={dialogOpen}
+            onClose={handleDialogClose}
+            onSave={handleFootnoteSave}
+            value={footnoteValue}
+            onChange={(e) => setFootnoteValue(e.target.value)}
+            isReadOnly={isReadOnly}
+          />
+
+          <Dialog
+            open={openRemarkModal}
+            onClose={(event, reason) => {
+              if (
+                reason &&
+                (reason === "backdropClick" || reason === "escapeKeyDown")
+              ) {
+                return;
+              }
+              setOpenRemarkModal(false);
+            }}
+            maxWidth="md"
+            fullWidth
+          >
+            <DialogTitle sx={{ color: "#fff", backgroundColor: "#45154f" }}>
+              Add Frequency
+            </DialogTitle>
+            <DialogContent>
+              {footnoteContext.sectionIndex !== undefined &&
+                footnoteContext.indicatorIndex !== undefined && (
+                  <AddRemarkFrequency
+                    measurementType={
+                      sectionsByType[currentType][footnoteContext.sectionIndex]
+                        ?.indicators[footnoteContext.indicatorIndex]
+                        ?.measurementType
+                    }
+                    measurementAreaType={
+                      sectionsByType[currentType][footnoteContext.sectionIndex]
+                        ?.indicators[footnoteContext.indicatorIndex]
+                        ?.measurementArea === 3
+                        ? "state"
+                        : sectionsByType[currentType][
+                              footnoteContext.sectionIndex
+                            ]?.indicators[footnoteContext.indicatorIndex]
+                              ?.measurementArea === 1
+                          ? "district"
+                          : sectionsByType[currentType][
+                                footnoteContext.sectionIndex
+                              ]?.indicators[footnoteContext.indicatorIndex]
+                                ?.measurementArea === 2
+                            ? "national"
+                            : ""
+                    }
+                    label={currentField}
+                    unitType={
+                      sectionsByType[currentType][footnoteContext.sectionIndex]
+                        ?.indicators[footnoteContext.indicatorIndex]?.unit
+                    }
+                    targetTypeField="targets"
+                    initialData={
+                      sectionsByType[currentType][footnoteContext.sectionIndex]
+                        ?.indicators[footnoteContext.indicatorIndex]?.targets ||
+                      []
+                    }
+                    onRecordsChange={(recordsFromAddRemark) => {
+                      setSectionsByType((prev) => {
+                        const updated = { ...prev };
+                        updated[currentType][
+                          footnoteContext.sectionIndex
+                        ].indicators[footnoteContext.indicatorIndex].targets =
+                          JSON.parse(JSON.stringify(recordsFromAddRemark));
+                        return updated;
+                      });
+                    }}
+                    preTarget={
+                      sectionsByType[currentType][footnoteContext.sectionIndex]
+                        ?.indicators[footnoteContext.indicatorIndex]?.preTarget
+                    }
+                    frequency={
+                      sectionsByType[currentType][footnoteContext.sectionIndex]
+                        ?.indicators[footnoteContext.indicatorIndex]?.frequency
+                    }
+                    // strictOnSave={true}
+                    statesList={dummyStates}
+                    districtsList={dummyDistrict}
+                  />
+                )}
+            </DialogContent>
+            <DialogActions>
+              <Button
+                onClick={() => setOpenRemarkModal(false)}
+                variant="contained"
+                color="primary"
+              >
+                Close
+              </Button>
+            </DialogActions>
+          </Dialog>
+
+          {!isReadOnly || (isReadOnly && type === "addFrequency") ? (
+            <Box
+              mt={4}
+              sx={{
+                textAlign: "center",
+                display: "flex",
+                justifyContent: "center",
+                gap: 2,
+              }}
+            >
+              <Button
+                variant="contained"
+                size="large"
+                sx={{
+                  backgroundColor: "gray",
+                  color: "#fff",
+                  display: draftShowCondition ? "" : "none",
+                }}
+                onClick={handleSaveDraft}
+                startIcon={<BookmarkAddedIcon />}
+              >
+                {"Save as Draft"}
+              </Button>
+              <Button
+                variant="contained"
+                size="large"
+                sx={{
+                  backgroundColor: id
+                    ? moto === "draft"
+                      ? "#388E3C"
+                      : "#F57C00"
+                    : "#388E3C",
+                  color: "#fff",
+                }}
+                onClick={handleSubmit}
+                startIcon={id ? <PublishedWithChangesIcon /> : <BeenhereIcon />}
+              >
+                {id
+                  ? moto === "draft"
+                    ? "Submit Details"
+                    : "Update Details"
+                  : "Submit Details"}
+              </Button>
+              {/* {type === "addFrequency" && (
+                <Button
+                  variant="contained"
+                  color="success"
+                  onClick={() => setOpenForwardDialog(true)}
+                  endIcon={<ArrowForwardIosIcon />}
+                >
+                  Click to Forward
+                </Button>
+              )} */}
+            </Box>
+          ) : null}
+        </>
+      )}
+      <ForwardDialog
+        open={openForwardDialog}
+        onClose={() => setOpenForwardDialog(false)}
+        mode={mode}
+        submissionId={id}
+        type={type}
+      />
+    </Box>
+  );
+}
