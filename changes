@@ -1,4 +1,24 @@
-dummyIndicator?.find((i) => i.id === indicator.indicator) ||
-  (indicator.indicator
-    ? { id: indicator.indicator, name: selectedIndicatorName }
-    : null)
+indicator: (() => {
+  if (!ind.indicator) return null;
+
+  // if object already
+  if (typeof ind.indicator === "object") {
+    return {
+      id: ind.indicator.id ?? null,
+      name: ind.indicator.name ?? ind.indicator.label ?? "",
+    };
+  }
+
+  // if id
+  if (typeof ind.indicator === "number") {
+    const f = originalDummyIndicator.find((x) => x.id === ind.indicator);
+    return f ? { id: f.id, name: f.name } : null;
+  }
+
+  // if string
+  if (typeof ind.indicator === "string") {
+    return { id: null, name: ind.indicator.trim() };
+  }
+
+  return null;
+})(),
