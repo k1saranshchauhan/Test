@@ -1,33 +1,31 @@
 const getOomfWorkflowSubmissionDocumentDownload = async (req, res) => {
   try {
     const requestedData = req.body;
- 
+
     // Get buffer from your service
-    const documentBuffer =
-      await workflowService.getOomfWorkflowSubmissionDocument(requestedData);
- 
-    // Make sure the filename is clean (no trailing spaces or odd chars)
+    const documentBuffer = await workflowService.getOomfWorkflowSubmissionDocument(requestedData);
+
+    // Base filename
     const baseName = "oomf_workflow_document";
     const filename = `${baseName}.docx`;
- 
-    // Set safe headers
+    const encodedFilename = encodeURIComponent(filename); // encode for filename*
+
+    // Set content type for Word document
     res.setHeader(
       "Content-Type",
       "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
     );
- 
-    // Provide both filename and filename* for wide browser compatibility
-    // RFC 5987: filename*=UTF-8''<url-encoded>
-    const encoded = encodeURIComponent(filename);
+
+    // Set safe Content-Disposition
     res.setHeader(
       "Content-Disposition",
-      `attachment; filename="${filename}"; filename*=UTF-8''${encoded}`
+      `attachment; filename="${filename}"; filename*=UTF-8''${encodedFilename}`
     );
- 
-    // Ensure correct content length (Buffer.byteLength is safest)
+
+    // Set content length
     res.setHeader("Content-Length", Buffer.byteLength(documentBuffer));
- 
-    // Send the buffer as-is
+
+    // Send the file
     res.end(documentBuffer);
   } catch (error) {
     console.error("Error downloading OOMF workflow document:", error);
@@ -39,10 +37,3 @@ const getOomfWorkflowSubmissionDocumentDownload = async (req, res) => {
     });
   }
 };
-
-
-i want its content type to be docx, please note that on local it is working fine i am getting
-oomf_workflow_document.docx
-but after deployment i am getting 
-oomf_workflow_document.docx_; filename_=UTF-8''oomf_workflow_document
- 
