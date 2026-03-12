@@ -1,39 +1,224 @@
-const getOomfWorkflowSubmissionDocumentDownload = async (req, res) => {
-  try {
-    const requestedData = req.body;
+import React, { useState, useEffect } from "react";
+import {
+  Autocomplete,
+  TextField,
+  FormControl,
+  Box,
+  Button,
+  CircularProgress,
+  Tooltip,
+  Paper,
+  Divider,
+} from "@mui/material";
+import DownloadIcon from "@mui/icons-material/FileDownload";
+import VisibilityIcon from "@mui/icons-material/Visibility";
+import apiClient from "@/utils/apiClient";
+import MainFormHeader from "@/src/components/DashboardUI/MainFormHeader";
 
-    // Get buffer from your service
-    const documentBuffer = await workflowService.getOomfWorkflowSubmissionDocument(requestedData);
+const ReportComponent = () => {
+  const getCurrentFinancialYear = () => {
+    const today = new Date();
+    const year = today.getFullYear();
+    const month = today.getMonth() + 1;
+    return month >= 4 ? `${year}-${year + 1}` : `${year - 1}-${year}`;
+  };
 
-    // Base filename
-    const baseName = "oomf_workflow_document";
-    const filename = `${baseName}.docx`;
-    const encodedFilename = encodeURIComponent(filename); // encode for filename*
+  const [financialYear, setFinancialYear] = useState(getCurrentFinancialYear());
+  const [financialYearList, setFinancialYearList] = useState([]);
+  const [loadingYears, setLoadingYears] = useState(false);
+  const [exportLoading, setExportLoading] = useState(false);
 
-    // Set content type for Word document
-    res.setHeader(
-      "Content-Type",
-      "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-    );
+  // Fetch financial years and filter future ones
+  const fetchFinancialYearList = async () => {
+    setLoadingYears(true);
+    try {
+      const response = await apiClient.post(
+        "api/oomf/submissions/get-scheme-filters",
+        { isSubScheme: false }
+      );
 
-    // Set safe Content-Disposition
-    res.setHeader(
-      "Content-Disposition",
-      `attachment; filename="${filename}"; filename*=UTF-8''${encodedFilename}`
-    );
+      const { filters } = response?.data || {};
+      const formattedData = filters?.financialYears?.map((item, index) => ({
+        id: index + 1,
+        name: item?.name,
+      })) || [];
 
-    // Set content length
-    res.setHeader("Content-Length", Buffer.byteLength(documentBuffer));
+      const currentFY = getCurrentFinancialYear();
+      const filteredData = formattedData.filter(fy => {
+        const fyStartYear = parseInt(fy.name.split("-")[0], 10);
+        const currentStartYear = parseInt(currentFY.split("-")[0], 10);
+        return fyStartYear <= currentStartYear;
+      });
 
-    // Send the file
-    res.end(documentBuffer);
-  } catch (error) {
-    console.error("Error downloading OOMF workflow document:", error);
-    res.status(500).json({
-      status: 500,
-      success: false,
-      message: "Failed to download OOMF workflow document",
-      data: null,
-    });
-  }
+      setFinancialYearList(filteredData);
+
+      // If current FY exists in list, set as default
+      if (filteredData.find(fy => fy.name === currentFY)) {
+        setFinancialYear(currentFY);
+      } else if (filteredData.length > 0) {
+        setFinancialYear(filteredData[0].name);
+      } else {
+        setFinancialYear("");
+      }
+    } catch (error) {
+      console.error("Failed to fetch financialYear list:", error);
+      setFinancialYearList([]);
+      setFinancialYear("");
+    } finally {
+      setLoadingYears(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchFinancialYearList();
+  }, []);
+
+  // Export Word document
+  const handleExport = async () => {
+    if (!financialYear) return;
+    setExportLoading(true);
+
+    try {
+      const response = await apiClient.post(
+        "api/oomf/report/oomf-workflow-financial-document",
+        { financialYear: [financialYear] },
+        { responseType: "blob", headers: { "Content-Type": "application/json" } }
+      );
+
+      const blob = new Blob([response.data], {
+        type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      });
+
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+
+      let filename = "OOMF_Report_" + financialYear + ".docx";
+      const contentDisposition = response.headers["content-disposition"];
+      if (contentDisposition) {
+        const filenameStarMatch = contentDisposition.match(/filename\*\s*=\s*UTF-8''(.+?)(?:;|$)/i);
+        if (filenameStarMatch && filenameStarMatch[1]) {
+          filename = decodeURIComponent(filenameStarMatch[1].trim());
+        } else {
+          const filenameMatch = contentDisposition.match(/filename="?([^";]+)"?/i);
+          if (filenameMatch && filenameMatch[1]) filename = filenameMatch[1].trim();
+        }
+        filename = filename.replace(/_+$/, "");
+      }
+
+      link.href = url;
+      link.setAttribute("download", filename);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("Export failed:", err);
+      alert("Failed to download report. Please try again.");
+    } finally {
+      setExportLoading(false);
+    }
+  };
+
+  // Preview Word document in new tab
+  const handlePreview = async () => {
+    if (!financialYear) return;
+    setExportLoading(true);
+
+    try {
+      const response = await apiClient.post(
+        "api/oomf/report/oomf-workflow-financial-document",
+        { financialYear: [financialYear] },
+        { responseType: "blob" }
+      );
+
+      const blob = new Blob([response.data], {
+        type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      });
+      const url = window.URL.createObjectURL(blob);
+      window.open(url); // opens in new tab for preview
+      // Do not revoke URL immediately because tab may need it
+      setTimeout(() => window.URL.revokeObjectURL(url), 5000);
+    } catch (err) {
+      console.error("Preview failed:", err);
+      alert("Failed to preview report. Please try again.");
+    } finally {
+      setExportLoading(false);
+    }
+  };
+
+  return (
+    <Box sx={{ mt: 4, mx: "auto", px: 2 }}>
+      <MainFormHeader title="Outcome Budget Report" />
+      <Divider sx={{ my: 2 }} />
+
+      <Paper
+        elevation={3}
+        sx={{
+          p: 3,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          mb: 4,
+          flexWrap: "wrap",
+          gap: 2,
+        }}
+      >
+        {/* Financial Year Selector */}
+        <FormControl sx={{ minWidth: 250, flex: 1 }}>
+          <Autocomplete
+            options={financialYearList}
+            getOptionLabel={(option) => option.name || ""}
+            value={financialYearList.find((fy) => fy.name === financialYear) || null}
+            onChange={(event, newValue) => setFinancialYear(newValue ? newValue.name : "")}
+            renderInput={(params) => (
+              <TextField
+                {...params}
+                label="Financial Year"
+                variant="outlined"
+                disabled={loadingYears}
+              />
+            )}
+            disableClearable
+          />
+        </FormControl>
+
+        {/* Buttons */}
+        <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap" }}>
+          <Tooltip title={financialYear ? "Preview report" : "Select a financial year first"}>
+            <span>
+              <Button
+                variant="outlined"
+                color="secondary"
+                startIcon={<VisibilityIcon />}
+                onClick={handlePreview}
+                disabled={!financialYear || exportLoading}
+                sx={{ height: 56 }}
+              >
+                Preview
+              </Button>
+            </span>
+          </Tooltip>
+
+          <Tooltip title={financialYear ? "Export report" : "Select a financial year first"}>
+            <span>
+              <Button
+                variant="contained"
+                color="primary"
+                startIcon={
+                  exportLoading ? <CircularProgress size={20} color="inherit" /> : <DownloadIcon />
+                }
+                onClick={handleExport}
+                disabled={!financialYear || exportLoading}
+                sx={{ height: 56 }}
+              >
+                {exportLoading ? "Processing..." : "Export as Word"}
+              </Button>
+            </span>
+          </Tooltip>
+        </Box>
+      </Paper>
+    </Box>
+  );
 };
+
+export default ReportComponent;
