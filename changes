@@ -9,11 +9,16 @@ import {
   Tooltip,
   Paper,
   Divider,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
 } from "@mui/material";
 import DownloadIcon from "@mui/icons-material/FileDownload";
 import VisibilityIcon from "@mui/icons-material/Visibility";
 import apiClient from "@/utils/apiClient";
 import MainFormHeader from "@/src/components/DashboardUI/MainFormHeader";
+import * as Mammoth from "mammoth"; // npm install mammoth
 
 const ReportComponent = () => {
   const getCurrentFinancialYear = () => {
@@ -27,6 +32,9 @@ const ReportComponent = () => {
   const [financialYearList, setFinancialYearList] = useState([]);
   const [loadingYears, setLoadingYears] = useState(false);
   const [exportLoading, setExportLoading] = useState(false);
+
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewContent, setPreviewContent] = useState("");
 
   // Fetch financial years and filter future ones
   const fetchFinancialYearList = async () => {
@@ -52,7 +60,6 @@ const ReportComponent = () => {
 
       setFinancialYearList(filteredData);
 
-      // If current FY exists in list, set as default
       if (filteredData.find(fy => fy.name === currentFY)) {
         setFinancialYear(currentFY);
       } else if (filteredData.length > 0) {
@@ -119,7 +126,7 @@ const ReportComponent = () => {
     }
   };
 
-  // Preview Word document in new tab
+  // Preview Word document in modal
   const handlePreview = async () => {
     if (!financialYear) return;
     setExportLoading(true);
@@ -128,16 +135,13 @@ const ReportComponent = () => {
       const response = await apiClient.post(
         "api/oomf/report/oomf-workflow-financial-document",
         { financialYear: [financialYear] },
-        { responseType: "blob" }
+        { responseType: "arraybuffer" }
       );
 
-      const blob = new Blob([response.data], {
-        type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-      });
-      const url = window.URL.createObjectURL(blob);
-      window.open(url); // opens in new tab for preview
-      // Do not revoke URL immediately because tab may need it
-      setTimeout(() => window.URL.revokeObjectURL(url), 5000);
+      const arrayBuffer = response.data;
+      const result = await Mammoth.extractRawText({ arrayBuffer });
+      setPreviewContent(result.value);
+      setPreviewOpen(true);
     } catch (err) {
       console.error("Preview failed:", err);
       alert("Failed to preview report. Please try again.");
@@ -217,6 +221,24 @@ const ReportComponent = () => {
           </Tooltip>
         </Box>
       </Paper>
+
+      {/* Preview Modal */}
+      <Dialog
+        open={previewOpen}
+        onClose={() => setPreviewOpen(false)}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle>Preview Outcome Budget Report</DialogTitle>
+        <DialogContent dividers>
+          <pre style={{ whiteSpace: "pre-wrap", fontFamily: "Arial, sans-serif" }}>
+            {previewContent || "No content available."}
+          </pre>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setPreviewOpen(false)}>Close</Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 };
