@@ -39,4 +39,10 @@ const getOomfWorkflowSubmissionDocumentDownload = async (req, res) => {
     });
   }
 };
+
+
+i want its content type to be docx, please note that on local it is working fine i am getting
+oomf_workflow_document.docx
+but after deployment i am getting 
+oomf_workflow_document.docx_; filename_=UTF-8''oomf_workflow_document
  
