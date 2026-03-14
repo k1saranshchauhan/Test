@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useMemo } from "react";
 import {
   Box,
   Typography,
@@ -15,130 +15,160 @@ const ProgressTable = ({ data }) => {
   if (!data?.data) return null;
 
   const reportData = data.data;
-  const years = Object.keys(reportData).sort(); // e.g., ["2018"]
+  const years = Object.keys(reportData).sort();
 
-  // Helper to get all unique indicators across all years for a scheme
-  // This ensures that if an indicator exists in 2018 but not 2019, the row still aligns
-  const getUniqueRows = (schemeName) => {
-    const rowsMap = {};
+  // 1. Grouping Logic: Ministry -> Department -> Scheme
+  const hierarchy = useMemo(() => {
+    const tree = {};
+
     years.forEach((year) => {
-      const scheme = reportData[year].find((s) => s.schemeId.name === schemeName);
-      if (scheme) {
-        scheme.indicatorData.forEach((typeGroup) => {
+      reportData[year].forEach((schemeEntry) => {
+        const minName = schemeEntry.ministryId?.name || "Unknown Ministry";
+        const deptName = schemeEntry.departmentId?.name || "Unknown Department";
+        const schemeName = schemeEntry.schemeId?.name || "Unknown Scheme";
+
+        if (!tree[minName]) tree[minName] = {};
+        if (!tree[minName][deptName]) tree[minName][deptName] = {};
+        if (!tree[minName][deptName][schemeName]) {
+          tree[minName][deptName][schemeName] = {
+            indicatorRows: {},
+            financialInfo: {}, // To store BE/AE per year
+          };
+        }
+
+        // Store Financial Outlay for the Header
+        tree[minName][deptName][schemeName].financialInfo[year] = {
+          be: schemeEntry.financialOutlay || 0,
+          ae: schemeEntry.actualExpenditure || 0,
+        };
+
+        // Process Indicators
+        schemeEntry.indicatorData.forEach((typeGroup) => {
           typeGroup.sections.forEach((section) => {
             section.indicators.forEach((ind) => {
-              const key = `${typeGroup.indicatorType.name}-${section.name}-${ind.indicator.name}`;
-              if (!rowsMap[key]) {
-                rowsMap[key] = {
+              const rowKey = `${typeGroup.indicatorType.name}-${section.name}-${ind.indicator.name}`;
+              if (!tree[minName][deptName][schemeName].indicatorRows[rowKey]) {
+                tree[minName][deptName][schemeName].indicatorRows[rowKey] = {
                   type: typeGroup.indicatorType.name,
                   statement: section.name,
                   indicatorName: ind.indicator.name,
                   unit: ind.unit?.name || "nos.",
                   period: ind.period?.name || "Duration",
-                  yearlyData: {}, // Map to store { "2018": { target, progress } }
+                  yearlyValues: {},
                 };
               }
-              rowsMap[key].yearlyData[year] = {
+              tree[minName][deptName][schemeName].indicatorRows[rowKey].yearlyValues[year] = {
                 target: ind.target,
                 progress: ind.progress,
               };
             });
           });
         });
-      }
+      });
     });
-    return Object.values(rowsMap);
-  };
-
-  // Assuming we process one main scheme at a time or the first available scheme name
-  const firstYear = years[0];
-  const schemeNames = reportData[firstYear].map((s) => s.schemeId.name);
+    return tree;
+  }, [reportData, years]);
 
   return (
-    <Box sx={{ p: 3 }}>
-      {schemeNames.map((schemeName) => {
-        const rows = getUniqueRows(schemeName);
+    <Box sx={{ p: 3, backgroundColor: "#f9f9f9" }}>
+      {Object.entries(hierarchy).map(([minName, departments]) => (
+        <Box key={minName} sx={{ mb: 4 }}>
+          {/* Ministry Level */}
+          <Typography variant="h4" sx={{ color: "#2c3e50", fontWeight: "bold", mb: 1 }}>
+            {minName}
+          </Typography>
 
-        return (
-          <Paper key={schemeName} sx={{ mb: 6, overflowX: "auto" }}>
-            <TableContainer>
-              <Table size="small" sx={{ minWidth: 1000, border: "1px solid #ccc" }}>
-                <TableHead>
-                  {/* First Header Row: Year Names */}
-                  <TableRow sx={{ backgroundColor: "#f5f5f5" }}>
-                    <TableCell rowSpan={2} sx={{ fontWeight: "bold", border: "1px solid #ccc" }}>Indicator Type</TableCell>
-                    <TableCell rowSpan={2} sx={{ fontWeight: "bold", border: "1px solid #ccc" }}>Indicator Statement</TableCell>
-                    <TableCell rowSpan={2} sx={{ fontWeight: "bold", border: "1px solid #ccc" }}>Indicator</TableCell>
-                    <TableCell rowSpan={2} sx={{ fontWeight: "bold", border: "1px solid #ccc" }}>Unit</TableCell>
-                    <TableCell rowSpan={2} sx={{ fontWeight: "bold", border: "1px solid #ccc" }}>Period Attribute</TableCell>
-                    
-                    {years.map((year) => (
-                      <TableCell key={year} colSpan={2} align="center" sx={{ fontWeight: "bold", border: "1px solid #ccc" }}>
-                        {year}
-                        {/* Note: Financial values like BE/AE can be extracted here if present in JSON */}
-                      </TableCell>
-                    ))}
-                    <TableCell colSpan={2} align="center" sx={{ fontWeight: "bold", border: "1px solid #ccc", backgroundColor: "#e0e0e0" }}>
-                      Cumulative
-                    </TableCell>
-                  </TableRow>
+          {Object.entries(departments).map(([deptName, schemes]) => (
+            <Box key={deptName} sx={{ ml: 3, mb: 3 }}>
+              {/* Department Level */}
+              <Typography variant="h5" sx={{ color: "#34495e", fontWeight: "600", mb: 1 }}>
+                {deptName}
+              </Typography>
 
-                  {/* Second Header Row: Target/Progress labels */}
-                  <TableRow sx={{ backgroundColor: "#f5f5f5" }}>
-                    {years.map((year) => (
-                      <React.Fragment key={year}>
-                        <TableCell align="center" sx={{ fontWeight: "bold", border: "1px solid #ccc" }}>Target</TableCell>
-                        <TableCell align="center" sx={{ fontWeight: "bold", border: "1px solid #ccc" }}>Progress</TableCell>
-                      </React.Fragment>
-                    ))}
-                    <TableCell align="center" sx={{ fontWeight: "bold", border: "1px solid #ccc" }}>Target</TableCell>
-                    <TableCell align="center" sx={{ fontWeight: "bold", border: "1px solid #ccc" }}>Progress</TableCell>
-                  </TableRow>
-                </TableHead>
+              {Object.entries(schemes).map(([schemeName, schemeContent]) => (
+                <Box key={schemeName} sx={{ ml: 3, mb: 5 }}>
+                  {/* Scheme Title */}
+                  <Typography variant="h6" sx={{ color: "#45154F", fontWeight: "bold", mb: 2 }}>
+                    Scheme: {schemeName}
+                  </Typography>
 
-                <TableBody>
-                  {rows.map((row, idx) => {
-                    let cumulativeTarget = 0;
-                    let cumulativeProgress = 0;
+                  <TableContainer component={Paper} sx={{ boxShadow: 3 }}>
+                    <Table size="small" sx={{ border: "1px solid #ccc" }}>
+                      <TableHead>
+                        {/* Row 1: Year Headers with BE/AE */}
+                        <TableRow sx={{ backgroundColor: "#45154F" }}>
+                          <TableCell rowSpan={3} sx={{ color: "#fff", fontWeight: "bold", border: "1px solid #632a6d" }}>Indicator Type</TableCell>
+                          <TableCell rowSpan={3} sx={{ color: "#fff", fontWeight: "bold", border: "1px solid #632a6d" }}>Indicator Statement</TableCell>
+                          <TableCell rowSpan={3} sx={{ color: "#fff", fontWeight: "bold", border: "1px solid #632a6d" }}>Indicator</TableCell>
+                          <TableCell rowSpan={3} sx={{ color: "#fff", fontWeight: "bold", border: "1px solid #632a6d" }}>Unit</TableCell>
+                          <TableCell rowSpan={3} sx={{ color: "#fff", fontWeight: "bold", border: "1px solid #632a6d" }}>Period Attribute</TableCell>
+                          
+                          {years.map((year) => {
+                            const fin = schemeContent.financialInfo[year] || { be: 0, ae: 0 };
+                            return (
+                              <TableCell key={year} colSpan={2} align="center" sx={{ color: "#fff", border: "1px solid #632a6d" }}>
+                                <Typography variant="caption" sx={{ display: "block", fontWeight: "bold" }}>{year}</Typography>
+                                <Typography variant="caption" sx={{ fontSize: "0.7rem" }}>
+                                  BE: {fin.be}, AE: {fin.ae}
+                                </Typography>
+                              </TableCell>
+                            );
+                          })}
+                          <TableCell colSpan={2} align="center" sx={{ color: "#fff", fontWeight: "bold", border: "1px solid #632a6d", backgroundColor: "#2e0e35" }}>
+                            Cumulative
+                          </TableCell>
+                        </TableRow>
 
-                    return (
-                      <TableRow key={idx}>
-                        <TableCell sx={{ border: "1px solid #eee" }}>{row.type}</TableCell>
-                        <TableCell sx={{ border: "1px solid #eee" }}>{row.statement}</TableCell>
-                        <TableCell sx={{ border: "1px solid #eee" }}>{row.indicatorName}</TableCell>
-                        <TableCell sx={{ border: "1px solid #eee" }}>{row.unit}</TableCell>
-                        <TableCell sx={{ border: "1px solid #eee" }}>{row.period}</TableCell>
-                        
-                        {/* Year-wise Data Cells */}
-                        {years.map((year) => {
-                          const yearVal = row.yearlyData[year] || { target: "N/A", progress: "N/A" };
-                          if (typeof yearVal.target === 'number') cumulativeTarget += yearVal.target;
-                          if (typeof yearVal.progress === 'number') cumulativeProgress += yearVal.progress;
+                        {/* Row 2: Labels */}
+                        <TableRow sx={{ backgroundColor: "#45154F" }}>
+                          {[...years, "Total"].map((item) => (
+                            <React.Fragment key={item}>
+                              <TableCell align="center" sx={{ color: "#fff", fontSize: "0.8rem", border: "1px solid #632a6d" }}>Target</TableCell>
+                              <TableCell align="center" sx={{ color: "#fff", fontSize: "0.8rem", border: "1px solid #632a6d" }}>Progress</TableCell>
+                            </React.Fragment>
+                          ))}
+                        </TableRow>
+                      </TableHead>
+
+                      <TableBody>
+                        {Object.values(schemeContent.indicatorRows).map((row, rIdx) => {
+                          let cumTarget = 0;
+                          let cumProgress = 0;
 
                           return (
-                            <React.Fragment key={year}>
-                              <TableCell align="center" sx={{ border: "1px solid #eee" }}>{yearVal.target}</TableCell>
-                              <TableCell align="center" sx={{ border: "1px solid #eee" }}>{yearVal.progress}</TableCell>
-                            </React.Fragment>
+                            <TableRow key={rIdx} sx={{ "&:nth-of-type(even)": { backgroundColor: "#f2f2f2" } }}>
+                              <TableCell sx={{ border: "1px solid #ddd" }}>{row.type}</TableCell>
+                              <TableCell sx={{ border: "1px solid #ddd", fontSize: "0.85rem" }}>{row.statement}</TableCell>
+                              <TableCell sx={{ border: "1px solid #ddd" }}>{row.indicatorName}</TableCell>
+                              <TableCell sx={{ border: "1px solid #ddd" }}>{row.unit}</TableCell>
+                              <TableCell sx={{ border: "1px solid #ddd" }}>{row.period}</TableCell>
+
+                              {years.map((year) => {
+                                const val = row.yearlyValues[year] || { target: "-", progress: "-" };
+                                if (typeof val.target === "number") cumTarget += val.target;
+                                if (typeof val.progress === "number") cumProgress += val.progress;
+                                return (
+                                  <React.Fragment key={year}>
+                                    <TableCell align="center" sx={{ border: "1px solid #ddd" }}>{val.target}</TableCell>
+                                    <TableCell align="center" sx={{ border: "1px solid #ddd" }}>{val.progress}</TableCell>
+                                  </React.Fragment>
+                                );
+                              })}
+
+                              <TableCell align="center" sx={{ border: "1px solid #ddd", fontWeight: "bold", backgroundColor: "#fffde7" }}>{cumTarget || "-"}</TableCell>
+                              <TableCell align="center" sx={{ border: "1px solid #ddd", fontWeight: "bold", backgroundColor: "#fffde7" }}>{cumProgress || "-"}</TableCell>
+                            </TableRow>
                           );
                         })}
-
-                        {/* Cumulative Cells */}
-                        <TableCell align="center" sx={{ border: "1px solid #eee", backgroundColor: "#fafafa", fontWeight: "bold" }}>
-                          {cumulativeTarget || "-"}
-                        </TableCell>
-                        <TableCell align="center" sx={{ border: "1px solid #eee", backgroundColor: "#fafafa", fontWeight: "bold" }}>
-                          {cumulativeProgress || "-"}
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
-            </TableContainer>
-          </Paper>
-        );
-      })}
+                      </TableBody>
+                    </Table>
+                  </TableContainer>
+                </Box>
+              ))}
+            </Box>
+          ))}
+        </Box>
+      ))}
     </Box>
   );
 };
