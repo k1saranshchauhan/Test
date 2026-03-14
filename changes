@@ -1,350 +1,68 @@
-import React from "react";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
-  Paper,
-  Box,
-  Typography,
-} from "@mui/material";
-import InboxIcon from "@mui/icons-material/Inbox";
-import { transformDataForTable } from "./utils"; // Make sure this is your table transform function
+import React, { useMemo } from "react";
+import { Box, Typography, Table, TableHead, TableRow, TableCell, TableBody } from "@mui/material";
 
-const RenderTable = ({
-  title,
-  financialYears,
-  currentYearBEYearWise,
-  currentYearAEYearWise,
-  rows,
-  cumulativeBEForAllYears,
-  cumulativeAEForAllYears,
-}) => {
-  const fixedHeaderCells = [
-    { label: "Indicator Type", rowSpan: 3 },
-    { label: "Indicator Statement", rowSpan: 3 },
-    { label: "Indicator", rowSpan: 3 },
-    { label: "Unit", rowSpan: 3 },
-    { label: "Period Attribute", rowSpan: 3 },
-  ];
-
-  const frequencies = [...new Set(rows.map((row) => row.frequency))];
-  const isYearlyFrequency =
-    frequencies.includes("Yearly") && frequencies.length === 1;
-
-  let subColumns = ["Yearly"];
-  if (frequencies.includes("Quarterly")) {
-    subColumns = ["Q1", "Q2", "Q3", "Q4", "Total"];
-  } else if (frequencies.includes("Half-Yearly")) {
-    subColumns = ["HY1", "HY2", "Total"];
-  }
-
+// Simplified RenderTable component for this example
+const RenderTable = ({ title, financialYears, rows }) => {
   return (
-    <Paper
-      sx={{
-        width: "100%",
-        overflowX: "auto",
-        boxShadow: "0 4px 20px rgba(0,0,0,0.05)",
-        mb: 5,
-      }}
-    >
-      <TableContainer sx={{ border: "1px solid #ddd" }}>
-        <Table stickyHeader aria-label={`${title} data table`}>
-          <TableHead>
-            <TableRow sx={{ backgroundColor: "#45154F" }}>
-              {fixedHeaderCells.map((cell, index) => (
-                <TableCell
-                  key={index}
-                  rowSpan={isYearlyFrequency ? 2 : 3}
-                  sx={{
-                    fontWeight: "bold",
-                    borderRight: "1px solid #c0d9e0",
-                    borderBottom: "1px solid #c0d9e0",
-                    textAlign: "center",
-                    minWidth: "120px",
-                    color: "#fff",
-                    backgroundColor: "#45154F",
-                    fontSize: "0.9rem",
-                  }}
-                >
-                  {cell.label}
-                </TableCell>
-              ))}
-              {financialYears.map((year, yearIndex) => {
-                const value =
-                  currentYearBEYearWise.find((item) => year in item)?.[year] ??
-                  0;
-                const AEvalue =
-                  currentYearAEYearWise.find((item) => year in item)?.[year] ??
-                  0;
-
-                return (
-                  <TableCell
-                    key={yearIndex}
-                    colSpan={isYearlyFrequency ? 3 : subColumns.length * 3}
-                    align="center"
-                    sx={{
-                      fontWeight: "bold",
-                      borderRight: "1px solid #c0d9e0",
-                      borderBottom: "1px solid #c0d9e0",
-                      minWidth: "180px",
-                      backgroundColor: "#45154F",
-                      color: "#fff",
-                      fontSize: "0.9rem",
-                    }}
-                  >
-                    {year}
-                    <br />
-                    <span
-                      style={{
-                        fontSize: "0.8em",
-                        fontWeight: "normal",
-                        color: "#fff",
-                      }}
-                    >
-                      BE (In Rs. Crore): {value}, AE (In Rs. Crore): {AEvalue}
-                    </span>
-                  </TableCell>
-                );
-              })}
-              {isYearlyFrequency && (
-                <TableCell
-                  colSpan={3}
-                  align="center"
-                  sx={{
-                    fontWeight: "bold",
-                    borderRight: "1px solid #c0d9e0",
-                    borderBottom: "1px solid #c0d9e0",
-                    minWidth: "180px",
-                    backgroundColor: "#45154F",
-                    color: "#fff",
-                    fontSize: "0.9rem",
-                  }}
-                >
-                  Cumulative
-                  <br />
-                  <span
-                    style={{
-                      fontSize: "0.8em",
-                      fontWeight: "normal",
-                      color: "#fff",
-                    }}
-                  >
-                    BE (In Rs. Crore): {cumulativeBEForAllYears.toFixed(1)}, AE
-                    (In Rs. Crore): {cumulativeAEForAllYears.toFixed(1)}
-                  </span>
-                </TableCell>
-              )}
-            </TableRow>
-
-            {/* Subheader for Target / Progress / Achieved */}
-            <TableRow sx={{ backgroundColor: "#45154F" }}>
-              {financialYears.map((year, yearIndex) => (
-                <React.Fragment key={yearIndex}>
-                  <TableCell
-                    colSpan={subColumns.length}
-                    align="center"
-                    sx={{
-                      fontWeight: "bold",
-                      borderRight: "1px solid #c0d9e0",
-                      borderBottom: "1px solid #c0d9e0",
-                      minWidth: "90px",
-                      color: "#fff",
-                      backgroundColor: "#45154F",
-                      fontSize: "0.9rem",
-                    }}
-                  >
-                    Target
-                  </TableCell>
-                  <TableCell
-                    colSpan={subColumns.length}
-                    align="center"
-                    sx={{
-                      fontWeight: "bold",
-                      borderRight: "1px solid #c0d9e0",
-                      borderBottom: "1px solid #c0d9e0",
-                      minWidth: "90px",
-                      color: "#fff",
-                      backgroundColor: "#45154F",
-                      fontSize: "0.9rem",
-                    }}
-                  >
-                    Progress
-                  </TableCell>
-                  <TableCell
-                    colSpan={subColumns.length}
-                    align="center"
-                    sx={{
-                      fontWeight: "bold",
-                      borderRight: "1px solid #c0d9e0",
-                      borderBottom: "1px solid #c0d9e0",
-                      minWidth: "90px",
-                      color: "#fff",
-                      backgroundColor: "#45154F",
-                      fontSize: "0.9rem",
-                    }}
-                  >
-                    Achieved
-                  </TableCell>
-                </React.Fragment>
-              ))}
-            </TableRow>
-
-            {/* SubColumns row */}
-            <TableRow sx={{ backgroundColor: "#45154F" }}>
-              {financialYears.map((year, yearIndex) =>
-                subColumns.map((subCol, subIndex) => (
-                  <React.Fragment key={`${yearIndex}-${subCol}`}>
-                    <TableCell
-                      align="center"
-                      sx={{
-                        fontWeight: "bold",
-                        borderRight: "1px solid #c0d9e0",
-                        minWidth: "90px",
-                        color: "#fff",
-                        backgroundColor: "#45154F",
-                        fontSize: "0.9rem",
-                      }}
-                    >
-                      {subCol}
-                    </TableCell>
-                  </React.Fragment>
-                ))
-              )}
-            </TableRow>
-          </TableHead>
-
-          <TableBody>
-            {rows.map((row, index) => (
-              <TableRow
-                key={index}
-                sx={{ "&:nth-of-type(odd)": { backgroundColor: "#f9f9f9" } }}
-              >
-                <TableCell sx={{ borderRight: "1px solid #eee" }}>
-                  {row.indicatorType?.name || "-"}
-                </TableCell>
-                <TableCell sx={{ borderRight: "1px solid #eee" }}>
-                  {row.indicatorStatement?.name || row.indicatorStatement || "-"}
-                </TableCell>
-                <TableCell sx={{ borderRight: "1px solid #eee" }}>
-                  {row.indicator?.name || row.indicator || "-"}
-                </TableCell>
-                <TableCell sx={{ borderRight: "1px solid #eee" }}>
-                  {row.unit?.name || row.unit || "-"}
-                </TableCell>
-                <TableCell sx={{ borderRight: "1px solid #eee" }}>
-                  {row.periodAttribute || "-"}
-                </TableCell>
-
-                {financialYears.map((year, yearIndex) => {
-                  const data = row[`${year}_data`] || {
-                    targets: {},
-                    achievedTargets: {},
-                    totalTarget: 0,
-                    totalAchieved: 0,
-                  };
-                  const rowSubColumns =
-                    row.frequency === "Quarterly"
-                      ? ["Q1", "Q2", "Q3", "Q4", "Total"]
-                      : row.frequency === "Half-Yearly"
-                      ? ["HY1", "HY2", "Total"]
-                      : ["Yearly"];
-                  return (
-                    <React.Fragment key={yearIndex}>
-                      {subColumns.map((subCol, subIndex) => (
-                        <TableCell
-                          key={`${yearIndex}-target-${subCol}`}
-                          align="right"
-                          sx={{ borderRight: "1px solid #eee" }}
-                        >
-                          {rowSubColumns.includes(subCol)
-                            ? data.targets[subCol] ?? "-"
-                            : "-"}
-                        </TableCell>
-                      ))}
-                      {subColumns.map((subCol, subIndex) => (
-                        <TableCell
-                          key={`${yearIndex}-progress-${subCol}`}
-                          align="right"
-                          sx={{ borderRight: "1px solid #eee" }}
-                        >
-                          {rowSubColumns.includes(subCol)
-                            ? data.achievedTargets[subCol] ?? "-"
-                            : "-"}
-                        </TableCell>
-                      ))}
-                      {subColumns.map((subCol, subIndex) => (
-                        <TableCell
-                          key={`${yearIndex}-achieved-${subCol}`}
-                          align="right"
-                          sx={{ borderRight: "1px solid #eee" }}
-                        >
-                          {rowSubColumns.includes(subCol)
-                            ? data.totalAchieved ?? "-"
-                            : "-"}
-                        </TableCell>
-                      ))}
-                    </React.Fragment>
-                  );
-                })}
-
-                {/* Cumulative */}
-                <TableCell align="right" sx={{ borderRight: "1px solid #eee" }}>
-                  {row.cumulativeTarget ?? "-"}
-                </TableCell>
-                <TableCell align="right">{row.cumulativeProgress ?? "-"}</TableCell>
-                <TableCell align="right">{row.cumulativeAE ?? "-"}</TableCell>
-              </TableRow>
+    <Box sx={{ ml: 4, mt: 2 }}>
+      <Typography variant="subtitle2" sx={{ fontWeight: "bold", mb: 1 }}>
+        {title}
+      </Typography>
+      <Table size="small">
+        <TableHead>
+          <TableRow>
+            <TableCell>Indicator</TableCell>
+            <TableCell>Unit</TableCell>
+            <TableCell>Scale</TableCell>
+            <TableCell>Frequency</TableCell>
+            {financialYears.map((year) => (
+              <TableCell key={year}>{year} BE</TableCell>
             ))}
-          </TableBody>
-        </Table>
-      </TableContainer>
-    </Paper>
+            {financialYears.map((year) => (
+              <TableCell key={year}>{year} AE</TableCell>
+            ))}
+          </TableRow>
+        </TableHead>
+        <TableBody>
+          {rows.map((row, idx) => (
+            <TableRow key={idx}>
+              <TableCell>{row.indicatorName}</TableCell>
+              <TableCell>{row.unitName}</TableCell>
+              <TableCell>{row.scaleName}</TableCell>
+              <TableCell>{row.frequencyName}</TableCell>
+              {financialYears.map((year) => (
+                <TableCell key={year}>0</TableCell>
+              ))}
+              {financialYears.map((year) => (
+                <TableCell key={year}>0</TableCell>
+              ))}
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </Box>
   );
 };
 
-function ProgressTable({ data }) {
-  if (!data?.data || data.data.length === 0) {
-    return (
-      <Box
-        sx={{
-          textAlign: "center",
-          mt: 8,
-          color: "#6c757d",
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-        }}
-      >
-        <InboxIcon sx={{ fontSize: 60, mb: 1, color: "#adb5bd" }} />
-        <Typography variant="h6" gutterBottom>
-          No data available
-        </Typography>
-        <Typography variant="body2">
-          No data available for the selected filters.
-        </Typography>
-      </Box>
-    );
-  }
-
-  const allTablesData = React.useMemo(
-    () => transformDataForTable(data),
-    [data]
-  );
-
-  const groupedByMinistry = allTablesData.reduce((acc, group) => {
-    const ministry = group.ministryName || "Unknown Ministry";
-    if (!acc[ministry]) acc[ministry] = [];
-    acc[ministry].push(group);
-    return acc;
-  }, {});
+const ProgressTable = ({ data }) => {
+  const groupedByMinistry = useMemo(() => {
+    const grouped = {};
+    // Convert data object into array of schemes with year info
+    Object.entries(data || {}).forEach(([year, schemes]) => {
+      if (!Array.isArray(schemes)) return;
+      schemes.forEach((scheme) => {
+        const ministry = scheme.ministryId?.name || "Unknown Ministry";
+        if (!grouped[ministry]) grouped[ministry] = [];
+        grouped[ministry].push({ ...scheme, year });
+      });
+    });
+    return grouped;
+  }, [data]);
 
   return (
     <Box sx={{ p: 3, minHeight: "100vh", fontFamily: "Inter, sans-serif" }}>
       {Object.entries(groupedByMinistry).map(([ministry, groups]) => (
-        <React.Fragment key={ministry}>
+        <Box key={ministry}>
           <Typography
             variant="h5"
             sx={{ p: 2, color: "#45154F", fontWeight: "bold", mt: 4 }}
@@ -352,65 +70,58 @@ function ProgressTable({ data }) {
             {ministry}
           </Typography>
 
-          {groups.reduce((deptAcc, group) => {
-            const dept = group.departmentName || "Unknown Department";
-            if (!deptAcc[dept]) deptAcc[dept] = [];
-            deptAcc[dept].push(group);
-            return deptAcc;
-          }, {}) |> Object.entries |> ((entries) =>
-            entries.map(([department, deptGroups]) => (
-              <React.Fragment key={department}>
-                <Typography
-                  variant="h6"
-                  sx={{ p: 2, color: "#45154F", fontWeight: "bold", mt: 2 }}
-                >
-                  {department}
-                </Typography>
+          {/* Group by Department */}
+          {Object.entries(
+            groups.reduce((deptAcc, group) => {
+              const dept = group.departmentId?.name || "Unknown Department";
+              if (!deptAcc[dept]) deptAcc[dept] = [];
+              deptAcc[dept].push(group);
+              return deptAcc;
+            }, {})
+          ).map(([department, deptGroups]) => (
+            <Box key={department}>
+              <Typography
+                variant="h6"
+                sx={{ p: 2, color: "#45154F", fontWeight: "bold", mt: 2 }}
+              >
+                {department}
+              </Typography>
 
-                {deptGroups.map((group, groupIndex) => (
-                  <React.Fragment key={group.path}>
-                    <Typography
-                      variant="subtitle1"
-                      sx={{ p: 2, color: "#45154F", fontWeight: "bold", mt: 1 }}
-                    >
-                      {`${groupIndex + 1}.) ${group.schemeName}`}
-                    </Typography>
+              {/* Schemes under department */}
+              {deptGroups.map((scheme, idx) => {
+                // Flatten indicators for table rows
+                const rows = [];
+                scheme.indicatorData?.forEach((indData) => {
+                  indData.sections?.forEach((section) => {
+                    section.indicators?.forEach((ind) => {
+                      rows.push({
+                        indicatorName: ind.indicator?.name || "Unknown",
+                        unitName: ind.unit?.name || "-",
+                        scaleName: ind.scale?.name || "-",
+                        frequencyName: ind.frequency?.name || "-",
+                      });
+                    });
+                  });
+                });
 
-                    {group.parentTable?.rows?.length > 0 ? (
-                      <RenderTable
-                        title={group.parentTable.schemeName}
-                        financialYears={group.parentTable.financialYears}
-                        currentYearBEYearWise={
-                          group.parentTable.currentYearBEYearWise
-                        }
-                        currentYearAEYearWise={
-                          group.parentTable.currentYearAEYearWise
-                        }
-                        rows={group.parentTable.rows}
-                        cumulativeBEForAllYears={
-                          group.parentTable.cumulativeBEForAllYears
-                        }
-                        cumulativeAEForAllYears={
-                          group.parentTable.cumulativeAEForAllYears
-                        }
-                      />
-                    ) : (
-                      <Typography
-                        variant="body2"
-                        sx={{ p: 2, color: "#6c757d", ml: 2 }}
-                      >
-                        No data available for this scheme.
-                      </Typography>
-                    )}
-                  </React.Fragment>
-                ))}
-              </React.Fragment>
-            ))
-          )}
-        </React.Fragment>
+                // Use year keys for financialYears
+                const financialYears = [scheme.year];
+
+                return (
+                  <RenderTable
+                    key={scheme.schemeId?.id || idx}
+                    title={scheme.schemeId?.name || scheme.name || "Unnamed Scheme"}
+                    financialYears={financialYears}
+                    rows={rows}
+                  />
+                );
+              })}
+            </Box>
+          ))}
+        </Box>
       ))}
     </Box>
   );
-}
+};
 
 export default ProgressTable;
