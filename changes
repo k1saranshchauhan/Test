@@ -12,15 +12,20 @@ import {
 } from "@mui/material";
 
 const ProgressTable = ({ data }) => {
+
+  const formatDecimal = (value) => {
+  const num = Number(value);
+  return !isNaN(num) ? num.toFixed(2) : value ?? "-";
+};
+
   if (!data?.data) return null;
 
   const reportData = data.data;
   const years = Object.keys(reportData).sort();
 
-  // 1. Grouping Logic: Ministry -> Department -> Scheme
+  // Grouping Logic: Ministry -> Department -> Scheme
   const hierarchy = useMemo(() => {
     const tree = {};
-
     years.forEach((year) => {
       reportData[year].forEach((schemeEntry) => {
         const minName = schemeEntry.ministryId?.name || "Unknown Ministry";
@@ -32,17 +37,15 @@ const ProgressTable = ({ data }) => {
         if (!tree[minName][deptName][schemeName]) {
           tree[minName][deptName][schemeName] = {
             indicatorRows: {},
-            financialInfo: {}, // To store BE/AE per year
+            financialInfo: {},
           };
         }
 
-        // Store Financial Outlay for the Header
         tree[minName][deptName][schemeName].financialInfo[year] = {
           be: schemeEntry.financialOutlay || 0,
           ae: schemeEntry.actualExpenditure || 0,
         };
 
-        // Process Indicators
         schemeEntry.indicatorData.forEach((typeGroup) => {
           typeGroup.sections.forEach((section) => {
             section.indicators.forEach((ind) => {
@@ -70,105 +73,317 @@ const ProgressTable = ({ data }) => {
   }, [reportData, years]);
 
   return (
-    <Box sx={{ p: 3, backgroundColor: "#f9f9f9" }}>
-      {Object.entries(hierarchy).map(([minName, departments]) => (
-        <Box key={minName} sx={{ mb: 4 }}>
-          {/* Ministry Level */}
-          <Typography variant="h4" sx={{ color: "#2c3e50", fontWeight: "bold", mb: 1 }}>
-            {minName}
-          </Typography>
+    <Box sx={{ p: 0, backgroundColor: "#fdfdfd" }}>
+      {Object.entries(hierarchy).map(([minName, departments], minIdx) => {
+        const minNumber = minIdx + 1;
+        return (
+          <Box key={minName} sx={{ mb: 6 }}>
+            {/* 1) Ministry Level */}
+            <Typography variant="h4" sx={{ color: "#1a237e", fontWeight: "bold", mb: 2,fontSize:"22px"}}>
+              {minNumber}) {minName}
+            </Typography>
 
-          {Object.entries(departments).map(([deptName, schemes]) => (
-            <Box key={deptName} sx={{ ml: 3, mb: 3 }}>
-              {/* Department Level */}
-              <Typography variant="h5" sx={{ color: "#34495e", fontWeight: "600", mb: 1 }}>
-                {deptName}
-              </Typography>
-
-              {Object.entries(schemes).map(([schemeName, schemeContent]) => (
-                <Box key={schemeName} sx={{ ml: 3, mb: 5 }}>
-                  {/* Scheme Title */}
-                  <Typography variant="h6" sx={{ color: "#45154F", fontWeight: "bold", mb: 2 }}>
-                    Scheme: {schemeName}
+            {Object.entries(departments).map(([deptName, schemes], deptIdx) => {
+              const deptNumber = `${minNumber}.${deptIdx + 1}`;
+              return (
+                <Box key={deptName} sx={{ ml: 2, mb: 4 }}>
+                  {/* 1.1) Department Level */}
+                  <Typography variant="h5" sx={{ color: "black", fontWeight: "600", mb: 2,fontSize:"20px" }}>
+                    {deptNumber}) {deptName}
                   </Typography>
 
-                  <TableContainer component={Paper} sx={{ boxShadow: 3 }}>
-                    <Table size="small" sx={{ border: "1px solid #ccc" }}>
-                      <TableHead>
-                        {/* Row 1: Year Headers with BE/AE */}
-                        <TableRow sx={{ backgroundColor: "#45154F" }}>
-                          <TableCell rowSpan={3} sx={{ color: "#fff", fontWeight: "bold", border: "1px solid #632a6d" }}>Indicator Type</TableCell>
-                          <TableCell rowSpan={3} sx={{ color: "#fff", fontWeight: "bold", border: "1px solid #632a6d" }}>Indicator Statement</TableCell>
-                          <TableCell rowSpan={3} sx={{ color: "#fff", fontWeight: "bold", border: "1px solid #632a6d" }}>Indicator</TableCell>
-                          <TableCell rowSpan={3} sx={{ color: "#fff", fontWeight: "bold", border: "1px solid #632a6d" }}>Unit</TableCell>
-                          <TableCell rowSpan={3} sx={{ color: "#fff", fontWeight: "bold", border: "1px solid #632a6d" }}>Period Attribute</TableCell>
-                          
-                          {years.map((year) => {
-                            const fin = schemeContent.financialInfo[year] || { be: 0, ae: 0 };
-                            return (
-                              <TableCell key={year} colSpan={2} align="center" sx={{ color: "#fff", border: "1px solid #632a6d" }}>
-                                <Typography variant="caption" sx={{ display: "block", fontWeight: "bold" }}>{year}</Typography>
-                                <Typography variant="caption" sx={{ fontSize: "0.7rem" }}>
-                                  BE: {fin.be}, AE: {fin.ae}
-                                </Typography>
-                              </TableCell>
-                            );
-                          })}
-                          <TableCell colSpan={2} align="center" sx={{ color: "#fff", fontWeight: "bold", border: "1px solid #632a6d", backgroundColor: "#2e0e35" }}>
-                            Cumulative
-                          </TableCell>
-                        </TableRow>
+                  {Object.entries(schemes).map(([schemeName, schemeContent], schemeIdx) => {
+                    const schemeNumber = `${deptNumber}.${schemeIdx + 1}`;
+                    return (
+                      <Box key={schemeName} sx={{ ml: 2, mb: 6 }}>
+                        {/* 1.1.1) Scheme Name */}
+                        <Typography
+                          variant="h6"
+                          sx={{
+                            color: "#45154F",
+                            fontWeight: "bold",
+                            mb: 2,
+                            fontSize: "18px",
+                          }}
+                        >
+                          {schemeNumber}) {schemeName}
+                        </Typography>
 
-                        {/* Row 2: Labels */}
-                        <TableRow sx={{ backgroundColor: "#45154F" }}>
-                          {[...years, "Total"].map((item) => (
-                            <React.Fragment key={item}>
-                              <TableCell align="center" sx={{ color: "#fff", fontSize: "0.8rem", border: "1px solid #632a6d" }}>Target</TableCell>
-                              <TableCell align="center" sx={{ color: "#fff", fontSize: "0.8rem", border: "1px solid #632a6d" }}>Progress</TableCell>
-                            </React.Fragment>
-                          ))}
-                        </TableRow>
-                      </TableHead>
+                        <TableContainer
+                          component={Paper}
+                          sx={{
+                            boxShadow: "0px 4px 20px rgba(0,0,0,0.1)",
+                            borderRadius: "8px",
+                          }}
+                        >
+                          <Table size="small" sx={{ border: "1px solid #ccc" }}>
+                            <TableHead>
+                              <TableRow sx={{ backgroundColor: "#45154F" }}>
+                                <TableCell
+                                  rowSpan={2}
+                                  sx={{
+                                    color: "#fff",
+                                    fontWeight: "bold",
+                                    border: "1px solid #632a6d",
+                                    textAlign: "center",
+                                  }}
+                                >
+                                  Indicator Type
+                                </TableCell>
+                                <TableCell
+                                  rowSpan={2}
+                                  sx={{
+                                    color: "#fff",
+                                    fontWeight: "bold",
+                                    border: "1px solid #632a6d",
+                                    textAlign: "center",
+                                  }}
+                                >
+                                  Indicator Statement
+                                </TableCell>
+                                <TableCell
+                                  rowSpan={2}
+                                  sx={{
+                                    color: "#fff",
+                                    fontWeight: "bold",
+                                    border: "1px solid #632a6d",
+                                    textAlign: "center",
+                                  }}
+                                >
+                                  Indicator
+                                </TableCell>
+                                <TableCell
+                                  rowSpan={2}
+                                  sx={{
+                                    color: "#fff",
+                                    fontWeight: "bold",
+                                    border: "1px solid #632a6d",
+                                    textAlign: "center",
+                                  }}
+                                >
+                                  Unit
+                                </TableCell>
+                                <TableCell
+                                  rowSpan={2}
+                                  sx={{
+                                    color: "#fff",
+                                    fontWeight: "bold",
+                                    border: "1px solid #632a6d",
+                                    textAlign: "center",
+                                  }}
+                                >
+                                  Period Attribute
+                                </TableCell>
 
-                      <TableBody>
-                        {Object.values(schemeContent.indicatorRows).map((row, rIdx) => {
-                          let cumTarget = 0;
-                          let cumProgress = 0;
+                                {years?.map((year) => {
+                                  const fin = schemeContent.financialInfo[
+                                    year
+                                  ] || { be: 0, ae: 0 };
+                                  return (
+                                    <TableCell
+                                      key={year}
+                                      colSpan={2}
+                                      align="center"
+                                      sx={{
+                                        color: "#fff",
+                                        border: "1px solid #632a6d",
+                                        py: 1,
+                                      }}
+                                    >
+                                      <Typography
+                                        variant="subtitle2"
+                                        sx={{
+                                          fontWeight: "bold",
+                                          lineHeight: 1,
+                                        }}
+                                      >
+                                        {year}-{parseInt(year) + 1}
+                                      </Typography>
+                                      {/* <Typography variant="caption" sx={{ fontSize: "0.65rem", opacity: 0.9 }}>
+                                        BE: {fin.be}, AE: {fin.ae}
+                                      </Typography> */}
+                                    </TableCell>
+                                  );
+                                })}
+                                <TableCell
+                                  colSpan={2}
+                                  align="center"
+                                  sx={{
+                                    color: "#fff",
+                                    fontWeight: "bold",
+                                    border: "1px solid #632a6d",
+                                    backgroundColor: "#2e0e35",
+                                  }}
+                                >
+                                  Cumulative
+                                </TableCell>
+                              </TableRow>
 
-                          return (
-                            <TableRow key={rIdx} sx={{ "&:nth-of-type(even)": { backgroundColor: "#f2f2f2" } }}>
-                              <TableCell sx={{ border: "1px solid #ddd" }}>{row.type}</TableCell>
-                              <TableCell sx={{ border: "1px solid #ddd", fontSize: "0.85rem" }}>{row.statement}</TableCell>
-                              <TableCell sx={{ border: "1px solid #ddd" }}>{row.indicatorName}</TableCell>
-                              <TableCell sx={{ border: "1px solid #ddd" }}>{row.unit}</TableCell>
-                              <TableCell sx={{ border: "1px solid #ddd" }}>{row.period}</TableCell>
-
-                              {years.map((year) => {
-                                const val = row.yearlyValues[year] || { target: "-", progress: "-" };
-                                if (typeof val.target === "number") cumTarget += val.target;
-                                if (typeof val.progress === "number") cumProgress += val.progress;
-                                return (
-                                  <React.Fragment key={year}>
-                                    <TableCell align="center" sx={{ border: "1px solid #ddd" }}>{val.target}</TableCell>
-                                    <TableCell align="center" sx={{ border: "1px solid #ddd" }}>{val.progress}</TableCell>
+                              <TableRow sx={{ backgroundColor: "#45154F" }}>
+                                {[...years, "Cumulative"].map((item) => (
+                                  <React.Fragment key={item}>
+                                    <TableCell
+                                      align="center"
+                                      sx={{
+                                        color: "#fff",
+                                        fontWeight: "bold",
+                                        fontSize: "0.75rem",
+                                        border: "1px solid #632a6d",
+                                      }}
+                                    >
+                                      Target
+                                    </TableCell>
+                                    <TableCell
+                                      align="center"
+                                      sx={{
+                                        color: "#fff",
+                                        fontWeight: "bold",
+                                        fontSize: "0.75rem",
+                                        border: "1px solid #632a6d",
+                                      }}
+                                    >
+                                      Progress
+                                    </TableCell>
                                   </React.Fragment>
-                                );
-                              })}
+                                ))}
+                              </TableRow>
+                            </TableHead>
 
-                              <TableCell align="center" sx={{ border: "1px solid #ddd", fontWeight: "bold", backgroundColor: "#fffde7" }}>{cumTarget || "-"}</TableCell>
-                              <TableCell align="center" sx={{ border: "1px solid #ddd", fontWeight: "bold", backgroundColor: "#fffde7" }}>{cumProgress || "-"}</TableCell>
-                            </TableRow>
-                          );
-                        })}
-                      </TableBody>
-                    </Table>
-                  </TableContainer>
+                            <TableBody>
+                              {Object.values(schemeContent.indicatorRows)?.map(
+                                (row, rIdx) => {
+                                  let cumTarget = 0;
+                                  let cumProgress = 0;
+
+                                  return (
+                                    <TableRow
+                                      key={rIdx}
+                                      sx={{
+                                        "&:nth-of-type(even)": {
+                                          backgroundColor: "#f9f9f9",
+                                        },
+                                      }}
+                                    >
+                                      <TableCell
+                                        sx={{ border: "1px solid #ddd" }}
+                                      >
+                                        {row?.type}
+                                      </TableCell>
+                                      <TableCell
+                                        sx={{
+                                          border: "1px solid #ddd",
+                                          fontSize: "0.8rem",
+                                        }}
+                                      >
+                                        {row?.statement}
+                                      </TableCell>
+                                      <TableCell
+                                        sx={{ border: "1px solid #ddd" }}
+                                      >
+                                        {row?.indicatorName}
+                                      </TableCell>
+                                      <TableCell
+                                        sx={{
+                                          border: "1px solid #ddd",
+                                          textAlign: "center",
+                                        }}
+                                      >
+                                        {row?.unit}
+                                      </TableCell>
+                                      <TableCell
+                                        sx={{
+                                          border: "1px solid #ddd",
+                                          textAlign: "center",
+                                        }}
+                                      >
+                                        {row?.period}
+                                      </TableCell>
+
+                                      {/* {years?.map((year) => {
+                                      const val = row.yearlyValues[year] || { target: "-", progress: "-" };
+                                      if (typeof val.target === "number") cumTarget += val.target;
+                                      if (typeof val.progress === "number") cumProgress += val.progress;
+                                      return (
+                                        <React.Fragment key={year}>
+                                          <TableCell align="right" sx={{ border: "1px solid #ddd" }}>{Number(val?.target)}</TableCell>
+                                          <TableCell align="right" sx={{ border: "1px solid #ddd" }}>{val?.progress}</TableCell>
+                                        </React.Fragment>
+                                      );
+                                    })}
+
+                                    <TableCell align="right" sx={{ border: "1px solid #ddd", fontWeight: "bold", backgroundColor: "#f0f4ff" }}>{cumTarget || "-"}</TableCell>
+                                    <TableCell align="right" sx={{ border: "1px solid #ddd", fontWeight: "bold", backgroundColor: "#f0f4ff" }}>{cumProgress || "-"}</TableCell> */}
+
+                                      {years?.map((year) => {
+                                        const val = row.yearlyValues[year] || {
+                                          target: "-",
+                                          progress: "-",
+                                        };
+
+                                        if (typeof val.target === "number")
+                                          cumTarget += val.target;
+                                        if (typeof val.progress === "number")
+                                          cumProgress += val.progress;
+
+                                        return (
+                                          <React.Fragment key={year}>
+                                            <TableCell
+                                              align="right"
+                                              sx={{ border: "1px solid #ddd" }}
+                                            >
+                                              {formatDecimal(val?.target)}
+                                            </TableCell>
+                                            <TableCell
+                                              align="right"
+                                              sx={{ border: "1px solid #ddd" }}
+                                            >
+                                              {formatDecimal(val?.progress)}
+                                            </TableCell>
+                                          </React.Fragment>
+                                        );
+                                      })}
+
+                                      <TableCell
+                                        align="right"
+                                        sx={{
+                                          border: "1px solid #ddd",
+                                          fontWeight: "bold",
+                                          backgroundColor: "#f0f4ff",
+                                        }}
+                                      >
+                                        {cumTarget != null
+                                          ? formatDecimal(cumTarget)
+                                          : "-"}
+                                      </TableCell>
+
+                                      <TableCell
+                                        align="right"
+                                        sx={{
+                                          border: "1px solid #ddd",
+                                          fontWeight: "bold",
+                                          backgroundColor: "#f0f4ff",
+                                        }}
+                                      >
+                                        {cumProgress != null
+                                          ? formatDecimal(cumProgress)
+                                          : "-"}
+                                      </TableCell>
+                                    </TableRow>
+                                  );
+                                },
+                              )}
+                            </TableBody>
+                          </Table>
+                        </TableContainer>
+                      </Box>
+                    );
+                  })}
                 </Box>
-              ))}
-            </Box>
-          ))}
-        </Box>
-      ))}
+              );
+            })}
+          </Box>
+        );
+      })}
     </Box>
   );
 };
