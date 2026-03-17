@@ -1,180 +1,229 @@
-import React, { useMemo } from "react";
+import React, { useState, useEffect } from "react";
 import {
-  Box,
+  Autocomplete,
+  TextField,
+  FormControl,
   Typography,
+  Box,
+  Button,
+  CircularProgress,
+  Tooltip,
   Paper,
-  TableContainer,
-  Table,
-  TableHead,
-  TableRow,
-  TableCell,
-  TableBody,
+  Divider,
 } from "@mui/material";
+import DownloadIcon from "@mui/icons-material/FileDownload";
+import apiClient from "@/utils/apiClient";
+import MainFormHeader from "@/src/components/DashboardUI/MainFormHeader";
+import { oomfFrameworkId } from "@/src/constants/unified/frameworkConstants";
+import {
+  filterByFramework,
+  filterSchemesByFramework,
+} from "@/utils/niti/filterByFramework";
+import { useFilteredFrameworkAccess } from "@/utils/niti/useFilteredFrameworkAccess";
+import { startLoader, stopLoader } from "@/store/slices/errorSlice";
+import { useDispatch, useSelector } from "react-redux";
 
-const ProgressTable = ({ data }) => {
-  if (!data?.data) return null;
+const ReportComponent = () => {
+  const getCurrentFinancialYear = () => {
+    const today = new Date();
+    const year = today.getFullYear();
+    const month = today.getMonth() + 1;
+    return month >= 4 ? `${year}-${year + 1}` : `${year - 1}-${year}`;
+  };
+  
+  const [financialYear, setFinancialYear] = useState(getCurrentFinancialYear());
+  const [financialYearList, setFinancialYearList] = useState([]);
+  const [loadingYears, setLoadingYears] = useState(false);
+  const [exportLoading, setExportLoading] = useState(false);
+  const userData = useSelector((state) => state.config.userData);
+  const [ministryList, setMinistryList] = useState([]);
+  const [departmentList, setDepartmentList] = useState([]);
+  const [schemeTypeList, setSchemeTypeList] = useState([]);
+  const [schemeList, setSchemeList] = useState([]);
+  const dispatch = useDispatch();
+  const { userMinistryIds, userDepartmentIds, userSchemeIds } =
+      useFilteredFrameworkAccess({
+        userPermittedMinistryIds: userData?.userRelationships[0]?.ministryIds,
+        userPermittedDepartmentIds: userData?.userRelationships[0]?.departmentIds,
+        userPermittedSchemeIds: userData?.userRelationships[0]?.schemeIds,
+        frameworkId: oomfFrameworkId,
+      });
 
-  const reportData = data.data;
-  const years = Object.keys(reportData).sort();
+  const fetchFinancialYearList = async () => {
+    setLoadingYears(true);
+    try {
+      const response = await apiClient.post(
+        "api/oomf/submissions/get-scheme-filters",
+        { isSubScheme: false },
+      );
 
-  // Grouping Logic: Ministry -> Department -> Scheme
-  const hierarchy = useMemo(() => {
-    const tree = {};
-    years.forEach((year) => {
-      reportData[year].forEach((schemeEntry) => {
-        const minName = schemeEntry.ministryId?.name || "Unknown Ministry";
-        const deptName = schemeEntry.departmentId?.name || "Unknown Department";
-        const schemeName = schemeEntry.schemeId?.name || "Unknown Scheme";
+      const { filters } = response?.data || {};
+      const formattedData = filters?.financialYears?.map((item, index) => ({
+        id: index + 1,
+        name: item?.name,
+      }));
+      // setFinancialYearList(formattedData || []);
+      // Get current financial year
+      const currentFY = getCurrentFinancialYear();
 
-        if (!tree[minName]) tree[minName] = {};
-        if (!tree[minName][deptName]) tree[minName][deptName] = {};
-        if (!tree[minName][deptName][schemeName]) {
-          tree[minName][deptName][schemeName] = {
-            indicatorRows: {},
-            financialInfo: {},
-          };
+      // Filter out any future financial years
+      const filteredData = formattedData.filter((fy) => {
+        // Compare first year of FY string
+        const fyStartYear = parseInt(fy.name.split("-")[0], 10);
+        const currentStartYear = parseInt(currentFY.split("-")[0], 10);
+        return fyStartYear <= currentStartYear;
+      });
+
+      setFinancialYearList(filteredData);
+    } catch (error) {
+      console.error("Failed to fetch financialYear list:", error);
+      setFinancialYearList([]);
+    } finally {
+      setLoadingYears(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchFinancialYearList();
+  }, []);
+
+  const handleExport = async () => {
+    if (!financialYear) return;
+    setExportLoading(true);
+
+    try {
+      const response = await apiClient.post(
+        "api/oomf/report/oomf-workflow-financial-document",
+        { financialYear: [financialYear] },
+        { responseType: "blob", headers: { "Content-Type": "application/json" } }
+      );
+
+      const blob = new Blob([response.data], {
+        type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      });
+
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+
+      const contentDisposition = response.headers["content-disposition"];
+      // let filename = `OOMF_Report_${financialYear}.docx`;
+      // if (contentDisposition) {
+      //   const filenameMatch = contentDisposition.match(/filename="?(.+)"?/);
+      //   if (filenameMatch && filenameMatch[1]) filename = filenameMatch[1];
+      // }
+      let filename = "OOMF_Report_" + financialYear + ".docx"; // default filename
+
+      if (contentDisposition) {
+        // Try to match RFC 5987 style first (filename*)
+        const filenameStarMatch = contentDisposition.match(
+          /filename\*\s*=\s*UTF-8''(.+?)(?:;|$)/i,
+        );
+        if (filenameStarMatch && filenameStarMatch[1]) {
+          filename = decodeURIComponent(filenameStarMatch[1].trim());
+        } else {
+          // Fallback to regular filename
+          const filenameMatch = contentDisposition.match(
+            /filename="?([^";]+)"?/i,
+          );
+          if (filenameMatch && filenameMatch[1]) {
+            filename = filenameMatch[1].trim();
+          }
         }
 
-        tree[minName][deptName][schemeName].financialInfo[year] = {
-          be: schemeEntry.financialOutlay || 0,
-          ae: schemeEntry.actualExpenditure || 0,
-        };
+        // Remove any trailing underscores or spaces added by proxies
+        filename = filename.replace(/_+$/, "");
+      }
 
-        schemeEntry.indicatorData.forEach((typeGroup) => {
-          typeGroup.sections.forEach((section) => {
-            section.indicators.forEach((ind) => {
-              const rowKey = `${typeGroup.indicatorType.name}-${section.name}-${ind.indicator.name}`;
-              if (!tree[minName][deptName][schemeName].indicatorRows[rowKey]) {
-                tree[minName][deptName][schemeName].indicatorRows[rowKey] = {
-                  type: typeGroup.indicatorType.name,
-                  statement: section.name,
-                  indicatorName: ind.indicator.name,
-                  unit: ind.unit?.name || "nos.",
-                  period: ind.period?.name || "Duration",
-                  yearlyValues: {},
-                };
-              }
-              tree[minName][deptName][schemeName].indicatorRows[rowKey].yearlyValues[year] = {
-                target: ind.target,
-                progress: ind.progress,
-              };
-            });
-          });
-        });
-      });
-    });
-    return tree;
-  }, [reportData, years]);
+      link.setAttribute("download", filename);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("Export failed:", err);
+      alert("Failed to download report. Please try again.");
+    } finally {
+      setExportLoading(false);
+    }
+  };
 
   return (
-    <Box sx={{ p: 3, backgroundColor: "#fdfdfd" }}>
-      {Object.entries(hierarchy).map(([minName, departments], minIdx) => {
-        const minNumber = minIdx + 1;
-        return (
-          <Box key={minName} sx={{ mb: 6 }}>
-            {/* 1) Ministry Level */}
-            <Typography variant="h4" sx={{ color: "#1a237e", fontWeight: "bold", mb: 2 }}>
-              {minNumber}) {minName}
-            </Typography>
+    <Box sx={{ mt: 4, mx: "auto",px:2 }}>
+      <MainFormHeader title="Outcome Budget Report" />
+      <Divider sx={{ my: 2 }} />
 
-            {Object.entries(departments).map(([deptName, schemes], deptIdx) => {
-              const deptNumber = `${minNumber}.${deptIdx + 1}`;
-              return (
-                <Box key={deptName} sx={{ ml: 4, mb: 4 }}>
-                  {/* 1.1) Department Level */}
-                  <Typography variant="h5" sx={{ color: "#283593", fontWeight: "600", mb: 2 }}>
-                    {deptNumber}) {deptName}
-                  </Typography>
+      {/* Toolbar card */}
+      <Paper
+        elevation={3}
+        sx={{
+          p: 3,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          mb: 4,
+          flexWrap: "wrap",
+          gap: 2,
+        }}
+      >
+        {/* Financial Year Selector */}
+        <FormControl sx={{ minWidth: 250, flex: 1 }}>
+          <Autocomplete
+            options={financialYearList}
+            getOptionLabel={(option) => option.name || ""}
+            value={
+              financialYearList.find((fy) => fy.name === financialYear) || null
+            }
+            onChange={(event, newValue) => {
+              setFinancialYear(newValue ? newValue.name : "");
+            }}
+            renderInput={(params) => (
+              <TextField
+                {...params}
+                label="Financial Year"
+                variant="outlined"
+                disabled={loadingYears}
+              />
+            )}
+            disableClearable
+          />
+        </FormControl>
 
-                  {Object.entries(schemes).map(([schemeName, schemeContent], schemeIdx) => {
-                    const schemeNumber = `${deptNumber}.${schemeIdx + 1}`;
-                    return (
-                      <Box key={schemeName} sx={{ ml: 4, mb: 6 }}>
-                        {/* 1.1.1) Scheme Name */}
-                        <Typography variant="h6" sx={{ color: "#45154F", fontWeight: "bold", mb: 2 }}>
-                          {schemeNumber}) {schemeName}
-                        </Typography>
+        {/* Export Button */}
+        <Tooltip
+          title={
+            financialYear
+              ? "Export report"
+              : "Select a financial year first"
+          }
+        >
+          <span>
+            <Button
+              variant="contained"
+              color="primary"
+              startIcon={
+                exportLoading ? (
+                  <CircularProgress size={20} color="inherit" />
+                ) : (
+                  <DownloadIcon />
+                )
+              }
+              onClick={handleExport}
+              disabled={!financialYear || exportLoading}
+              sx={{ height: 56 }}
+            >
+              {exportLoading ? "Exporting..." : "Export as Word"}
+            </Button>
+          </span>
+        </Tooltip>
+      </Paper>
 
-                        <TableContainer component={Paper} sx={{ boxShadow: "0px 4px 20px rgba(0,0,0,0.1)", borderRadius: "8px" }}>
-                          <Table size="small" sx={{ border: "1px solid #ccc" }}>
-                            <TableHead>
-                              <TableRow sx={{ backgroundColor: "#45154F" }}>
-                                <TableCell rowSpan={2} sx={{ color: "#fff", fontWeight: "bold", border: "1px solid #632a6d", textAlign: 'center' }}>Indicator Type</TableCell>
-                                <TableCell rowSpan={2} sx={{ color: "#fff", fontWeight: "bold", border: "1px solid #632a6d", textAlign: 'center' }}>Indicator Statement</TableCell>
-                                <TableCell rowSpan={2} sx={{ color: "#fff", fontWeight: "bold", border: "1px solid #632a6d", textAlign: 'center' }}>Indicator</TableCell>
-                                <TableCell rowSpan={2} sx={{ color: "#fff", fontWeight: "bold", border: "1px solid #632a6d", textAlign: 'center' }}>Unit</TableCell>
-                                <TableCell rowSpan={2} sx={{ color: "#fff", fontWeight: "bold", border: "1px solid #632a6d", textAlign: 'center' }}>Period Attribute</TableCell>
-                                
-                                {years.map((year) => {
-                                  const fin = schemeContent.financialInfo[year] || { be: 0, ae: 0 };
-                                  return (
-                                    <TableCell key={year} colSpan={2} align="center" sx={{ color: "#fff", border: "1px solid #632a6d", py: 1 }}>
-                                      <Typography variant="subtitle2" sx={{ fontWeight: "bold", lineHeight: 1 }}>{year}</Typography>
-                                      <Typography variant="caption" sx={{ fontSize: "0.65rem", opacity: 0.9 }}>
-                                        BE: {fin.be}, AE: {fin.ae}
-                                      </Typography>
-                                    </TableCell>
-                                  );
-                                })}
-                                <TableCell colSpan={2} align="center" sx={{ color: "#fff", fontWeight: "bold", border: "1px solid #632a6d", backgroundColor: "#2e0e35" }}>
-                                  Cumulative
-                                </TableCell>
-                              </TableRow>
-
-                              <TableRow sx={{ backgroundColor: "#45154F" }}>
-                                {[...years, "Cumulative"].map((item) => (
-                                  <React.Fragment key={item}>
-                                    <TableCell align="center" sx={{ color: "#fff", fontWeight: "bold", fontSize: "0.75rem", border: "1px solid #632a6d" }}>Target</TableCell>
-                                    <TableCell align="center" sx={{ color: "#fff", fontWeight: "bold", fontSize: "0.75rem", border: "1px solid #632a6d" }}>Progress</TableCell>
-                                  </React.Fragment>
-                                ))}
-                              </TableRow>
-                            </TableHead>
-
-                            <TableBody>
-                              {Object.values(schemeContent.indicatorRows).map((row, rIdx) => {
-                                let cumTarget = 0;
-                                let cumProgress = 0;
-
-                                return (
-                                  <TableRow key={rIdx} sx={{ "&:nth-of-type(even)": { backgroundColor: "#f9f9f9" } }}>
-                                    <TableCell sx={{ border: "1px solid #ddd" }}>{row.type}</TableCell>
-                                    <TableCell sx={{ border: "1px solid #ddd", fontSize: "0.8rem", color: "#555" }}>{row.statement}</TableCell>
-                                    <TableCell sx={{ border: "1px solid #ddd" }}>{row.indicatorName}</TableCell>
-                                    <TableCell sx={{ border: "1px solid #ddd", textAlign: 'center' }}>{row.unit}</TableCell>
-                                    <TableCell sx={{ border: "1px solid #ddd", textAlign: 'center' }}>{row.period}</TableCell>
-
-                                    {years.map((year) => {
-                                      const val = row.yearlyValues[year] || { target: "-", progress: "-" };
-                                      if (typeof val.target === "number") cumTarget += val.target;
-                                      if (typeof val.progress === "number") cumProgress += val.progress;
-                                      return (
-                                        <React.Fragment key={year}>
-                                          <TableCell align="right" sx={{ border: "1px solid #ddd" }}>{val.target}</TableCell>
-                                          <TableCell align="right" sx={{ border: "1px solid #ddd" }}>{val.progress}</TableCell>
-                                        </React.Fragment>
-                                      );
-                                    })}
-
-                                    <TableCell align="right" sx={{ border: "1px solid #ddd", fontWeight: "bold", backgroundColor: "#f0f4ff" }}>{cumTarget || "-"}</TableCell>
-                                    <TableCell align="right" sx={{ border: "1px solid #ddd", fontWeight: "bold", backgroundColor: "#f0f4ff" }}>{cumProgress || "-"}</TableCell>
-                                  </TableRow>
-                                );
-                              })}
-                            </TableBody>
-                          </Table>
-                        </TableContainer>
-                      </Box>
-                    );
-                  })}
-                </Box>
-              );
-            })}
-          </Box>
-        );
-      })}
+      {/* Optional info text */}
+      {/* <Typography variant="body2" color="textSecondary">
+        Select a financial year and click "Export as Word" to download the Outcome Budget report.
+      </Typography> */}
     </Box>
   );
 };
 
-export default ProgressTable;
+export default ReportComponent;
