@@ -1,129 +1,349 @@
-import { Autocomplete, Checkbox, Chip, TextField } from "@mui/material";
-import CheckBoxOutlineBlankIcon from "@mui/icons-material/CheckBoxOutlineBlankOutlined";
-import CheckBoxIcon from "@mui/icons-material/CheckBoxOutlined";
-import React from "react";
+"use client";
+import React, { useState, useEffect } from "react";
+import {
+  Box,
+  Button,
+  CircularProgress,
+  Tooltip,
+  Paper,
+  Divider,
+  Grid,
+} from "@mui/material";
+import DownloadIcon from "@mui/icons-material/FileDownload";
+import { useFormik } from "formik";
+import * as Yup from "yup";
 
-export const CustomAutoComplete = ({
-  name,
-  options,
-  label,
-  placeholder = "",
-  selectAll = false,
-  multiple = true,
-  readOnly = false,
-  required = false,
-  size = "small",
-  limitTags = 1,
-  onChange,
-  formik,
-  ...props
-}) => {
-  if (formik === null || formik === undefined) return;
-  const { values, setFieldValue, errors, touched } = formik;
+import apiClient from "@/utils/apiClient";
+import MainFormHeader from "@/src/components/DashboardUI/MainFormHeader";
+import { oomfFrameworkId } from "@/src/constants/unified/frameworkConstants";
+import { filterByFramework } from "@/utils/niti/filterByFramework";
+import { useFilteredFrameworkAccess } from "@/utils/niti/useFilteredFrameworkAccess";
+import { useDispatch, useSelector } from "react-redux";
+import { CustomAutoComplete } from "@/src/components/superadmin/CustomAutoComplete";
 
-  const selectAllOption = { id: "0", label: "Select All" };
-  const mergedOptions =
-    multiple && selectAll ? [selectAllOption, ...options] : options;
+const ReportComponent = () => {
+  const dispatch = useDispatch();
+  const userData = useSelector((state) => state.config.userData);
 
-  const value = values[name] || (multiple ? [] : null);
+  const [financialYearList, setFinancialYearList] = useState([]);
+  const [loadingYears, setLoadingYears] = useState(false);
+  const [exportLoading, setExportLoading] = useState(false);
 
-  const isOptionSelected = (option, valueList) =>
-    valueList?.some((val) => val.id === option.id);
+  const [ministryList, setMinistryList] = useState([]);
+  const [departmentList, setDepartmentList] = useState([]);
+  const [schemeTypeList, setSchemeTypeList] = useState([]);
+  const [schemeList, setSchemeList] = useState([]);
 
-  const handleChange = (e, selected) => {
-    if (selectAll && multiple) {
-      const isSelectAllChosen = selected.some(
-        (opt) => opt.id === selectAllOption.id
-      );
+  const { userMinistryIds, userDepartmentIds, userSchemeIds } =
+    useFilteredFrameworkAccess({
+      userPermittedMinistryIds: userData?.userRelationships[0]?.ministryIds,
+      userPermittedDepartmentIds:
+        userData?.userRelationships[0]?.departmentIds,
+      userPermittedSchemeIds: userData?.userRelationships[0]?.schemeIds,
+      frameworkId: oomfFrameworkId,
+    });
 
-      const wasAlreadyAllSelected =
-        value?.length === options.length &&
-        value.every((v) => options.some((o) => o.id === v.id));
-
-      // If Select All clicked again (toggle off)
-      if (isSelectAllChosen && wasAlreadyAllSelected) {
-        setFieldValue(name, []);
-        onChange?.(e, []);
-        return;
-      }
-
-      // If Select All newly selected (toggle on)
-      if (isSelectAllChosen && !wasAlreadyAllSelected) {
-        setFieldValue(name, options);
-        onChange?.(e, options);
-        return;
-      }
-
-      // Filter out "Select All" if it's among selected values
-      const filtered = selected.filter((opt) => opt.id !== selectAllOption.id);
-      setFieldValue(name, filtered);
-      onChange?.(e, filtered);
-      return;
-    }
-
-    const newValue = multiple ? selected : selected || null;
-    setFieldValue(name, newValue);
-    onChange?.(e, newValue);
+  const getCurrentFinancialYear = () => {
+    const today = new Date();
+    const year = today.getFullYear();
+    const month = today.getMonth() + 1;
+    return month >= 4 ? `${year}-${year + 1}` : `${year - 1}-${year}`;
   };
 
-  return (
-    <Autocomplete
-      {...props}
-      multiple={multiple}
-      options={mergedOptions}
-      value={value}
-      getOptionLabel={(option) => option?.label || ""}
-      isOptionEqualToValue={(option, val) => option.id === val.id}
-      disabled={readOnly}
-      fullWidth
-      sx={{ mt: 2 }}
-      size={size}
-      limitTags={multiple ? limitTags : undefined}
-      disableCloseOnSelect={multiple}
-      onChange={handleChange}
-      renderOption={(props, option) => {
-        const { key, ...rest } = props;
-        return (
-          <li key={option?.id} {...rest}>
-            {multiple && !readOnly && (
-              <Checkbox
-                icon={<CheckBoxOutlineBlankIcon fontSize="small" />}
-                checkedIcon={<CheckBoxIcon fontSize="small" />}
-                checked={isOptionSelected(option, value || [])}
-                sx={{ mr: 1 }}
-              />
-            )}
-            {option.label}
-          </li>
+  const formik = useFormik({
+    initialValues: {
+      financialYear: [],
+      ministry: [],
+      department: [],
+      schemeType: [],
+      scheme: [],
+    },
+    validationSchema: Yup.object({
+      financialYear: Yup.array().min(1, "Financial Year is required"),
+    }),
+    onSubmit: async (values) => {
+      setExportLoading(true);
+      try {
+        const response = await apiClient.post(
+          "api/oomf/report/oomf-workflow-financial-document",
+          {
+            financialYear: values.financialYear.map((f) => f.label),
+            ministryIds: values.ministry.map((m) => m.id),
+            departmentIds: values.department.map((d) => d.id),
+            schemeTypeIds: values.schemeType.map((s) => s.id),
+            schemeIds: values.scheme.map((s) => s.id),
+          },
+          { responseType: "blob" }
         );
-      }}
-      renderTags={
-        multiple
-          ? (value, getTagProps) =>
-              value.map((option, index) => {
-                const { key, ...rest } = getTagProps({ index });
-                return <Chip key={index} label={option.label} {...rest} />;
-              })
-          : undefined
+
+        const blob = new Blob([response.data], {
+          type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        });
+
+        const url = window.URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+
+        let filename =
+          "OOMF_Report_" +
+          values.financialYear?.[0]?.label +
+          ".docx";
+
+        const contentDisposition = response.headers["content-disposition"];
+        if (contentDisposition) {
+          const match = contentDisposition.match(/filename="?([^"]+)"?/);
+          if (match) filename = match[1];
+        }
+
+        link.setAttribute("download", filename);
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        window.URL.revokeObjectURL(url);
+      } catch (err) {
+        console.error(err);
+        alert("Download failed");
+      } finally {
+        setExportLoading(false);
       }
-      renderInput={(params) => (
-        <TextField
-          {...params}
-          // label={label}
-          label={
-            <span>
-              {label}
-              {required && <span style={{ color: "red" }}> *</span>}
-            </span>
-          }
-          fullWidth
-          placeholder={placeholder}
-          // required={required}
-          error={Boolean(touched?.[name] && errors?.[name])}
-          helperText={touched?.[name] && errors?.[name]}
-          sx={{ backgroundColor: "#fff", borderRadius: "10px" }}
-        />
-      )}
-    />
+    },
+  });
+
+  // ---------------- Financial Year ----------------
+  const fetchFinancialYearList = async () => {
+    setLoadingYears(true);
+    try {
+      const response = await apiClient.post(
+        "api/oomf/submissions/get-scheme-filters",
+        { isSubScheme: false }
+      );
+
+      const { filters } = response?.data || {};
+      const currentFY = getCurrentFinancialYear();
+
+      const filtered = filters?.financialYears
+        ?.map((item, i) => ({
+          id: i,
+          label: item.name,
+        }))
+        ?.filter(
+          (fy) =>
+            parseInt(fy.label.split("-")[0]) <=
+            parseInt(currentFY.split("-")[0])
+        );
+
+      setFinancialYearList(filtered || []);
+
+      formik.setFieldValue("financialYear", [
+        filtered.find((f) => f.label === currentFY),
+      ]);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoadingYears(false);
+    }
+  };
+
+  // ---------------- Ministry ----------------
+  const fetchMinistryList = async () => {
+    try {
+      const res = await apiClient.post("api/dynamic-model-details/data", {
+        modelName: "ministry",
+        filters: userMinistryIds?.length
+          ? {
+              where: {
+                id: { in: userMinistryIds },
+                status: true,
+              },
+            }
+          : {},
+      });
+
+      setMinistryList(
+        res?.data?.data?.map((m) => ({
+          id: m.id,
+          label: m.name,
+        })) || []
+      );
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  // ---------------- Scheme Type ----------------
+  const fetchSchemeType = async () => {
+    try {
+      const res = await apiClient.post(
+        "api/master/schemeType/by-framework",
+        { associatedFrameworks: [oomfFrameworkId] }
+      );
+
+      setSchemeTypeList(
+        res?.data?.data?.map((s) => ({
+          id: s.id,
+          label: s.name,
+        })) || []
+      );
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  // ---------------- Department ----------------
+  useEffect(() => {
+    const fetchDept = async () => {
+      if (!formik.values.ministry.length) {
+        setDepartmentList([]);
+        return;
+      }
+
+      formik.setFieldValue("department", []);
+
+      const res = await apiClient.post(
+        "api/master/get-departments-for-ministry",
+        {
+          ministryIds: formik.values.ministry.map((m) => m.id),
+        }
+      );
+
+      const filtered = res?.data?.data
+        ?.filter((d) => userDepartmentIds?.includes(d.id))
+        ?.map((d) => ({
+          id: d.id,
+          label: d.name,
+        }));
+
+      setDepartmentList(filtered || []);
+    };
+
+    fetchDept();
+  }, [formik.values.ministry]);
+
+  // ---------------- Scheme ----------------
+  useEffect(() => {
+    const fetchSchemes = async () => {
+      if (!formik.values.department.length) {
+        setSchemeList([]);
+        return;
+      }
+
+      formik.setFieldValue("scheme", []);
+
+      const res = await apiClient.post(
+        "api/master/get-all-schemes-for-departments",
+        {
+          departmentIds: formik.values.department.map((d) => d.id),
+          schemeTypeIds: formik.values.schemeType.map((s) => s.id),
+        }
+      );
+
+      const filtered = res?.data?.data
+        ?.filter((s) => userSchemeIds?.includes(s.id))
+        ?.map((s) => ({
+          id: s.id,
+          label: s.name,
+        }));
+
+      setSchemeList(filtered || []);
+    };
+
+    fetchSchemes();
+  }, [formik.values.department, formik.values.schemeType]);
+
+  useEffect(() => {
+    fetchFinancialYearList();
+    fetchMinistryList();
+    fetchSchemeType();
+  }, []);
+
+  return (
+    <Box sx={{ mt: 4, px: 2 }}>
+      <MainFormHeader title="Outcome Budget Report" />
+      <Divider sx={{ my: 2 }} />
+
+      <form onSubmit={formik.handleSubmit}>
+        <Paper sx={{ p: 3 }}>
+          <Grid container spacing={2}>
+
+            <Grid item xs={12} md={6}>
+              <CustomAutoComplete
+                name="financialYear"
+                label="Financial Year"
+                options={financialYearList}
+                formik={formik}
+                required
+                selectAll={false}
+                multiple={false}
+              />
+            </Grid>
+
+            <Grid item xs={12} md={6}>
+              <CustomAutoComplete
+                name="ministry"
+                label="Ministry"
+                options={filterByFramework(ministryList, oomfFrameworkId)}
+                formik={formik}
+                selectAll
+              />
+            </Grid>
+
+            <Grid item xs={12} md={6}>
+              <CustomAutoComplete
+                name="department"
+                label="Department"
+                options={departmentList}
+                formik={formik}
+                selectAll
+                readOnly={!formik.values.ministry.length}
+              />
+            </Grid>
+
+            <Grid item xs={12} md={6}>
+              <CustomAutoComplete
+                name="schemeType"
+                label="Scheme Type"
+                options={schemeTypeList}
+                formik={formik}
+                selectAll
+              />
+            </Grid>
+
+            <Grid item xs={12}>
+              <CustomAutoComplete
+                name="scheme"
+                label="Scheme"
+                options={schemeList}
+                formik={formik}
+                selectAll
+                readOnly={!formik.values.department.length}
+              />
+            </Grid>
+          </Grid>
+
+          <Box mt={3}>
+            <Tooltip title="Export report">
+              <span>
+                <Button
+                  type="submit"
+                  variant="contained"
+                  startIcon={
+                    exportLoading ? (
+                      <CircularProgress size={20} />
+                    ) : (
+                      <DownloadIcon />
+                    )
+                  }
+                  disabled={exportLoading}
+                >
+                  {exportLoading ? "Exporting..." : "Export as Word"}
+                </Button>
+              </span>
+            </Tooltip>
+          </Box>
+        </Paper>
+      </form>
+    </Box>
   );
 };
+
+export default ReportComponent;
