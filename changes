@@ -1,247 +1,461 @@
-async function generateDynamicReport(
-  financialYears = [],
-  submissionIds = [],
-  ministryIds = [],
-  departmentIds = [],
-  schemeIds = [],
-  measurementAreaIds = []
-) {
-  try {
-    // 🔹 Build dynamic where condition
-    const whereConditions = {
-      AND: [
-        { form_values: { not: null } },
-        ...(financialYears.length
-          ? [
-              {
-                OR: financialYears.map((fy) => ({
-                  form_values: {
-                    path: ["financialYear"],
-                    equals: fy,
-                  },
-                })),
-              },
-            ]
-          : []),
-        ...(submissionIds.length ? [{ id: { in: submissionIds } }] : []),
-      ],
-    };
+"use client";
+import React, { useState, useEffect } from "react";
+import {
+  Box,
+  Button,
+  CircularProgress,
+  Tooltip,
+  Paper,
+  Divider,
+  Grid,
+} from "@mui/material";
+import DownloadIcon from "@mui/icons-material/FileDownload";
+import { useFormik } from "formik";
+import * as Yup from "yup";
 
-    // 🔹 Fetch submissions
-    const submissions = await prisma.applicationSubmission.findMany({
-      where: whereConditions,
+import apiClient from "@/utils/apiClient";
+import MainFormHeader from "@/src/components/DashboardUI/MainFormHeader";
+import { oomfFrameworkId } from "@/src/constants/unified/frameworkConstants";
+import { filterByFramework } from "@/utils/niti/filterByFramework";
+import { useFilteredFrameworkAccess } from "@/utils/niti/useFilteredFrameworkAccess";
+import { useDispatch, useSelector } from "react-redux";
+import { CustomAutoComplete } from "@/src/components/superadmin/CustomAutoComplete";
+
+const ReportComponent = () => {
+  const dispatch = useDispatch();
+  const userData = useSelector((state) => state.config.userData);
+
+  const [financialYearList, setFinancialYearList] = useState([]);
+  const [loadingYears, setLoadingYears] = useState(false);
+  const [exportLoading, setExportLoading] = useState(false);
+
+  const [ministryList, setMinistryList] = useState([]);
+  const [departmentList, setDepartmentList] = useState([]);
+  const [schemeTypeList, setSchemeTypeList] = useState([]);
+  const [schemeList, setSchemeList] = useState([]);
+
+  const { userMinistryIds, userDepartmentIds, userSchemeIds } =
+    useFilteredFrameworkAccess({
+      userPermittedMinistryIds: userData?.userRelationships[0]?.ministryIds,
+      userPermittedDepartmentIds: userData?.userRelationships[0]?.departmentIds,
+      userPermittedSchemeIds: userData?.userRelationships[0]?.schemeIds,
+      frameworkId: oomfFrameworkId,
     });
 
-    if (!submissions.length) {
-      return { status: false, message: "No submissions found", result: [] };
-    }
+  const getCurrentFinancialYear = () => {
+    const today = new Date();
+    const year = today.getFullYear();
+    const month = today.getMonth() + 1;
+    return month >= 4 ? `${year}-${year + 1}` : `${year - 1}-${year}`;
+  };
 
-    // 🔹 Fetch mapping data for each submission
-    const results = await Promise.all(
-      submissions.map(async (submission) => {
-        const mapping = await prisma.outputOutcomeMapping.findUnique({
-          where: { submission_id: submission.id },
+  const formik = useFormik({
+    initialValues: {
+      financialYear: [],
+      ministry: [],
+      department: [],
+      schemeType: [],
+      scheme: [],
+    },
+    validationSchema: Yup.object({
+      financialYear: Yup.mixed().test(
+        "financialYear-required",
+        "Financial Year is required",
+        (value) => {
+          console.log("Val::",value);
+          // Case 1: null / undefined
+          if (!value) return false;
+
+          // Case 2: Array (multiple select)
+          if (Array.isArray(value)) {
+            return value.length > 0;
+          }
+
+          // Case 3: Object (Autocomplete single select)
+          if (typeof value === "object") {
+            return !!value.label; // or value.id if you prefer
+          }
+
+          // Case 4: String
+          if (typeof value === "string") {
+            return value.trim().length > 0;
+          }
+
+          return false;
+        },
+      ),
+    }),
+    onSubmit: async (values) => {
+      setExportLoading(true);
+      try {
+        const response = await apiClient.post(
+          "api/oomf/report/oomf-workflow-financial-document",
+          {
+            financialYears: [values?.financialYear?.label],
+            ministryIds: values.ministry.map((m) => m.id),
+            departmentIds: values.department.map((d) => d.id),
+            schemeTypeIds: values.schemeType.map((s) => s.id),
+            schemeIds: values.scheme.map((s) => s.id),
+          },
+          { responseType: "blob" },
+        );
+
+        const blob = new Blob([response.data], {
+          type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         });
 
-        return {
-          id: submission.id,
-          form_values: safeJSON(submission.form_values),
-          links: safeJSON(mapping ? mapping.mappingData : {}),
-        };
-      })
-    );
+        const url = window.URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
 
-    // 🔹 Apply filters
-    const filteredResults = results.filter((res) => {
-      const fv = res.form_values;
+        let filename =
+          "Budget_Report_" + values?.financialYear?.label + ".docx";
 
-      if (ministryIds.length && !ministryIds.includes(fv.ministryId?.id))
-        return false;
+        const contentDisposition = response.headers["content-disposition"];
+        if (contentDisposition) {
+          const match = contentDisposition.match(/filename="?([^"]+)"?/);
+          if (match) filename = match[1];
+        }
 
-      if (departmentIds.length && !departmentIds.includes(fv.departmentId?.id))
-        return false;
+        link.setAttribute("download", filename);
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        window.URL.revokeObjectURL(url);
+      } catch (err) {
+        console.error(err);
+        // alert("Download failed");
+      } finally {
+        setExportLoading(false);
+      }
+    },
+  });
 
-      if (schemeIds.length && !schemeIds.includes(fv.schemeId?.id))
-        return false;
+  // ---------------- Financial Year ----------------
+  const fetchFinancialYearList = async () => {
+    setLoadingYears(true);
+    try {
+      const response = await apiClient.post(
+        "api/oomf/submissions/get-scheme-filters",
+        { isSubScheme: false },
+      );
 
-      if (measurementAreaIds.length) {
-        const hasMatchingArea = fv.indicatorData?.some((ind) =>
-          ind.sections?.some((sec) =>
-            sec.indicators?.some(
-              (indicator) =>
-                indicator.measurementArea &&
-                measurementAreaIds.includes(indicator.measurementArea.id)
-            )
-          )
+      const { filters } = response?.data || {};
+      const currentFY = getCurrentFinancialYear();
+
+      const filtered = filters?.financialYears?.map((item, i) => ({
+        id: i,
+        label: item.name,
+      }));
+      // ?.filter(
+      //   (fy) =>
+      //     parseInt(fy.label.split("-")[0]) <=
+      //     parseInt(currentFY.split("-")[0])
+      // );
+
+      setFinancialYearList(filtered || []);
+
+      formik.setFieldValue("financialYear", [
+        filtered.find((f) => f.label === currentFY),
+      ]);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoadingYears(false);
+    }
+  };
+
+  // ---------------- Ministry ----------------
+  const fetchMinistryList = async () => {
+    try {
+      const response = await apiClient.post("api/dynamic-model-details/data", {
+        modelName: "ministry",
+        filters: userMinistryIds?.length
+          ? {
+              where: {
+                id: {
+                  in: userMinistryIds || [],
+                },
+                status: true,
+              },
+            } // ✅ filter by userData
+          : {}, // ✅ else fetch all
+      });
+
+      const { data } = response.data || {};
+      if (Array.isArray(data)) {
+        const formattedData = data?.map((item) => ({
+          id: item?.id,
+          label: item?.name,
+          associatedFramework: item?.jsonData?.associatedFramework,
+        }));
+        // if (Array.isArray(formattedData)) {
+        //   const filteredData = formattedData?.filter((item) =>
+        //     userMinistryIds?.includes(item?.id)
+        //   );
+        //   setMinistryList(filteredData);
+        // }
+        setMinistryList(formattedData);
+      }
+    } catch (error) {
+      console.error("Error fetching ministries:", error);
+      setMinistryList([]);
+    }
+  };
+
+  // ---------------- Scheme Type ----------------
+  const fetchSchemeType = async () => {
+    try {
+      const res = await apiClient.post("api/master/schemeType/by-framework", {
+        associatedFrameworks: [oomfFrameworkId],
+      });
+
+      setSchemeTypeList(
+        res?.data?.data?.map((s) => ({
+          id: s.id,
+          label: s.name,
+        })) || [],
+      );
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  // ---------------- Department ----------------
+  useEffect(() => {
+    const fetchDepartmentList = async () => {
+      const selectedMinistries = formik.values?.ministry;
+      if (!selectedMinistries || selectedMinistries.length === 0) {
+        setDepartmentList([]);
+        return;
+      }
+
+      formik.setFieldValue("department", []);
+
+      const ministryIds = selectedMinistries?.map((m) => m?.id);
+
+      try {
+        const response = await apiClient.post(
+          `api/master/get-departments-for-ministry`,
+          { ministryIds },
         );
-        if (!hasMatchingArea) return false;
-      }
 
-      return true;
-    });
+        const { data } = response?.data || {};
+        if (Array.isArray(data)) {
+          // Filter based on userData relationships
+          const allowedDepartmentIds = userDepartmentIds || [];
 
-    if (!filteredResults.length) {
-      return {
-        status: false,
-        message: "No submissions matched given filters",
-        result: [],
-      };
-    }
+          const filteredData = data.filter((dept) =>
+            allowedDepartmentIds.includes(dept.id),
+          );
 
-    // 🔹 Normalize indicator data
-    const prunedResults = filteredResults.map((res) => {
-      const fv = res.form_values;
+          const formattedData = filteredData.map((item) => ({
+            id: item?.id,
+            label: item?.name,
+            associatedFramework: item?.jsonData?.associatedFramework,
+          }));
 
-      const indicatorData =
-        fv.indicatorData?.map((ind) => ({
-          indicatorType: ind.indicatorType || "N/A",
-          sections:
-            ind.sections?.map((sec) => ({
-              ...sec,
-              indicators:
-                measurementAreaIds.length > 0
-                  ? sec.indicators?.filter(
-                      (indicator) =>
-                        indicator.measurementArea &&
-                        measurementAreaIds.includes(
-                          indicator.measurementArea.id
-                        )
-                    ) || []
-                  : sec.indicators || [],
-            })) || [],
-        })) || [];
-
-      return {
-        ...res,
-        form_values: { ...fv, indicatorData },
-      };
-    });
-
-    // 🔹 Collect department IDs
-    const allDepartmentIds = [
-      ...new Set(
-        prunedResults
-          .map((r) => r.form_values?.departmentId?.id)
-          .filter(Boolean)
-      ),
-    ];
-
-    // 🔹 Fetch departments and demand numbers
-    const departmentsData = await prisma.departments.findMany({
-      where: { id: { in: allDepartmentIds } },
-      select: { id: true, jsonData: true },
-    });
-
-    const departmentDemandMap = {};
-    departmentsData.forEach((dept) => {
-      const json = safeJSON(dept.jsonData);
-      departmentDemandMap[dept.id] = json?.demandNo
-        ? Number(json.demandNo)
-        : null;
-    });
-
-    // 🔹 Build hierarchical structure
-    const ministriesMap = {};
-
-    for (const res of prunedResults) {
-      const fv = res.form_values;
-
-      const ministry = {
-        id: fv.ministryId?.id || 0,
-        name: fv.ministryId?.name || "Unknown Ministry",
-      };
-
-      const deptId = fv.departmentId?.id || 0;
-      const department = {
-        id: deptId,
-        name: fv.departmentId?.name || "Unknown Department",
-        demandNumber: departmentDemandMap[deptId] || null,
-      };
-
-      const schemeId = fv.schemeId?.id || 0;
-      const subSchemeId = fv.subSchemeId?.id || null;
-
-      // Initialize Ministry
-      if (!ministriesMap[ministry.id]) {
-        ministriesMap[ministry.id] = { ...ministry, departments: {} };
-      }
-
-      // Initialize Department
-      if (!ministriesMap[ministry.id].departments[deptId]) {
-        ministriesMap[ministry.id].departments[deptId] = {
-          ...department,
-          schemes: {},
-        };
-      }
-
-      const schemesMap = ministriesMap[ministry.id].departments[deptId].schemes;
-
-      // If it's a sub-scheme submission
-      if (subSchemeId) {
-        // Ensure parent scheme exists
-        if (!schemesMap[schemeId]) {
-          schemesMap[schemeId] = {
-            id: schemeId,
-            name: fv.schemeId?.name || "Unknown Scheme",
-            form_values: null, // parent may come later
-            links: {},
-            subSchemes: [],
-          };
+          setDepartmentList(formattedData);
         }
-
-        // Add sub-scheme
-        const subSchemeObj = {
-          id: subSchemeId,
-          name: fv.subSchemeId?.name || "Unknown Sub-Scheme",
-          form_values: fv,
-          links: res.links,
-        };
-
-        // Prevent duplicates
-        if (
-          !schemesMap[schemeId].subSchemes.some((s) => s.id === subSchemeObj.id)
-        ) {
-          schemesMap[schemeId].subSchemes.push(subSchemeObj);
-        }
-      } else {
-        // Scheme-level submission
-        if (!schemesMap[schemeId]) {
-          schemesMap[schemeId] = {
-            id: schemeId,
-            name: fv.schemeId?.name || "Unknown Scheme",
-            form_values: fv,
-            links: res.links,
-            subSchemes: [],
-          };
-        } else {
-          // Update parent scheme data if not already populated
-          if (!schemesMap[schemeId].form_values) {
-            schemesMap[schemeId].form_values = fv;
-            schemesMap[schemeId].links = res.links;
-          }
-        }
+      } catch (error) {
+        console.error("Failed to fetch department list:", error);
+        setDepartmentList([]);
       }
-    }
-
-    // 🔹 Convert to final array format
-    const ministries = Object.values(ministriesMap).map((ministry) => ({
-      id: ministry.id,
-      name: ministry.name,
-      departments: Object.values(ministry.departments).map((dept) => ({
-        id: dept.id,
-        name: dept.name,
-        demandNumber: dept.demandNumber,
-        schemes: Object.values(dept.schemes),
-      })),
-    }));
-
-    return {
-      status: true,
-      message: "Dynamic report generated successfully.",
-      result: ministries,
     };
-  } catch (error) {
-    console.error("Service Error (generateDynamicReport):", error);
-    throw error;
-  }
-}
+
+    fetchDepartmentList();
+  }, [formik?.values?.ministry, userData?.userRelationships]);
+
+  // ---------------- Scheme ----------------
+  // useEffect(() => {
+  //   const fetchSchemes = async () => {
+  //     if (!formik.values.department.length) {
+  //       setSchemeList([]);
+  //       return;
+  //     }
+
+  //     formik.setFieldValue("scheme", []);
+
+  //     const res = await apiClient.post(
+  //       "api/master/get-all-schemes-for-departments",
+  //       {
+  //         departmentIds: formik.values.department.map((d) => d.id),
+  //         schemeTypeIds: formik.values.schemeType.map((s) => s.id),
+  //       }
+  //     );
+
+  //     const filtered = res?.data?.data
+  //       ?.filter((s) => userSchemeIds?.includes(s.id))
+  //       ?.map((s) => ({
+  //         id: s.id,
+  //         label: s.name,
+  //       }));
+
+  //     setSchemeList(filtered || []);
+  //   };
+
+  //   fetchSchemes();
+  // }, [formik.values.department, formik.values.schemeType]);
+  useEffect(() => {
+    const fetchSchemeList = async () => {
+      const selectedType = formik.values?.department;
+      if (!selectedType) {
+        setSchemeList([]);
+        return;
+      }
+      formik.setFieldValue("scheme", []);
+
+      const departmentIds = selectedType?.map(
+        (department, index) => department?.id,
+      );
+      const schemeTypeIds = formik.values?.schemeType?.map((item) => item?.id);
+
+      try {
+        const response = await apiClient.post(
+          `api/master/get-all-schemes-for-departments`,
+          {
+            departmentIds,
+            schemeTypeIds,
+          },
+        );
+
+        const { data } = response?.data || {};
+
+        if (Array.isArray(data)) {
+          const formattedData = data?.map((item) => ({
+            id: item?.id,
+            label: item?.name,
+            schemeTypeId: {
+              id: item?.jsonData?.schemeType?.id,
+              name: item?.jsonData?.schemeType?.name,
+            },
+            associatedFramework:
+              item?.jsonData?.schemeFinancialYearWiseBudgetDetails?.map(
+                (item) => item?.associatedFrameworks,
+              ),
+          }));
+
+          const filteredData = formattedData?.filter((item) =>
+            userSchemeIds?.includes(item?.id),
+          );
+          setSchemeList(filteredData);
+        }
+      } catch (error) {
+        console.error("Failed to fetch scheme list:", error);
+        setSchemeList([]);
+      }
+    };
+    fetchSchemeList();
+  }, [formik?.values?.department, formik.values?.schemeType]);
+
+  useEffect(() => {
+    fetchFinancialYearList();
+    fetchMinistryList();
+    fetchSchemeType();
+  }, []);
+
+  return (
+    <Box sx={{ mt: 4, px: 2 }}>
+      <MainFormHeader title="Outcome Budget Report" />
+      <Divider sx={{ my: 2 }} />
+
+      <form onSubmit={formik.handleSubmit}>
+        <Paper sx={{ p: 3 }}>
+          <Grid container spacing={2}>
+            <Grid size={{ xs: 12, md: 6 }}>
+              <CustomAutoComplete
+                name="financialYear"
+                label="Financial Year"
+                options={financialYearList}
+                formik={formik}
+                required
+                selectAll={false}
+                multiple={false}
+              />
+            </Grid>
+
+            <Grid size={{ xs: 12, md: 6 }}>
+              <CustomAutoComplete
+                name="ministry"
+                label="Ministry"
+                options={filterByFramework(ministryList, oomfFrameworkId)}
+                formik={formik}
+                selectAll
+              />
+            </Grid>
+
+            <Grid size={{ xs: 12, md: 6 }}>
+              <CustomAutoComplete
+                name="department"
+                label="Department"
+                options={departmentList}
+                formik={formik}
+                selectAll
+                readOnly={!formik.values.ministry.length}
+              />
+            </Grid>
+
+            <Grid size={{ xs: 12, md: 6 }}>
+              <CustomAutoComplete
+                name="schemeType"
+                label="Scheme Type"
+                options={schemeTypeList}
+                formik={formik}
+                selectAll
+              />
+            </Grid>
+
+            <Grid size={{ xs: 12, md: 6 }}>
+              <CustomAutoComplete
+                name="scheme"
+                label="Scheme"
+                options={schemeList}
+                formik={formik}
+                selectAll
+                readOnly={!formik.values.department.length}
+              />
+            </Grid>
+            <Grid size={{ xs: 12, sm: 3 }}>
+              <Tooltip title="Export report">
+                {/* <span> */}
+                <Button
+                  fullWidth
+                  type="submit"
+                  variant="contained"
+                  sx={{ mt: 2 }}
+                  startIcon={
+                    exportLoading ? (
+                      <CircularProgress size={20} />
+                    ) : (
+                      <DownloadIcon />
+                    )
+                  }
+                  disabled={exportLoading}
+                >
+                  {exportLoading ? "Exporting..." : "Export as Word"}
+                </Button>
+                {/* </span> */}
+              </Tooltip>
+            </Grid>
+            <Grid size={{ xs: 12, sm: 3 }}>
+              <Button
+                type="reset"
+                fullWidth
+                variant="outlined"
+                color="inherit"
+                sx={{ mt: 2 }}
+                onClick={() => {
+                  formik.resetForm();
+                }}
+              >
+                Clear
+              </Button>
+            </Grid>
+          </Grid>
+        </Paper>
+      </form>
+    </Box>
+  );
+};
+
+export default ReportComponent;
