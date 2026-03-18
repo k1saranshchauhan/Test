@@ -1,6 +1,5 @@
 "use client";
 import React, { useEffect, useState } from "react";
-import FileDownloadOutlinedIcon from "@mui/icons-material/FileDownloadOutlined";
 import { useFormik } from "formik";
 import {
   Grid,
@@ -17,769 +16,130 @@ import * as Yup from "yup";
 import { CustomAutoComplete } from "@/src/components/superadmin/CustomAutoComplete";
 import MainFormHeader from "@/src/components/DashboardUI/MainFormHeader";
 import apiClient from "@/utils/apiClient";
-import BodyDashboard from "@/src/components/DashboardUI/BodyDashboard";
-import InboxIcon from "@mui/icons-material/Inbox";
-import ProgressTable from "./progress-table";
-import ProgressFootnote from "./progress-footnote";
 import { useDispatch, useSelector } from "react-redux";
 import { setError, setSuccess } from "@/store/slices/errorSlice";
 import { oomfFrameworkId } from "@/src/constants/unified/frameworkConstants";
-import {
-  filterByFramework,
-  filterSchemesByFramework,
-} from "@/utils/niti/filterByFramework";
-import { useFilteredFrameworkAccess } from "@/utils/niti/useFilteredFrameworkAccess";
-import { startLoader, stopLoader } from "@/store/slices/errorSlice";
 
 
-const ProgressReport = () => {
+const PrayasIntegration = () => {
   const dispatch = useDispatch();
-  const [ministryList, setMinistryList] = useState([]);
-  const [departmentList, setDepartmentList] = useState([]);
-  const [financialYearList, setFinancialYearList] = useState([]);
-  const [measurementAreaList, setMeasurementAreaList] = useState([]);
-  const [stateList, setStateList] = useState([]);
-  const [districtList, setDistrictList] = useState([]);
-  const [schemeList, setSchemeList] = useState([]);
-  const [subSchemeList, setSubSchemeList] = useState([]);
-  const [schemeTypeList, setSchemeTypeList] = useState([]);
-  const [frequencyList, setFrequencyList] = useState([]);
-  const [indicatorTypeList, setIndicatorTypeList] = useState([]);
-  const [indicatorNamesList, setIndicatorNamesList] = useState([]);
-  const [tableData, setTableData] = useState([]);
+  const [questionnaireList, setQuestionnaireList] = useState([]);
+  const [quarterList, setQuarterList] = useState([]);
+  const [responseData, setResponseData] = useState([]);
   const userData = useSelector((state) => state.config.userData);
-  const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
+  
+      //utility for latest entry
+  function getLatestEntry(data, key = "created_at") {
+    if (!Array.isArray(data) || data.length === 0) return null;
 
-  const { userMinistryIds, userDepartmentIds, userSchemeIds } =
-    useFilteredFrameworkAccess({
-      userPermittedMinistryIds: userData?.userRelationships[0]?.ministryIds,
-      userPermittedDepartmentIds: userData?.userRelationships[0]?.departmentIds,
-      userPermittedSchemeIds: userData?.userRelationships[0]?.schemeIds,
-      frameworkId: oomfFrameworkId,
+    return data.reduce((latest, current) => {
+      return new Date(current[key]) > new Date(latest[key]) ? current : latest;
     });
+  }
 
-  const handleGeneratePdf = async () => {
-    // Validate that we have table data
-    if (!tableData || tableData.length === 0) {
-      dispatch(
-        setError(
-          "No data available to generate PDF. Please generate a report first."
-        )
-      );
-      return;
-    }
 
-    setIsGeneratingPdf(true);
-
-    try {
-      // Use the same payload as the form submission
-      const measurementAreaList = {
-        id: formik.values?.measurementArea?.id,
-        name: formik.values?.measurementArea?.label,
-      };
-
-      const payload = {
-        financialYears: formik.values?.financialYear?.map(
-          (item) => item?.label
-        ),
-        schemeTypeIds:
-          formik.values?.schemeType?.map((item) => Number(item?.id)) || "",
-        measurementArea: measurementAreaList,
-        stateIds: formik.values?.state?.map((item) => Number(item?.id)),
-        districtIds: formik.values?.district?.map((item) => Number(item?.id)),
-        schemeIds: formik.values?.scheme?.map((item) => Number(item?.id)),
-        subSchemeIds: formik.values?.subScheme?.map((item) => Number(item?.id)),
-        frequencyId: formik.values?.frequency?.id || "",
-        indicatorTypes:
-          formik.values?.indicatorType?.map((item) => Number(item?.id)) || "",
-        indicatorNameIds:
-          formik.values?.indicatorNames?.map((item) => Number(item?.id)) || "",
-      };
-
-      const response = await apiClient.post(
-        "/api/oomf/report/progress-report-pdf",
-        payload,
-        {
-          responseType: "blob", // Important for file download
-        }
-      );
-
-      // Create blob and download
-      const blob = new Blob([response.data], { type: "application/pdf" });
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.setAttribute(
-        "download",
-        `progress-report-${new Date().toISOString().split("T")[0]}.pdf`
-      );
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      window.URL.revokeObjectURL(url);
-
-      dispatch(setSuccess("PDF generated successfully!"));
-    } catch (error) {
-      console.error("PDF Generation Error:", error);
-      dispatch(setError("Failed to generate PDF. Please try again."));
-    } finally {
-      setIsGeneratingPdf(false);
-    }
-  };
   const formik = useFormik({
     initialValues: {
-      ministry: [],
-      department: [],
-      financialYear: [],
-      schemeType: [],
-      measurementArea: [{id: 2, label: 'National'}],
-      state: [],
-      district: [],
-      scheme: [],
-      subScheme: [],
-      frequency: {},
-      indicatorType: [],
-      indicatorNames: [],
+      questionnaire: "",
+      quarter: "",
     },
-    // validationSchema: Yup.object().shape({
-    //   ministry: Yup.array().min(1, "Ministry is Required"),
-    //   department: Yup.array().min(1, "Department is Required"),
-    //   financialYear: Yup.array().min(1, "Financial Year is Required"),
-    //   schemeType: Yup.array().min(1, "Scheme Type is Required"),
-    //   measurementArea: Yup.mixed() // Changed to mixed() to handle array/object/null
-    //     .test(
-    //       "is-valid-area", //  Custom test for validation
-    //       "Measurement Area is Required",
-    //       function (value) {
-    //         if (Array.isArray(value)) {
-    //           return value.length > 0 && value[0]?.id != null; // Handle if set as [object]
-    //         }
-    //         return value?.id != null; // Handle object or null
-    //       }
-    //     )
-    //     .required("Measurement Area is Required"),
-    //   frequency: Yup.object().required("Frequency is Required"),
-    //   state: Yup.array().when("measurementArea", {
-    //     is: (val) => val && val.id === 3, // Only required when area.id = 3
-    //     then: (schema) => schema.min(1, "State is Required"),
-    //     otherwise: (schema) => schema.notRequired(),
-    //   }),
-
-    //   district: Yup.array().when("measurementArea", {
-    //     is: (val) => val && val.id === 1, // Only required when area.id = 1
-    //     then: (schema) => schema.min(1, "District is Required"),
-    //     otherwise: (schema) => schema.notRequired(),
-    //   }),
-
-    //   scheme: Yup.array().min(1, "Scheme is Required"),
-    //   indicatorType: Yup.array().min(1, "Indicator Type is Required"),
-    //   frequency: Yup.object() // Keep object, add custom test
-    //     .test(
-    //       "is-valid-frequency", //  Custom test for validation
-    //       "Frequency is Required",
-    //       function (value) {
-    //         return value?.id != null; // Fail if no id (handles {} initial)
-    //       }
-    //     )
-    //     .required("Frequency is Required"),
-    //   indicatorNames: Yup.array().min(1, "Indicator Names is Required"),
-    // }),
+    validationSchema: Yup.object().shape({
+      questionnaire: Yup.array().min(1, "Questionnaire is Required"),
+      quarter: Yup.array().min(1, "Quarter is Required"),
+    }),
     onSubmit: async (values) => {
-      const measurementAreaList = {
-        id: values?.measurementArea?.id,
-        name: values?.measurementArea?.label,
-      };
       const payload = {
-        ministryIds:values?.ministry?.map((item) => Number(item?.id)) || [],
-        departmentIds:values?.department?.map((item) => Number(item?.id)) || [],
-        years: values?.financialYear?.map((item) => item?.label) || [],
-        schemeTypeIds:
-          values?.schemeType?.map((item) => Number(item?.id)) || [],
-        schemeIds: values?.scheme?.map((item) => Number(item?.id)) || [],
-        indicatorTypes:
-          values?.indicatorType?.map((item) => Number(item?.id)) || [],
-        // measurementArea: measurementAreaList,
-        
-        // subSchemeIds: values?.subScheme?.map((item) => Number(item?.id)),
-        // frequencyId: values?.frequency?.id || "",
-        // indicatorNameIds:
-        //   values?.indicatorNames?.map((item) => Number(item?.id)) || "",
+        questionnaireId:
+          values?.questionnaire?.id || "",
+        datadate:
+          values?.quarter?.label || "",
       };
       try {
-        dispatch(startLoader());
         const res = await apiClient.post(
-          "/api/oomf/report/legacy-progress-report",
+          "/api/dgqi/prayasIntegration/pushdata",
           payload
         );
-        setTableData(res?.data);
+        setResponseData(res?.data)
       } catch (error) {
         console.error("API Error:", error);
-      }finally {
-      dispatch(stopLoader());
-    }
+      }
     },
   });
   //API calls
-  const fetchMinistryList = async () => {
-    try {
-      const response = await apiClient.post("api/dynamic-model-details/data", {
-        modelName: "ministry",
-        filters: userMinistryIds?.length
-          ? {
-              where: {
-                id: {
-                  in: userMinistryIds || [],
-                },
-                status: true,
-              },
-            } // ✅ filter by userData
-          : {}, // ✅ else fetch all
-      });
-
-      const { data } = response.data || {};
-      if (Array.isArray(data)) {
-        const formattedData = data?.map((item) => ({
-          id: item?.id,
-          label: item?.name,
-          associatedFramework: item?.jsonData?.associatedFramework,
-        }));
-        // if (Array.isArray(formattedData)) {
-        //   const filteredData = formattedData?.filter((item) =>
-        //     userMinistryIds?.includes(item?.id)
-        //   );
-        //   setMinistryList(filteredData);
-        // }
-        setMinistryList(formattedData);
-      }
-    } catch (error) {
-      console.error("Error fetching ministries:", error);
-      setMinistryList([]);
-    }
-  };
-  const fetchAllMastersList = async () => {
-    try {
-      const response = await apiClient.get(`api/master/all-oomf-masters`);
-
-      const { data } = response?.data || {};
-
-      setFrequencyList(
-        data?.frequencies?.map((item) => ({
-          id: item?.id,
-          label: item?.name,
-        }))
-      );
-      setIndicatorTypeList(
-        data?.indicatorTypes?.map((item) => ({
-          id: item?.id,
-          label: item?.name,
-        })) || []
-      );
-      setMeasurementAreaList(
-        data?.measurementAreas?.map((item) => ({
-          id: item?.id,
-          label: item?.name,
-        }))
-      );
-      setStateList(
-        data?.states?.map((item) => ({
-          id: item?.id,
-          label: item?.state_name,
-        }))
-      );
-    } catch (error) {
-      console.error("Failed to fetch masters list:", error);
-      setMinistryList([]);
-    }
-  };
-  useEffect(() => {
-    const fetchSchemeTypeByFramework = async () => {
+      const fetchQuestionnaire = async () => {
       try {
-        const response = await apiClient.post(
-          `api/master/schemeType/by-framework`,
-          {
-            associatedFrameworks: [oomfFrameworkId],
-          }
+        const res = await apiClient.get(
+          "/api/dgqi/questionnaires/published-questionnaires",
         );
-
-        const { data } = response?.data || {};
-        if (Array.isArray(data)) {
-          const formattedData = data?.map((item) => ({
-            id: item?.id,
-            label: item?.name,
-          }));
-          setSchemeTypeList(formattedData);
-        }
+        const data = res.data.data || [];
+        // const latestByCreated = getLatestEntry(data, "created_at");
+        // setSelectedQuestionnaire({
+        //   id: latestByCreated?.id,
+        //   name: latestByCreated?.title,
+        //   financialYear: latestByCreated?.financial_year,
+        // });
+        setQuestionnaireList(
+          data.map((item) => ({
+            id: item.id,
+            name: item.title,
+            financialYear: item?.financial_year,
+          })),
+        );
       } catch (error) {
-        console.error("Failed to fetch scheme-type list:", error);
-        setSchemeTypeList([]);
+        setQuestionnaireList([]);
+        console.error("Failed to fetch published questionnaires:", error);
       }
-    };
-    fetchSchemeTypeByFramework();
-  }, []);
-  // const fetchFinancialYearList = async () => {
-  //   try {
-  //     const response = await apiClient.post(
-  //       `api/oomf/submissions/get-scheme-filters`,
-  //       {
-  //         isSubScheme: false,
-  //       }
-  //     );
-
-  //     const { filters } = response?.data || {};
-  //     const formattedData = filters?.financialYears?.map((item) => ({
-  //       id: item?.id,
-  //       name: item?.name,
-  //     }));
-  //     setFinancialYearList(
-  //       formattedData?.map((item, index) => ({
-  //         id: index + 1,
-  //         label: item?.name,
-  //       }))
-  //     );
-  //   } catch (error) {
-  //     console.error("Failed to fetch financialYear list:", error);
-  //     setFinancialYearList([]);
-  //   }
-  // };
-
-  const fetchFinancialYearList = () => {
-  const years = [
-    "2018",
-    "2019",
-    "2020",
-    "2021",
-    "2022",
-    "2023",
-    "2024",
-    "2025"
-  ];
-
-  const formattedData = years.map((year, index) => ({
-    id: index + 1,
-    label: year,
-  }));
-
-  setFinancialYearList(formattedData);
-};
-
-  useEffect(() => {
-    // fetchMinistryList();
-    fetchAllMastersList();
-    fetchFinancialYearList();
-  }, []);
-
-  useEffect(() => {
-    fetchMinistryList();
-  }, [userMinistryIds]);
-
-  useEffect(() => {
-    const fetchDepartmentList = async () => {
-      const selectedMinistries = formik.values?.ministry;
-      if (!selectedMinistries || selectedMinistries.length === 0) {
-        setDepartmentList([]);
-        return;
-      }
-
-      formik.setFieldValue("department", []);
-
-      const ministryIds = selectedMinistries?.map((m) => m?.id);
-
+    };  
+    const fetchQuarter = async () => {
       try {
-        const response = await apiClient.post(
-          `api/master/get-departments-for-ministry`,
-          { ministryIds }
+        const res = await apiClient.get(
+          "/api/dgqi/prayasIntegration/quarters",
         );
-
-        const { data } = response?.data || {};
-        if (Array.isArray(data)) {
-          // Filter based on userData relationships
-          const allowedDepartmentIds = userDepartmentIds || [];
-
-          const filteredData = data.filter((dept) =>
-            allowedDepartmentIds.includes(dept.id)
-          );
-
-          const formattedData = filteredData.map((item) => ({
-            id: item?.id,
-            label: item?.name,
-            associatedFramework: item?.jsonData?.associatedFramework,
-          }));
-
-          setDepartmentList(formattedData);
-        }
+        const data = res.data.data || [];
+        setQuarterList(
+          data.map((item) => ({
+            id: item.id,
+            name: item.title,
+          })),
+        );
       } catch (error) {
-        console.error("Failed to fetch department list:", error);
-        setDepartmentList([]);
+        setQuarterList([]);
+        console.error("Failed to fetch quarter:", error);
       }
-    };
+    }; 
+    useEffect(()=>{
+        fetchQuestionnaire();
+    },[]) 
 
-    fetchDepartmentList();
-  }, [formik?.values?.ministry, userData?.userRelationships]);
+      useEffect(()=>{
+        fetchQuarter();
+    },[formik?.values?.questionnaire]) 
 
-   useEffect(() => {
-    const fetchSchemeList = async () => {
-      const selectedType = formik.values?.department;
-      if (!selectedType) {
-        setSchemeList([]);
-        return;
-      }
-      formik.setFieldValue("scheme", []);
-
-      const departmentIds = selectedType?.map(
-        (department, index) => department?.id
-      );
-
-      try {
-        const response = await apiClient.post(
-          `api/master/get-schemes-for-departments`,
-          {
-            departmentIds,
-          }
-        );
-
-        const { data } = response?.data || {};
-
-        if (Array.isArray(data)) {
-          const formattedData = data?.map((item) => ({
-            id: item?.id,
-            label: item?.name,
-            schemeTypeId: {
-              id: item?.jsonData?.schemeType?.id,
-              name: item?.jsonData?.schemeType?.name,
-            },
-            associatedFramework:
-              item?.jsonData?.schemeFinancialYearWiseBudgetDetails?.map(
-                (item) => item?.associatedFrameworks
-              ),
-          }));
-
-          const filteredData = formattedData?.filter((item) =>
-            userSchemeIds?.includes(item?.id)
-          );
-          setSchemeList(filteredData);
-        }
-      } catch (error) {
-        console.error("Failed to fetch scheme list:", error);
-        setSchemeList([]);
-      }
-    };
-    fetchSchemeList();
-  }, [formik?.values?.department]);
-
-  useEffect(() => {
-    async function getDistrictsByState() {
-      try {
-        if (!formik?.values?.state || formik.values.state.length === 0) {
-          setDistrictList([]);
-          formik.setFieldValue("district", []); // Clear districts when no state selected
-          return;
-        }
-
-        // Get all selected state IDs
-        const stateIds = formik.values.state.map((state) => state.id);
-
-        const payload = {
-          stateIds: stateIds,
-        };
-        const res = await apiClient.post(
-          `/api/master/get-district-for-state`,
-          payload
-        );
-        const districtsData = res?.data?.data;
-        const formattedData = districtsData?.map((district) => ({
-          id: district?.id,
-          label: district?.district_name,
-        }));
-        setDistrictList(formattedData);
-      } catch (err) {
-        dispatch(setError(err.message));
-      }
-    }
-
-    getDistrictsByState();
-  }, [formik?.values?.state]);
-  useEffect(() => {
-    const fetchSubSchemeList = async () => {
-      const selectedDepartments = formik.values?.department;
-      const selectedSchemes = formik.values?.scheme;
-      const measurementArea = formik.values?.measurementArea;
-
-      // ✅ Exit early if department is not selected
-      if (!selectedDepartments || selectedDepartments.length === 0) {
-        setSubSchemeList([]);
-        dispatch(setError("Department is required."));
-        return;
-      }
-
-      // ✅ Exit early if scheme is not selected
-      if (!selectedSchemes || selectedSchemes.length === 0) {
-        setSubSchemeList([]);
-        return;
-      }
-
-      // ✅ Exit early if measurement area is not selected
-      if (!measurementArea || !measurementArea.id) {
-        setSubSchemeList([]);
-        dispatch(setError("Measurement Area is required."));
-        return;
-      }
-
-      formik.setFieldValue("subScheme", []);
-
-      const schemeIds = selectedSchemes.map((s) => s?.id);
-      const departmentIds = selectedDepartments.map((d) => Number(d?.id));
-
-      // Apply measurement area-specific logic
-      const selectedStates = formik?.values?.state || [];
-      const selectedDistricts = formik?.values?.district || [];
-
-      if (measurementArea.id === 3 && selectedStates.length === 0) {
-        setSubSchemeList([]);
-        dispatch(
-          setError(
-            "Please select at least one state for the selected Measurement Area."
-          )
-        );
-        return;
-      }
-
-      if (measurementArea.id === 1 && selectedDistricts.length === 0) {
-        setSubSchemeList([]);
-        dispatch(
-          setError(
-            "Please select at least one district for the selected Measurement Area."
-          )
-        );
-        return;
-      }
-
-      try {
-        const response = await apiClient.post(
-          `api/master/get-schemes-by-measurementArea`,
-          {
-            schemeIds,
-            departmentIds,
-            measurementArea,
-            parentScheme: false,
-            stateIds:
-              measurementArea.id === 3
-                ? selectedStates.map((s) => Number(s.id))
-                : [],
-            districtIds:
-              measurementArea.id === 1
-                ? selectedDistricts.map((d) => Number(d.id))
-                : [],
-          }
-        );
-
-        const { data } = response?.data || {};
-        if (Array.isArray(data)) {
-          const formattedData = data.map((item) => ({
-            id: item?.id,
-            label: item?.label,
-          }));
-          setSubSchemeList(formattedData);
-        }
-      } catch (error) {
-        console.error("Failed to fetch sub-scheme list:", error);
-        setSubSchemeList([]);
-      }
-    };
-
-    const measurementId = formik?.values?.measurementArea?.id;
-
-    if (
-      formik?.values?.department?.length > 0 &&
-      formik?.values?.scheme?.length > 0 &&
-      measurementId &&
-      ((measurementId === 3 && formik.values.state?.length > 0) ||
-        (measurementId === 1 && formik.values.district?.length > 0) ||
-        measurementId === 2)
-    ) {
-      fetchSubSchemeList();
-    }
-  }, [
-    formik?.values?.department,
-    formik?.values?.scheme,
-    formik?.values?.state,
-    formik?.values?.district,
-    formik?.values?.measurementArea,
-  ]);
-
-  useEffect(() => {
-    const fetchIndicatorsNameList = async () => {
-      const selectedTypeScheme = formik.values?.scheme || [];
-      const selectedTypeSchemeType = formik.values?.schemeType || [];
-      const selectedTypeSubScheme = formik.values?.subScheme || [];
-      const selectedTypeIndicatorType = formik.values?.indicatorType || [];
-      const selectedTypeFinancialYear = formik.values?.financialYear || [];
-      const frequencyId = formik.values?.frequency?.id;
-      const measurementArea =
-        {
-          id: formik.values?.measurementArea?.id,
-          name: formik.values?.measurementArea?.label,
-        } || {};
-      const selectedStates = formik.values?.state || [];
-      const selectedDistricts = formik.values?.district || [];
-
-      if (
-        selectedTypeScheme.length === 0 ||
-        selectedTypeSchemeType.length === 0 ||
-        selectedTypeIndicatorType.length === 0 ||
-        selectedTypeFinancialYear.length === 0 ||
-        !frequencyId ||
-        !measurementArea?.id
-      ) {
-        setIndicatorNamesList([]);
-        return;
-      }
-
-      formik.setFieldValue("indicatorNames", []);
-
-      const schemeIds = selectedTypeScheme.map((scheme) => Number(scheme?.id));
-      const schemeTypeIds = selectedTypeSchemeType.map((type) =>
-        Number(type?.id)
-      );
-      const indicatorTypes = selectedTypeIndicatorType.map((type) =>
-        Number(type?.id)
-      );
-      const financialYears = selectedTypeFinancialYear.map(
-        (year) => year?.label
-      );
-      const subSchemeIds =
-        selectedTypeSubScheme.length > 0
-          ? selectedTypeSubScheme.map((s) => Number(s?.id))
-          : [];
-
-      // ✅ Measurement area-specific filtering
-      let stateIds = [];
-      let districtIds = [];
-      if (measurementArea.id === 1) {
-        districtIds = selectedDistricts.map((d) => Number(d?.id));
-      } else if (measurementArea.id === 3) {
-        stateIds = selectedStates.map((s) => Number(s?.id));
-      }
-
-      const requestBody = {
-        schemeIds,
-        schemeTypeIds,
-        indicatorTypes,
-        financialYears,
-        frequencyId,
-        measurementArea,
-        ...(subSchemeIds.length > 0 && { subSchemeIds }),
-        ...(stateIds.length > 0 && { stateIds }),
-        ...(districtIds.length > 0 && { districtIds }),
-      };
-
-      try {
-        const response = await apiClient.post(
-          `api/oomf/report/progress-report-indicators-name`,
-          requestBody
-        );
-        const { data } = response?.data || {};
-
-        if (Array.isArray(data)) {
-          const formattedData = data.map((item) => ({
-            id: item?.id,
-            label: item?.name,
-          }));
-          setIndicatorNamesList(formattedData);
-        }
-      } catch (error) {
-        console.error("Failed to fetch Indicator Names list:", error);
-        setIndicatorNamesList([]);
-      }
-    };
-
-    fetchIndicatorsNameList();
-  }, [
-    formik.values?.scheme,
-    formik.values?.schemeType,
-    formik.values?.subScheme,
-    formik.values?.frequency,
-    formik.values?.indicatorType,
-    formik.values?.financialYear,
-    formik.values?.measurementArea,
-    formik.values?.state,
-    formik.values?.district,
-  ]);
-
-  useEffect(() => {
-    const measurementId = formik.values.measurementArea?.id;
-    formik.setFieldValue("scheme", []);
-    if (measurementId === 3) {
-      // Clear state
-      formik.setFieldValue("state", []);
-    } else if (measurementId === 1) {
-      // Clear both state and district
-      formik.setFieldValue("state", []);
-      formik.setFieldValue("district", []);
-    } else {
-      // For national or other measurement areas, optional clearing
-      formik.setFieldValue("state", []);
-      formik.setFieldValue("district", []);
-    }
-  }, [formik.values.measurementArea]);
-
-  useEffect(() => {
-    // When ministry changes, reset department
-    formik.setFieldValue("department", []);
-  }, [formik.values.ministry]);
-
-  useEffect(() => {
-    // When ministry changes, reset department
-    formik.setFieldValue("scheme", []);
-  }, [formik?.values?.schemeType]);
-
-  const isSchemeEnabled =
-    formik?.values?.schemeType?.length > 0
-
-  //auto select ministry
-  useEffect(() => {
-    if (
-      Array.isArray(ministryList) &&
-      ministryList.length === 1 &&
-      (!formik.values.ministry || formik.values.ministry.length === 0)
-    ) {
-      formik.setFieldValue("ministry", [ministryList[0]]);
-    }
-  }, [ministryList]);
-
-  //auto select department
-  useEffect(() => {
-    if (
-      Array.isArray(departmentList) &&
-      departmentList.length === 1 &&
-      (!formik.values.department || formik.values.department.length === 0)
-    ) {
-      formik.setFieldValue("department", [departmentList[0]]);
-    }
-  }, [departmentList]);
 
   return (
     <>
       <Box marginTop={2} padding={3}>
         <form onSubmit={formik.handleSubmit}>
-          <MainFormHeader title="Legacy Progress Report" />
+          <MainFormHeader title="Prayas Integration" />
           <Divider sx={{ marginTop: 2, mb: 5 }} />
           <Grid container spacing={2}>
             <Grid size={{ xs: 12, sm: 6 }}>
               <CustomAutoComplete
-                name="ministry"
-                options={filterByFramework(ministryList, oomfFrameworkId) || []}
-                label="Ministry"
+                name="questionnaire"
+                options={questionnaireList || []}
+                label="Questionnaire"
                 formik={formik}
-                // required
-                selectAll
+                required
+                selectAll={false}
+                multiple={false}
               />
             </Grid>
 
             <Grid size={{ xs: 12, sm: 6 }}>
               <Tooltip
                 title={
-                  !formik?.values?.ministry?.length
-                    ? "Select Ministry first"
+                  !formik?.values?.questionnaire?.length
+                    ? "Select Questionnaire first"
                     : ""
                 }
                 placement="top"
@@ -787,176 +147,18 @@ const ProgressReport = () => {
               >
                 <div>
                   <CustomAutoComplete
-                    name="department"
-                    options={
-                      filterByFramework(departmentList, oomfFrameworkId) || []
-                    }
-                    label="Department"
+                    name="quarter"
+                    options={quarterList || []}
+                    label="Quarter"
                     formik={formik}
-                    //required
-                    selectAll
-                    readOnly={!formik?.values?.ministry?.length}
+                    required
+                    readOnly={!formik?.values?.questionnaire?.length}
+                    selectAll={false}
+                multiple={false}
                   />
                 </div>
               </Tooltip>
             </Grid>
-            <Grid size={{ xs: 12, sm: 6 }}>
-              <CustomAutoComplete
-                name="financialYear"
-                options={financialYearList}
-                label="Financial Year"
-                formik={formik}
-                required
-                selectAll
-              />
-            </Grid>
-            <Grid size={{ xs: 12, sm: 6 }}>
-              <CustomAutoComplete
-                name="schemeType"
-                options={schemeTypeList}
-                label="Scheme Type"
-                formik={formik}
-                //required
-                selectAll
-              />
-            </Grid>
-            {/* <Grid
-              size={{
-                xs: 12,
-                sm:
-                  formik?.values?.measurementArea?.id === 1 ||
-                  formik?.values?.measurementArea?.id === 3
-                    ? 6
-                    : 12,
-              }}
-            >
-              <CustomAutoComplete
-                name="measurementArea"
-                options={measurementAreaList}
-                label="Measurement Area"
-                formik={formik}
-                required
-                multiple={false}
-                selectAll={false}
-              />
-            </Grid> */}
-            {/* {(formik?.values?.measurementArea?.id === 1 ||
-              formik?.values?.measurementArea?.id === 3) && (
-              <Grid size={{ xs: 12, sm: 6 }}>
-                <CustomAutoComplete
-                  name="state"
-                  options={stateList}
-                  label="State"
-                  formik={formik}
-                  //required
-                  selectAll
-                />
-              </Grid>
-            )}
-            {formik?.values?.measurementArea?.id === 1 && (
-              <Grid size={{ xs: 12, sm: 12 }}>
-                <CustomAutoComplete
-                  name="district"
-                  options={districtList}
-                  label="District"
-                  formik={formik}
-                  //required
-                  selectAll
-                />
-              </Grid>
-            )} */}
-            {/* <Grid size={{ xs: 12, sm: 12 }}>
-              <CustomAutoComplete
-                name="scheme"
-                options={schemeList}
-                label="Scheme"
-                formik={formik}
-                required
-                selectAll
-                readOnly={!formik?.values?.department?.length > 0}
-              />
-            </Grid> */}
-            <Grid size={{ xs: 12, sm: 6 }}>
-              {/* <Tooltip
-                title={
-                  !isSchemeEnabled
-                    ? "First select Scheme Type"
-                    : ""
-                }
-                placement="top"
-                arrow
-              >
-                <div> */}
-                  <CustomAutoComplete
-                    name="scheme"
-                    options={schemeList}
-                    // options={
-                    //   filterSchemesByFramework(
-                    //     schemeList?.filter((scheme) =>
-                    //       formik.values.schemeType?.some(
-                    //         (item) => item.id === scheme.schemeTypeId?.id
-                    //       )
-                    //     ),
-                    //     oomfFrameworkId
-                    //   ) || []
-                    // }
-                    label="Scheme"
-                    formik={formik}
-                    //required
-                    selectAll
-                    // readOnly={!isSchemeEnabled}
-                  />
-                {/* </div>
-              </Tooltip> */}
-            </Grid>
-
-            {/* <Grid
-              size={{ xs: 12, sm: 12 }}
-              sx={{
-                display: subSchemeList.length > 0 ? "flex" : "none",
-              }}
-            >
-              <CustomAutoComplete
-                name="subScheme"
-                options={subSchemeList}
-                label="Sub-Scheme"
-                formik={formik}
-                // required
-                selectAll
-                readOnly={!formik?.values?.scheme?.length > 0}
-              />
-            </Grid> */}
-             {/* <Grid size={{ xs: 12, sm: 6 }}>
-              <CustomAutoComplete
-                multiple={false}
-                name="frequency"
-                label="Select Frequency"
-                formik={formik}
-                //required
-                selectAll
-                options={frequencyList}
-              />
-            </Grid> */}
-            <Grid size={{ xs: 12, sm: 6 }}>
-              <CustomAutoComplete
-                name="indicatorType"
-                label="Select Indicator Type"
-                formik={formik}
-                //required
-                selectAll
-                options={indicatorTypeList}
-              />
-            </Grid>
-            {/* <Grid size={{ xs: 12, sm: 12 }}>
-              <CustomAutoComplete
-                name="indicatorNames"
-                label="Select Indicator Names"
-                formik={formik}
-                //required
-                selectAll
-                options={indicatorNamesList}
-              />
-            </Grid> */}
           </Grid>
           <Grid container spacing={2}>
             <Grid size={{ xs: 12, sm: 6 }}>
@@ -967,7 +169,7 @@ const ProgressReport = () => {
                 color="primary"
                 sx={{ mt: 3 }}
               >
-                Generate Report
+                Submit
               </Button>
             </Grid>
             <Grid size={{ xs: 12, sm: 6 }}>
@@ -979,7 +181,6 @@ const ProgressReport = () => {
                 sx={{ mt: 3 }}
                 onClick={() => {
                   formik.resetForm();
-                  setTableData([]);
                 }}
               >
                 Clear
@@ -987,27 +188,12 @@ const ProgressReport = () => {
             </Grid>
           </Grid>
         </form>
-        {/* {isGeneratingPdf || !tableData || tableData.length === 0 ? null : (
-          <Box sx={{ display: "flex", justifyContent: "flex-end" }}>
-            <Button
-              variant="contained"
-              color="primary"
-              sx={{ mt: 7, mb: -12 }}
-              onClick={handleGeneratePdf}
-              disabled={isGeneratingPdf || !tableData || tableData.length === 0}
-              startIcon={<FileDownloadOutlinedIcon />}
-            >
-              {isGeneratingPdf ? "Generating PDF..." : "Export PDF"}
-            </Button>
-          </Box>
-        )} */}
-
         <Box sx={{ mt: 6 }}>
-          {!tableData ? (
+          {!responseData ? (
             <Box sx={{ display: "flex", justifyContent: "center", mt: 8 }}>
               <CircularProgress color="primary" />
             </Box>
-          ) : tableData?.length === 0 ? (
+          ) : responseData?.length === 0 ? (
             <Box
               sx={{
                 textAlign: "center",
@@ -1018,27 +204,33 @@ const ProgressReport = () => {
                 alignItems: "center",
               }}
             >
-              <InboxIcon sx={{ fontSize: 60, mb: 1, color: "#adb5bd" }} />
               <Typography variant="h6" gutterBottom>
-                No data available
+                Please select the values to submit
               </Typography>
-              <Typography variant="body2">
+              {/* <Typography variant="body2">
                 No data available for the selected filters.
-              </Typography>
+              </Typography> */}
             </Box>
           ) : (
-            <ProgressTable data={tableData} />
+            <Box
+              sx={{
+                textAlign: "center",
+                mt: 8,
+                color: "#6c757d",
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+              }}
+            >
+              <Typography variant="h6" gutterBottom>
+                Data sent successfully
+              </Typography>
+            </Box>
           )}
         </Box>
-
-        {tableData && tableData?.data?.length > 0 ? (
-          <Box sx={{ mt: 6 }}>
-            <ProgressFootnote />
-          </Box>
-        ) : null}
       </Box>
     </>
   );
 };
 
-export default ProgressReport;
+export default PrayasIntegration;
