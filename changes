@@ -1,461 +1,253 @@
 "use client";
-import React, { useState, useEffect } from "react";
+import React, { useEffect, useState } from "react";
+import { useFormik } from "formik";
 import {
-  Box,
+  Grid,
   Button,
+  Divider,
+  Box,
+  Typography,
   CircularProgress,
   Tooltip,
-  Paper,
-  Divider,
-  Grid,
 } from "@mui/material";
-import DownloadIcon from "@mui/icons-material/FileDownload";
-import { useFormik } from "formik";
 import * as Yup from "yup";
-
-import apiClient from "@/utils/apiClient";
-import MainFormHeader from "@/src/components/DashboardUI/MainFormHeader";
-import { oomfFrameworkId } from "@/src/constants/unified/frameworkConstants";
-import { filterByFramework } from "@/utils/niti/filterByFramework";
-import { useFilteredFrameworkAccess } from "@/utils/niti/useFilteredFrameworkAccess";
-import { useDispatch, useSelector } from "react-redux";
 import { CustomAutoComplete } from "@/src/components/superadmin/CustomAutoComplete";
+import MainFormHeader from "@/src/components/DashboardUI/MainFormHeader";
+import apiClient from "@/utils/apiClient";
 
-const ReportComponent = () => {
-  const dispatch = useDispatch();
-  const userData = useSelector((state) => state.config.userData);
+const PrayasIntegration = () => {
+  const [questionnaireList, setQuestionnaireList] = useState([]);
+  const [quarterList, setQuarterList] = useState([]);
+  const [responseData, setResponseData] = useState(null);
 
-  const [financialYearList, setFinancialYearList] = useState([]);
-  const [loadingYears, setLoadingYears] = useState(false);
-  const [exportLoading, setExportLoading] = useState(false);
+  // 🔥 New states
+  const [quarterError, setQuarterError] = useState("");
+  const [isQuarterValid, setIsQuarterValid] = useState(true);
+  const [loadingQuarter, setLoadingQuarter] = useState(false);
 
-  const [ministryList, setMinistryList] = useState([]);
-  const [departmentList, setDepartmentList] = useState([]);
-  const [schemeTypeList, setSchemeTypeList] = useState([]);
-  const [schemeList, setSchemeList] = useState([]);
-
-  const { userMinistryIds, userDepartmentIds, userSchemeIds } =
-    useFilteredFrameworkAccess({
-      userPermittedMinistryIds: userData?.userRelationships[0]?.ministryIds,
-      userPermittedDepartmentIds: userData?.userRelationships[0]?.departmentIds,
-      userPermittedSchemeIds: userData?.userRelationships[0]?.schemeIds,
-      frameworkId: oomfFrameworkId,
-    });
-
-  const getCurrentFinancialYear = () => {
-    const today = new Date();
-    const year = today.getFullYear();
-    const month = today.getMonth() + 1;
-    return month >= 4 ? `${year}-${year + 1}` : `${year - 1}-${year}`;
-  };
-
+  // ---------------- Formik ----------------
   const formik = useFormik({
     initialValues: {
-      financialYear: [],
-      ministry: [],
-      department: [],
-      schemeType: [],
-      scheme: [],
+      questionnaire: null,
+      quarter: null,
     },
     validationSchema: Yup.object({
-      financialYear: Yup.mixed().test(
-        "financialYear-required",
-        "Financial Year is required",
-        (value) => {
-          console.log("Val::",value);
-          // Case 1: null / undefined
-          if (!value) return false;
-
-          // Case 2: Array (multiple select)
-          if (Array.isArray(value)) {
-            return value.length > 0;
-          }
-
-          // Case 3: Object (Autocomplete single select)
-          if (typeof value === "object") {
-            return !!value.label; // or value.id if you prefer
-          }
-
-          // Case 4: String
-          if (typeof value === "string") {
-            return value.trim().length > 0;
-          }
-
-          return false;
-        },
-      ),
+      questionnaire: Yup.object().required("Questionnaire is Required"),
+      quarter: Yup.object().required("Quarter is Required"),
     }),
     onSubmit: async (values) => {
-      setExportLoading(true);
+      const payload = {
+        questionnaireId: values?.questionnaire?.id,
+        datadate: values?.quarter?.label,
+      };
+
       try {
-        const response = await apiClient.post(
-          "api/oomf/report/oomf-workflow-financial-document",
-          {
-            financialYears: [values?.financialYear?.label],
-            ministryIds: values.ministry.map((m) => m.id),
-            departmentIds: values.department.map((d) => d.id),
-            schemeTypeIds: values.schemeType.map((s) => s.id),
-            schemeIds: values.scheme.map((s) => s.id),
-          },
-          { responseType: "blob" },
+        const res = await apiClient.post(
+          "/api/dgqi/prayasIntegration/pushdata",
+          payload
         );
-
-        const blob = new Blob([response.data], {
-          type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        });
-
-        const url = window.URL.createObjectURL(blob);
-        const link = document.createElement("a");
-        link.href = url;
-
-        let filename =
-          "Budget_Report_" + values?.financialYear?.label + ".docx";
-
-        const contentDisposition = response.headers["content-disposition"];
-        if (contentDisposition) {
-          const match = contentDisposition.match(/filename="?([^"]+)"?/);
-          if (match) filename = match[1];
-        }
-
-        link.setAttribute("download", filename);
-        document.body.appendChild(link);
-        link.click();
-        link.remove();
-        window.URL.revokeObjectURL(url);
-      } catch (err) {
-        console.error(err);
-        // alert("Download failed");
-      } finally {
-        setExportLoading(false);
+        setResponseData(res?.data);
+      } catch (error) {
+        console.error("API Error:", error);
       }
     },
   });
 
-  // ---------------- Financial Year ----------------
-  const fetchFinancialYearList = async () => {
-    setLoadingYears(true);
+  // ---------------- Fetch Questionnaire ----------------
+  const fetchQuestionnaire = async () => {
     try {
-      const response = await apiClient.post(
-        "api/oomf/submissions/get-scheme-filters",
-        { isSubScheme: false },
+      const res = await apiClient.get(
+        "/api/dgqi/questionnaires/published-questionnaires"
       );
 
-      const { filters } = response?.data || {};
-      const currentFY = getCurrentFinancialYear();
+      const data = res.data.data || [];
 
-      const filtered = filters?.financialYears?.map((item, i) => ({
-        id: i,
-        label: item.name,
-      }));
-      // ?.filter(
-      //   (fy) =>
-      //     parseInt(fy.label.split("-")[0]) <=
-      //     parseInt(currentFY.split("-")[0])
-      // );
-
-      setFinancialYearList(filtered || []);
-
-      formik.setFieldValue("financialYear", [
-        filtered.find((f) => f.label === currentFY),
-      ]);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoadingYears(false);
-    }
-  };
-
-  // ---------------- Ministry ----------------
-  const fetchMinistryList = async () => {
-    try {
-      const response = await apiClient.post("api/dynamic-model-details/data", {
-        modelName: "ministry",
-        filters: userMinistryIds?.length
-          ? {
-              where: {
-                id: {
-                  in: userMinistryIds || [],
-                },
-                status: true,
-              },
-            } // ✅ filter by userData
-          : {}, // ✅ else fetch all
-      });
-
-      const { data } = response.data || {};
-      if (Array.isArray(data)) {
-        const formattedData = data?.map((item) => ({
-          id: item?.id,
-          label: item?.name,
-          associatedFramework: item?.jsonData?.associatedFramework,
-        }));
-        // if (Array.isArray(formattedData)) {
-        //   const filteredData = formattedData?.filter((item) =>
-        //     userMinistryIds?.includes(item?.id)
-        //   );
-        //   setMinistryList(filteredData);
-        // }
-        setMinistryList(formattedData);
-      }
+      setQuestionnaireList(
+        data.map((item) => ({
+          id: item.id,
+          label: item.title,
+        }))
+      );
     } catch (error) {
-      console.error("Error fetching ministries:", error);
-      setMinistryList([]);
+      setQuestionnaireList([]);
+      console.error(error);
     }
   };
 
-  // ---------------- Scheme Type ----------------
-  const fetchSchemeType = async () => {
-    try {
-      const res = await apiClient.post("api/master/schemeType/by-framework", {
-        associatedFrameworks: [oomfFrameworkId],
-      });
-
-      setSchemeTypeList(
-        res?.data?.data?.map((s) => ({
-          id: s.id,
-          label: s.name,
-        })) || [],
-      );
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  // ---------------- Department ----------------
+  // ---------------- Fetch Quarter (ONLY AFTER QUESTIONNAIRE) ----------------
   useEffect(() => {
-    const fetchDepartmentList = async () => {
-      const selectedMinistries = formik.values?.ministry;
-      if (!selectedMinistries || selectedMinistries.length === 0) {
-        setDepartmentList([]);
-        return;
-      }
+    const fetchQuarter = async () => {
+      if (!formik.values.questionnaire) return;
 
-      formik.setFieldValue("department", []);
-
-      const ministryIds = selectedMinistries?.map((m) => m?.id);
+      setLoadingQuarter(true);
+      setQuarterError("");
+      setIsQuarterValid(true);
+      setQuarterList([]);
+      formik.setFieldValue("quarter", null);
 
       try {
-        const response = await apiClient.post(
-          `api/master/get-departments-for-ministry`,
-          { ministryIds },
-        );
-
-        const { data } = response?.data || {};
-        if (Array.isArray(data)) {
-          // Filter based on userData relationships
-          const allowedDepartmentIds = userDepartmentIds || [];
-
-          const filteredData = data.filter((dept) =>
-            allowedDepartmentIds.includes(dept.id),
-          );
-
-          const formattedData = filteredData.map((item) => ({
-            id: item?.id,
-            label: item?.name,
-            associatedFramework: item?.jsonData?.associatedFramework,
-          }));
-
-          setDepartmentList(formattedData);
-        }
-      } catch (error) {
-        console.error("Failed to fetch department list:", error);
-        setDepartmentList([]);
-      }
-    };
-
-    fetchDepartmentList();
-  }, [formik?.values?.ministry, userData?.userRelationships]);
-
-  // ---------------- Scheme ----------------
-  // useEffect(() => {
-  //   const fetchSchemes = async () => {
-  //     if (!formik.values.department.length) {
-  //       setSchemeList([]);
-  //       return;
-  //     }
-
-  //     formik.setFieldValue("scheme", []);
-
-  //     const res = await apiClient.post(
-  //       "api/master/get-all-schemes-for-departments",
-  //       {
-  //         departmentIds: formik.values.department.map((d) => d.id),
-  //         schemeTypeIds: formik.values.schemeType.map((s) => s.id),
-  //       }
-  //     );
-
-  //     const filtered = res?.data?.data
-  //       ?.filter((s) => userSchemeIds?.includes(s.id))
-  //       ?.map((s) => ({
-  //         id: s.id,
-  //         label: s.name,
-  //       }));
-
-  //     setSchemeList(filtered || []);
-  //   };
-
-  //   fetchSchemes();
-  // }, [formik.values.department, formik.values.schemeType]);
-  useEffect(() => {
-    const fetchSchemeList = async () => {
-      const selectedType = formik.values?.department;
-      if (!selectedType) {
-        setSchemeList([]);
-        return;
-      }
-      formik.setFieldValue("scheme", []);
-
-      const departmentIds = selectedType?.map(
-        (department, index) => department?.id,
-      );
-      const schemeTypeIds = formik.values?.schemeType?.map((item) => item?.id);
-
-      try {
-        const response = await apiClient.post(
-          `api/master/get-all-schemes-for-departments`,
+        const res = await apiClient.get(
+          "/api/dgqi/prayasIntegration/quarters",
           {
-            departmentIds,
-            schemeTypeIds,
-          },
+            params: {
+              questionnaireId: formik.values.questionnaire.id,
+            },
+          }
         );
 
-        const { data } = response?.data || {};
-
-        if (Array.isArray(data)) {
-          const formattedData = data?.map((item) => ({
-            id: item?.id,
-            label: item?.name,
-            schemeTypeId: {
-              id: item?.jsonData?.schemeType?.id,
-              name: item?.jsonData?.schemeType?.name,
-            },
-            associatedFramework:
-              item?.jsonData?.schemeFinancialYearWiseBudgetDetails?.map(
-                (item) => item?.associatedFrameworks,
-              ),
-          }));
-
-          const filteredData = formattedData?.filter((item) =>
-            userSchemeIds?.includes(item?.id),
-          );
-          setSchemeList(filteredData);
+        // ❗ Important case
+        if (!res?.data?.success) {
+          setIsQuarterValid(false);
+          setQuarterError(res?.data?.message);
+          return;
         }
+
+        const data = res.data.data || [];
+
+        setQuarterList(
+          data.map((item) => ({
+            id: item.id,
+            label: item.title,
+          }))
+        );
       } catch (error) {
-        console.error("Failed to fetch scheme list:", error);
-        setSchemeList([]);
+        console.error(error);
+        setIsQuarterValid(false);
+        setQuarterError("Failed to fetch quarter");
+      } finally {
+        setLoadingQuarter(false);
       }
     };
-    fetchSchemeList();
-  }, [formik?.values?.department, formik.values?.schemeType]);
+
+    fetchQuarter();
+  }, [formik.values.questionnaire]);
 
   useEffect(() => {
-    fetchFinancialYearList();
-    fetchMinistryList();
-    fetchSchemeType();
+    fetchQuestionnaire();
   }, []);
 
   return (
-    <Box sx={{ mt: 4, px: 2 }}>
-      <MainFormHeader title="Outcome Budget Report" />
-      <Divider sx={{ my: 2 }} />
-
+    <Box mt={2} p={3}>
       <form onSubmit={formik.handleSubmit}>
-        <Paper sx={{ p: 3 }}>
-          <Grid container spacing={2}>
-            <Grid size={{ xs: 12, md: 6 }}>
-              <CustomAutoComplete
-                name="financialYear"
-                label="Financial Year"
-                options={financialYearList}
-                formik={formik}
-                required
-                selectAll={false}
-                multiple={false}
-              />
-            </Grid>
+        <MainFormHeader title="Prayas Integration" />
+        <Divider sx={{ mt: 2, mb: 5 }} />
 
-            <Grid size={{ xs: 12, md: 6 }}>
-              <CustomAutoComplete
-                name="ministry"
-                label="Ministry"
-                options={filterByFramework(ministryList, oomfFrameworkId)}
-                formik={formik}
-                selectAll
-              />
-            </Grid>
-
-            <Grid size={{ xs: 12, md: 6 }}>
-              <CustomAutoComplete
-                name="department"
-                label="Department"
-                options={departmentList}
-                formik={formik}
-                selectAll
-                readOnly={!formik.values.ministry.length}
-              />
-            </Grid>
-
-            <Grid size={{ xs: 12, md: 6 }}>
-              <CustomAutoComplete
-                name="schemeType"
-                label="Scheme Type"
-                options={schemeTypeList}
-                formik={formik}
-                selectAll
-              />
-            </Grid>
-
-            <Grid size={{ xs: 12, md: 6 }}>
-              <CustomAutoComplete
-                name="scheme"
-                label="Scheme"
-                options={schemeList}
-                formik={formik}
-                selectAll
-                readOnly={!formik.values.department.length}
-              />
-            </Grid>
-            <Grid size={{ xs: 12, sm: 3 }}>
-              <Tooltip title="Export report">
-                {/* <span> */}
-                <Button
-                  fullWidth
-                  type="submit"
-                  variant="contained"
-                  sx={{ mt: 2 }}
-                  startIcon={
-                    exportLoading ? (
-                      <CircularProgress size={20} />
-                    ) : (
-                      <DownloadIcon />
-                    )
-                  }
-                  disabled={exportLoading}
-                >
-                  {exportLoading ? "Exporting..." : "Export as Word"}
-                </Button>
-                {/* </span> */}
-              </Tooltip>
-            </Grid>
-            <Grid size={{ xs: 12, sm: 3 }}>
-              <Button
-                type="reset"
-                fullWidth
-                variant="outlined"
-                color="inherit"
-                sx={{ mt: 2 }}
-                onClick={() => {
-                  formik.resetForm();
-                }}
-              >
-                Clear
-              </Button>
-            </Grid>
+        <Grid container spacing={2}>
+          {/* Questionnaire */}
+          <Grid size={{ xs: 12, sm: 6 }}>
+            <CustomAutoComplete
+              name="questionnaire"
+              options={questionnaireList}
+              label="Questionnaire"
+              formik={formik}
+              required
+              multiple={false}
+              selectAll={false}
+            />
           </Grid>
-        </Paper>
+
+          {/* Quarter */}
+          <Grid size={{ xs: 12, sm: 6 }}>
+            <Tooltip
+              title={
+                !formik.values.questionnaire
+                  ? "Select Questionnaire first"
+                  : loadingQuarter
+                  ? "Loading quarters..."
+                  : !isQuarterValid
+                  ? quarterError
+                  : ""
+              }
+              arrow
+            >
+              <div>
+                <CustomAutoComplete
+                  name="quarter"
+                  options={quarterList}
+                  label="Quarter"
+                  formik={formik}
+                  required
+                  multiple={false}
+                  selectAll={false}
+                  readOnly={
+                    !formik.values.questionnaire ||
+                    loadingQuarter ||
+                    !isQuarterValid
+                  }
+                />
+              </div>
+            </Tooltip>
+          </Grid>
+        </Grid>
+
+        {/* ❗ Error Message */}
+        {!isQuarterValid && (
+          <Box mt={2}>
+            <Typography color="error" variant="body2">
+              {quarterError}
+            </Typography>
+          </Box>
+        )}
+
+        {/* Buttons */}
+        <Grid container spacing={2}>
+          <Grid size={{ xs: 12, sm: 6 }}>
+            <Tooltip
+              title={!isQuarterValid ? quarterError : ""}
+              arrow
+            >
+              <span>
+                <Button
+                  type="submit"
+                  fullWidth
+                  variant="contained"
+                  sx={{ mt: 3 }}
+                  disabled={!isQuarterValid}
+                >
+                  Submit
+                </Button>
+              </span>
+            </Tooltip>
+          </Grid>
+
+          <Grid size={{ xs: 12, sm: 6 }}>
+            <Button
+              type="reset"
+              fullWidth
+              variant="outlined"
+              sx={{ mt: 3 }}
+              onClick={() => {
+                formik.resetForm();
+                setQuarterList([]);
+                setQuarterError("");
+                setIsQuarterValid(true);
+                setResponseData(null);
+              }}
+            >
+              Clear
+            </Button>
+          </Grid>
+        </Grid>
       </form>
+
+      {/* Response Section */}
+      <Box sx={{ mt: 6 }}>
+        {responseData === null ? (
+          <Typography align="center" color="textSecondary">
+            Please select values and submit
+          </Typography>
+        ) : responseData?.length === 0 ? (
+          <Typography align="center" color="textSecondary">
+            No data available
+          </Typography>
+        ) : (
+          <Typography align="center" color="green">
+            Data sent successfully
+          </Typography>
+        )}
+      </Box>
     </Box>
   );
 };
 
-export default ReportComponent;
+export default PrayasIntegration;
