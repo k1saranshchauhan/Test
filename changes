@@ -1,253 +1,599 @@
-"use client";
-import React, { useEffect, useState } from "react";
-import { useFormik } from "formik";
-import {
-  Grid,
-  Button,
-  Divider,
-  Box,
-  Typography,
-  CircularProgress,
-  Tooltip,
-} from "@mui/material";
-import * as Yup from "yup";
-import { CustomAutoComplete } from "@/src/components/superadmin/CustomAutoComplete";
-import MainFormHeader from "@/src/components/DashboardUI/MainFormHeader";
-import apiClient from "@/utils/apiClient";
+async function getDetailedComplianceReport(filters = {}) {
+  const {
+    Ministry: ministryIds = [],
+    Department: departmentIds = [],
+    FinancialYear: financialYears = [],
+    SchemeType: schemeTypeIds = [],
+    Scheme: schemeIds = [],
+    SubScheme: subSchemeIds = [],
+    Frequency: frequency,
+    IndicatorType: indicatorType = "All",
+    UpdationOn: updationOn, // NEW filters
+    measurementArea = [], // array of IDs, we only care about the first one for grouping priority
+    stateIds = [],
+    districtIds = [],
+  } = filters; // Assuming MeasurementArea IDs: 1=District, 2=State, 3=National
 
-const PrayasIntegration = () => {
-  const [questionnaireList, setQuestionnaireList] = useState([]);
-  const [quarterList, setQuarterList] = useState([]);
-  const [responseData, setResponseData] = useState(null);
+  const primaryMeasurementArea =
+    measurementArea.length > 0 ? measurementArea[0] : null; // Fetch all submissions (same root fetch)
 
-  // 🔥 New states
-  const [quarterError, setQuarterError] = useState("");
-  const [isQuarterValid, setIsQuarterValid] = useState(true);
-  const [loadingQuarter, setLoadingQuarter] = useState(false);
-
-  // ---------------- Formik ----------------
-  const formik = useFormik({
-    initialValues: {
-      questionnaire: null,
-      quarter: null,
+  const submissions = await prisma.applicationSubmission.findMany({
+    // where: { initialPlan: false, scheme: true },
+    include: {
+      schemeTargets: {
+        orderBy: { createdOn: "desc" },
+        take: 1,
+      },
     },
-    validationSchema: Yup.object({
-      questionnaire: Yup.object().required("Questionnaire is Required"),
-      quarter: Yup.object().required("Quarter is Required"),
-    }),
-    onSubmit: async (values) => {
-      const payload = {
-        questionnaireId: values?.questionnaire?.id,
-        datadate: values?.quarter?.label,
-      };
+  }); // Helper to parse targetData
 
-      try {
-        const res = await apiClient.post(
-          "/api/dgqi/prayasIntegration/pushdata",
-          payload
-        );
-        setResponseData(res?.data);
-      } catch (error) {
-        console.error("API Error:", error);
-      }
-    },
+  const parseTargetData = (submission) => {
+    const latestTarget = submission.schemeTargets?.[0];
+    const data = latestTarget
+      ? latestTarget.targetData
+      : submission.form_values;
+    return typeof data === "string" ? safeParse(data) : data;
+  }; // 1) Pre-filter submissions that clearly don't match top-level filters
+
+  const preFilteredSubmissions = submissions.filter((submission) => {
+    const targetData = parseTargetData(submission);
+    if (!targetData || !targetData.indicatorData) return false;
+
+    // frequency determination: REMOVED THIS COMPLEX BLOCK
+    // The frequency check will be handled implicitly by filtering on normalized records
+    // by the calling function or applyNormalizedFilters, or later when processing recs.
+
+    const ministryMatch =
+      !ministryIds?.length ||
+      ministryIds.includes(parseInt(targetData.ministryId?.id));
+
+    const departmentMatch =
+      !departmentIds?.length ||
+      departmentIds.includes(parseInt(targetData.departmentId?.id));
+
+    const yearMatch =
+      !financialYears?.length ||
+      financialYears.includes(targetData.financialYear);
+
+    const schemeTypeMatch =
+      !schemeTypeIds?.length ||
+      schemeTypeIds.includes(parseInt(targetData.schemeTypeId?.id));
+
+    const schemeMatch =
+      !schemeIds?.length ||
+      schemeIds.includes(parseInt(targetData.schemeId?.id));
+
+    let subSchemeMatch = true;
+    if (subSchemeIds?.length > 0) {
+      // If subScheme filter provided, match the specific IDs
+      subSchemeMatch = targetData.subSchemeId?.id !== undefined &&
+        subSchemeIds.includes(parseInt(targetData.subSchemeId.id));
+    } else {
+      // If no subScheme filter, include all (with or without subSchemeId)
+      subSchemeMatch = true;
+    }
+
+    // let indicatorTypeMatch = true;
+    // if (indicatorType && indicatorType !== "All") {
+    //   const desiredType =
+    //     indicatorType === 2
+    //       ? "Output"
+    //       : indicatorType === 1
+    //         ? "Outcome"
+    //         : indicatorType;
+    //   indicatorTypeMatch = targetData.indicatorData?.some(
+    //     (ind) => ind.indicatorType?.name === desiredType
+    //   );
+    // }
+
+    return (
+      ministryMatch &&
+      departmentMatch &&
+      yearMatch &&
+      schemeTypeMatch &&
+      schemeMatch &&
+      subSchemeMatch
+      /* frequencyMatch && */ // REMOVE frequencyMatch
+      // indicatorTypeMatch
+    );
   });
+  let normalizedAll = [];
+  for (const sub of preFilteredSubmissions) {
+    const td = parseTargetData(sub);
+    const context = {
+      financialYear: td.financialYear,
+      schemeId: td.schemeId?.id,
+      schemeName: td.schemeId?.name,
+      subSchemeId: td.subSchemeId?.id,
+      subSchemeName: td.subSchemeId?.name,
+    };
 
-  // ---------------- Fetch Questionnaire ----------------
-  const fetchQuestionnaire = async () => {
-    try {
-      const res = await apiClient.get(
-        "/api/dgqi/questionnaires/published-questionnaires"
+    const normalized = normalizeIndicators(td.indicatorData, context); // attach original submission id / metadata in case needed downstream
+    const normalizedWithMeta = normalized.map((r) => ({
+      ...r,
+      submissionId: sub.id,
+    }));
+    normalizedAll = normalizedAll.concat(normalizedWithMeta);
+  } // 3) Apply new filters to normalized records (applies state/district/measurementArea filters)
+
+  const filteredNormalized = applyNormalizedFilters(normalizedAll, {
+    measurementArea,
+    stateIds,
+    districtIds,
+    frequency,
+    indicatorType,
+  });
+  if (!filteredNormalized.length) return [];
+  /**
+   * 4) Group normalized records based on the user's selected Measurement Area,
+   * ensuring the lowest level is always separated by Financial Year for compliance calculation.
+   * Hierarchy: State/National -> [District (if primary=1)] -> Scheme -> [SubScheme (if exists)] -> Year
+   */
+
+  const finalMap = new Map(); // StateKey -> StateEntry | NationalKey -> NationalEntry
+
+  for (const rec of filteredNormalized) {
+    const year = rec.financialYear; // --- Determine Grouping Keys ---
+    let topLevelKey = rec.stateId || "NATIONAL";
+    let topLevelName = rec.stateName || "NATIONAL";
+
+    // Fallback for missing top key
+    if (topLevelKey === null || topLevelKey === undefined) {
+      topLevelKey = "National_Fallback";
+      topLevelName = "National_Fallback";
+    }
+
+    // Chain Maps dynamically
+    let currentMap = finalMap;
+
+    // Level 1: State/National
+    if (!currentMap.has(topLevelKey)) {
+      currentMap.set(topLevelKey, {
+        id: topLevelKey,
+        name: topLevelName,
+        childrenMap: new Map(),
+      });
+    }
+    let currentEntry = currentMap.get(topLevelKey);
+    currentMap = currentEntry.childrenMap;
+
+    // Level 2: District (only if primaryMeasurementArea === 1)
+    let districtKey, districtName;
+    if (primaryMeasurementArea === 1) {
+      districtKey = rec.districtId || "N/A_DIST";
+      districtName = rec.districtName || "N/A";
+
+      if (!currentMap.has(districtKey)) {
+        currentMap.set(districtKey, {
+          id: districtKey,
+          name: districtName,
+          childrenMap: new Map(),
+        });
+      }
+      currentEntry = currentMap.get(districtKey);
+      currentMap = currentEntry.childrenMap;
+    }
+
+    // Level 3: Scheme
+    let schemeKey = rec.schemeId || "N/A_SCHEME";
+    let schemeName = rec.schemeName || "N/A";
+    if (!currentMap.has(schemeKey)) {
+      currentMap.set(schemeKey, {
+        id: schemeKey,
+        name: schemeName,
+        childrenMap: new Map(),
+      });
+    }
+    currentEntry = currentMap.get(schemeKey);
+    currentMap = currentEntry.childrenMap;
+
+    // Level 4: SubScheme (if exists, regardless of filter)
+    if (rec.subSchemeId) {
+      let subSchemeKey = rec.subSchemeId;
+      let subSchemeName = rec.subSchemeName;
+      if (!currentMap.has(subSchemeKey)) {
+        currentMap.set(subSchemeKey, {
+          id: subSchemeKey,
+          name: subSchemeName,
+          childrenMap: new Map(),
+        });
+      }
+      currentEntry = currentMap.get(subSchemeKey);
+      currentMap = currentEntry.childrenMap;
+    }
+
+    // Level 5: Year (lowest level for records) - attached to currentMap (scheme or sub-scheme)
+    let yearKey = year;
+    let yearName = year;
+    if (!currentMap.has(yearKey)) {
+      currentMap.set(yearKey, {
+        id: yearKey,
+        name: yearName,
+        financialYear: year,
+        records: [], // array of normalized records
+      });
+    }
+    currentMap.get(yearKey).records.push(rec);
+  }
+
+  /**
+   * 5) Process grouped data, calculate compliance, and format output.
+   */
+
+  const finalOutput = [];
+
+  // --- 1. Dynamic Period Configuration based on Frequency ---
+  const periodMap = {
+    // Annual/Ad-hoc Frequency
+    1: {
+      names: ["Year"],
+      // Common keys for annual/ad-hoc data that don't have a Q/H prefix
+      keys: ["Target", "Achieved", "Value", "Annual", "Y1"],
+    },
+    2: {
+      // Annual Frequency
+      names: ["Year"],
+      keys: ["Target", "Achieved", "Value", "Annual", "Y1"],
+    },
+    // Quarterly Frequency
+    3: {
+      names: [
+        "First Quarter",
+        "Second Quarter",
+        "Third Quarter",
+        "Fourth Quarter",
+      ],
+      keys: ["Q1", "Q2", "Q3", "Q4"],
+    },
+    // Half-Yearly Frequency
+    4: {
+      names: ["First Half", "Second Half"],
+      keys: ["H1", "H2"],
+    },
+  };
+
+  const periodConfig = periodMap[parseInt(frequency)];
+  const currentPeriodNames = periodConfig?.names || ["Year"];
+  const currentPeriodKeys = periodConfig?.keys || ["Y1"];
+
+  // Determine which raw field to use for compliance calculation
+  // 'Target' for 'targets' (i.e., targetRaw), 'Progress' for 'achievedTargets' (i.e., achievedRaw)
+  const isTargetBased = updationOn === "Target";
+  const complianceFieldKey = isTargetBased ? "targetRaw" : "achievedRaw";
+  console.log(`Compliance calculation based on: ${complianceFieldKey}`);
+  // Determine which fields to iterate over (Target, Achieved, or both)
+  // For 'Target' based compliance, we only care if target fields exist.
+  // For 'Progress' based compliance, we only care if achieved fields exist.
+  // This helps count the *total fields relevant for the chosen compliance type*.
+  const fieldsToIterate = isTargetBased
+    ? ["targetRaw"]
+    : ["achievedRaw"]; // We iterate over targetRaw *and* achievedRaw, but only count totalFields from the relevant one (this is corrected below)
+  // --- END OF NEW LOGIC FOR UPDATIONON ---
+
+  // Helper function to process a year entry and return the formatted res object
+  const processYear = (yearEntry) => {
+    const allRecs = yearEntry.records;
+
+    // Separate records by indicator type (robust check for string or object)
+    const outputRecs = allRecs.filter((rec) => {
+      if (typeof rec.indicatorType === 'string') {
+        return rec.indicatorType === "Output";
+      }
+      return rec.indicatorType?.name === "Output";
+    });
+    const outcomeRecs = allRecs.filter((rec) => {
+      if (typeof rec.indicatorType === 'string') {
+        return rec.indicatorType === "Outcome";
+      }
+      return rec.indicatorType?.name === "Outcome";
+    });
+
+    // Compute data for output
+    let outputData;
+    if (outputRecs.length === 0) {
+      const emptyPerPeriod = {};
+      currentPeriodNames.forEach((name) => {
+        emptyPerPeriod[name] = { total: 0, compliant: 0 };
+      });
+      outputData = {
+        totalIndicators: 0,
+        compliantIndicators: 0,
+        nonCompliantIndicators: 0,
+        compliancePercentage: 0,
+        perPeriod: emptyPerPeriod,
+      };
+    } else {
+      outputData = computeOutputData(outputRecs, currentPeriodNames, currentPeriodKeys, complianceFieldKey, frequency);
+    }
+
+    // Compute data for outcome
+    let outcomeData;
+    if (outcomeRecs.length === 0) {
+      const emptyPerPeriod = {};
+      currentPeriodNames.forEach((name) => {
+        emptyPerPeriod[name] = { total: 0, compliant: 0 };
+      });
+      outcomeData = {
+        totalIndicators: 0,
+        compliantIndicators: 0,
+        nonCompliantIndicators: 0,
+        compliancePercentage: 0,
+        perPeriod: emptyPerPeriod,
+      };
+    } else {
+      outcomeData = computeOutputData(outcomeRecs, currentPeriodNames, currentPeriodKeys, complianceFieldKey, frequency);
+    }
+
+    // Format the final data structure for the year level
+    const res = {
+      financialYear: yearEntry.financialYear,
+      type: "YearData",
+      name: yearEntry.name,
+      data: {},
+    };
+
+    // --- 5. Call formatIndicators (It now correctly reads perPeriodData) ---
+    if (indicatorType === "All" || indicatorType == 2) {
+      res.data.outputIndicators = formatIndicators(
+        { output: outputData },
+        frequency
       );
+      // Ensure the top-level compliance uses the accurate field-level percentage
+      res.data.outputIndicators.compliance = outputData.compliancePercentage;
+    }
 
-      const data = res.data.data || [];
-
-      setQuestionnaireList(
-        data.map((item) => ({
-          id: item.id,
-          label: item.title,
-        }))
+    if (indicatorType === "All" || indicatorType == 1) {
+      res.data.outcomeIndicators = formatIndicators(
+        { outcome: outcomeData },
+        frequency
       );
-    } catch (error) {
-      setQuestionnaireList([]);
-      console.error(error);
+      res.data.outcomeIndicators.compliance = outcomeData.compliancePercentage;
+    }
+
+    return res;
+  };
+
+  // Extracted computation logic to reuse for both types (same as original processYear aggregation)
+  const computeOutputData = (recs, currentPeriodNames, currentPeriodKeys, complianceFieldKey, frequency) => {
+    let totalFields = 0;
+    let filledFields = 0;
+
+    // --- DEBUG 1: Period Setup Check ---
+    console.log("--- PERIOD SETUP ---");
+    console.log(`Financial Year: ${recs[0]?.financialYear || 'N/A'}`);
+    console.log(`Grouping Name: ${recs[0]?.financialYear || 'N/A'}`);
+    console.log(`Input Frequency: ${frequency}`);
+    console.log(`UpdationOn Filter: ${updationOn}`); // Added for clarity
+    console.log(`Compliance Field: ${complianceFieldKey}`); // Added for clarity
+    console.log("Keys being searched for:", currentPeriodKeys);
+    console.log("Expected Period Names:", currentPeriodNames); // Added for clarity
+    console.log("--------------------");
+
+    // --- 2. Aggregation Map Initialization ---
+    const perPeriodData = {};
+    currentPeriodNames.forEach((name) => {
+      perPeriodData[name] = { total: 0, compliant: 0 };
+    });
+
+    recs.forEach((rec, recIndex) => {
+      // --- MODIFIED LOGIC: ONLY USE THE RELEVANT RAW FIELD FOR COMPLIANCE COUNTING ---
+      const relevantRawData =
+        rec[complianceFieldKey] && typeof rec[complianceFieldKey] === "object"
+          ? rec[complianceFieldKey]
+          : {};
+      // The data to check for 'filled' status is *only* the chosen one (targetRaw or achievedRaw)
+
+      // We iterate over the relevant field's keys.
+      Object.entries(relevantRawData).forEach(([key, v]) => {
+        let periodName = null;
+
+        // --- 3. Dynamic Period Mapping (FIXED LOGIC) ---
+
+        // 3a. Check for exact full name match
+        const fullPeriodNameMatch = currentPeriodNames.find(
+          (name) => name.toLowerCase() === key.toLowerCase()
+        );
+
+        if (fullPeriodNameMatch) {
+          periodName = fullPeriodNameMatch;
+        } else {
+          // 3b. Fallback to check for period key prefixes (e.g., Q1_Target, Q1_Achieved)
+          currentPeriodKeys.forEach((pKey, index) => {
+            // Only match if the period name hasn't already been set
+            if (
+              !periodName &&
+              key.toLowerCase().startsWith(pKey.toLowerCase())
+            ) {
+              periodName = currentPeriodNames[index];
+            }
+          });
+        }
+
+        // --- DEBUG 2: Field Check ---
+        console.log(
+          `[FIELD CHECK, Rec ${recIndex}] Key: '${key}' | Value: '${v}' | Mapped Period: ${periodName}`
+        );
+
+        // Aggregate period-wise totals and compliance
+        if (periodName && perPeriodData[periodName]) {
+          perPeriodData[periodName].total++;
+          totalFields++; // Total count for Annual/Ad-hoc fallback
+
+          // Check for compliance (field is not null/undefined/empty string)
+          if (v !== null && v !== undefined && v !== "") {
+            perPeriodData[periodName].compliant++;
+            filledFields++; // Filled count for Annual/Ad-hoc fallback
+          }
+        }
+      });
+    });
+
+    // --- START OF CORRECTED LOGIC FOR OVERALL COMPLIANCE CALCULATION ---
+    let compliancePercentage;
+    const freqInt = parseInt(frequency);
+
+    // <======--- START OF NEW LOGIC: Impute missing period totals for Q/H frequencies (3 and 4) ---NOTE============>
+    if (freqInt === 3 || freqInt === 4) {
+      // 1. Find the maximum 'total' observed across all periods
+      let maxTotal = 0;
+      currentPeriodNames.forEach((periodName) => {
+        const total = perPeriodData[periodName].total;
+        if (total > maxTotal) {
+          maxTotal = total;
+        }
+      });
+
+      // If no data was present at all (maxTotal is 0), default to recs.length for display structure
+      if (maxTotal === 0) {
+        maxTotal = recs.length;
+      }
+
+      // 2. Impute the maxTotal to any period where the current total is 0
+      currentPeriodNames.forEach((periodName) => {
+        if (perPeriodData[periodName].total === 0) {
+          // Set the total to the largest found total (or recs.length if no data)
+          perPeriodData[periodName].total = maxTotal;
+        }
+      });
+    }
+    // <============NOTE: Extra halfter/quarter logic end=================>
+
+    if (freqInt === 3 || freqInt === 4) {
+      // Quarterly (3) or Half-Yearly (4): Calculate overall compliance as the average of ALL period compliances.
+      
+      let totalPeriodComplianceSum = 0;
+      // The denominator is FIXED based on the frequency type
+      const totalPeriods = freqInt === 3 ? 4 : (freqInt === 4 ? 2 : 1);
+
+      // Iterate over the expected periods (currentPeriodNames) to get their calculated compliance
+      currentPeriodNames.forEach((periodName) => {
+        const period = perPeriodData[periodName];
+        // Calculate compliance for the period. If total is 0, the compliance is 0 (or you could argue NaN, but 0 is safer).
+        const periodComp = period.total > 0 
+          ? (period.compliant / period.total) * 100 
+          : 0;
+        totalPeriodComplianceSum += periodComp;
+      });
+
+      // Calculate the average: Sum of period compliances / Total number of periods
+      compliancePercentage = 
+        totalPeriods > 0 
+          ? Math.round(totalPeriodComplianceSum / totalPeriods) 
+          : 0;
+
+    } else {
+      // Annual (1, 2) or Ad-Hoc: Calculate compliance based on total fields filled across the year (ratio).
+      compliancePercentage =
+        totalFields > 0 ? Math.round((filledFields / totalFields) * 100) : 0;
+    }
+    // --- END OF CORRECTED LOGIC FOR OVERALL COMPLIANCE CALCULATION ---
+
+    // --- DEBUG 3: Period Aggregation Result ---
+    console.log("--- PERIOD AGGREGATION RESULT (UPDATED) ---");
+    console.log(perPeriodData);
+    console.log("Total Fields Found (Relevant):", totalFields);
+    console.log("Filled Fields Found (Relevant):", filledFields);
+    console.log("Calculated Overall Compliance:", compliancePercentage, "%"); // Log the new value
+    console.log("-----------------------------------------");
+
+    // --- 4. Prepare outputData for formatIndicators ---
+    return {
+      totalIndicators: recs.length, 
+      compliantIndicators: filledFields, 
+      nonCompliantIndicators: totalFields - filledFields,
+      compliancePercentage, // **This is now the correctly averaged compliance**
+      perPeriod: perPeriodData, 
+    };
+  };
+
+  // Helper function to process a scheme entry and its subtree
+  const processScheme = (schemeEntry, parentChildren) => {
+    const schemeObj = {
+      id: schemeEntry.id,
+      name: schemeEntry.name,
+      children: [],
+    };
+
+    for (const [, childEntry] of schemeEntry.childrenMap.entries()) {
+      if (childEntry.records !== undefined) {
+        // Direct year under scheme (no sub-scheme)
+        const res = processYear(childEntry);
+        schemeObj.children.push(res);
+      } else {
+        // Sub-scheme entry
+        const subSchemeObj = {
+          id: childEntry.id,
+          name: childEntry.name,
+          children: [],
+        };
+
+        for (const [, yearEntry] of childEntry.childrenMap.entries()) {
+          const res = processYear(yearEntry);
+          subSchemeObj.children.push(res);
+        }
+
+        if (subSchemeObj.children.length > 0) {
+          schemeObj.children.push(subSchemeObj);
+        }
+      }
+    }
+
+    if (schemeObj.children.length > 0) {
+      parentChildren.push(schemeObj);
     }
   };
 
-  // ---------------- Fetch Quarter (ONLY AFTER QUESTIONNAIRE) ----------------
-  useEffect(() => {
-    const fetchQuarter = async () => {
-      if (!formik.values.questionnaire) return;
+  // Main processing: Branch based on primaryMeasurementArea
+  if (primaryMeasurementArea === 1) {
+    // District hierarchy: State -> District -> Scheme -> [SubScheme] -> Year
+    for (const [, stateEntry] of finalMap.entries()) {
+      const stateObj = {
+        id: stateEntry.id,
+        name: stateEntry.name,
+        children: [],
+      };
 
-      setLoadingQuarter(true);
-      setQuarterError("");
-      setIsQuarterValid(true);
-      setQuarterList([]);
-      formik.setFieldValue("quarter", null);
+      for (const [, districtEntry] of stateEntry.childrenMap.entries()) {
+        const districtObj = {
+          id: districtEntry.id,
+          name: districtEntry.name,
+          children: [],
+        };
 
-      try {
-        const res = await apiClient.get(
-          "/api/dgqi/prayasIntegration/quarters",
-          {
-            params: {
-              questionnaireId: formik.values.questionnaire.id,
-            },
-          }
-        );
-
-        // ❗ Important case
-        if (!res?.data?.success) {
-          setIsQuarterValid(false);
-          setQuarterError(res?.data?.message);
-          return;
+        for (const [, schemeEntry] of districtEntry.childrenMap.entries()) {
+          processScheme(schemeEntry, districtObj.children);
         }
 
-        const data = res.data.data || [];
-
-        setQuarterList(
-          data.map((item) => ({
-            id: item.id,
-            label: item.title,
-          }))
-        );
-      } catch (error) {
-        console.error(error);
-        setIsQuarterValid(false);
-        setQuarterError("Failed to fetch quarter");
-      } finally {
-        setLoadingQuarter(false);
+        if (districtObj.children.length > 0) {
+          stateObj.children.push(districtObj);
+        }
       }
-    };
 
-    fetchQuarter();
-  }, [formik.values.questionnaire]);
+      if (stateObj.children.length > 0) {
+        finalOutput.push(stateObj);
+      }
+    }
+  } else {
+    // State/National hierarchy: State/National -> Scheme -> [SubScheme] -> Year
+    for (const [, topEntry] of finalMap.entries()) {
+      const topObj = {
+        id: topEntry.id,
+        name: topEntry.name,
+        children: [],
+      };
 
-  useEffect(() => {
-    fetchQuestionnaire();
-  }, []);
+      for (const [, schemeEntry] of topEntry.childrenMap.entries()) {
+        processScheme(schemeEntry, topObj.children);
+      }
 
-  return (
-    <Box mt={2} p={3}>
-      <form onSubmit={formik.handleSubmit}>
-        <MainFormHeader title="Prayas Integration" />
-        <Divider sx={{ mt: 2, mb: 5 }} />
+      if (topObj.children.length > 0) {
+        finalOutput.push(topObj);
+      }
+    }
+  }
 
-        <Grid container spacing={2}>
-          {/* Questionnaire */}
-          <Grid size={{ xs: 12, sm: 6 }}>
-            <CustomAutoComplete
-              name="questionnaire"
-              options={questionnaireList}
-              label="Questionnaire"
-              formik={formik}
-              required
-              multiple={false}
-              selectAll={false}
-            />
-          </Grid>
+  console.log("FINAL DETAILED COMPLIANCE REPORT (RESTRUCTURED)::");
+  console.dir(finalOutput, { depth: 5 });
 
-          {/* Quarter */}
-          <Grid size={{ xs: 12, sm: 6 }}>
-            <Tooltip
-              title={
-                !formik.values.questionnaire
-                  ? "Select Questionnaire first"
-                  : loadingQuarter
-                  ? "Loading quarters..."
-                  : !isQuarterValid
-                  ? quarterError
-                  : ""
-              }
-              arrow
-            >
-              <div>
-                <CustomAutoComplete
-                  name="quarter"
-                  options={quarterList}
-                  label="Quarter"
-                  formik={formik}
-                  required
-                  multiple={false}
-                  selectAll={false}
-                  readOnly={
-                    !formik.values.questionnaire ||
-                    loadingQuarter ||
-                    !isQuarterValid
-                  }
-                />
-              </div>
-            </Tooltip>
-          </Grid>
-        </Grid>
-
-        {/* ❗ Error Message */}
-        {!isQuarterValid && (
-          <Box mt={2}>
-            <Typography color="error" variant="body2">
-              {quarterError}
-            </Typography>
-          </Box>
-        )}
-
-        {/* Buttons */}
-        <Grid container spacing={2}>
-          <Grid size={{ xs: 12, sm: 6 }}>
-            <Tooltip
-              title={!isQuarterValid ? quarterError : ""}
-              arrow
-            >
-              <span>
-                <Button
-                  type="submit"
-                  fullWidth
-                  variant="contained"
-                  sx={{ mt: 3 }}
-                  disabled={!isQuarterValid}
-                >
-                  Submit
-                </Button>
-              </span>
-            </Tooltip>
-          </Grid>
-
-          <Grid size={{ xs: 12, sm: 6 }}>
-            <Button
-              type="reset"
-              fullWidth
-              variant="outlined"
-              sx={{ mt: 3 }}
-              onClick={() => {
-                formik.resetForm();
-                setQuarterList([]);
-                setQuarterError("");
-                setIsQuarterValid(true);
-                setResponseData(null);
-              }}
-            >
-              Clear
-            </Button>
-          </Grid>
-        </Grid>
-      </form>
-
-      {/* Response Section */}
-      <Box sx={{ mt: 6 }}>
-        {responseData === null ? (
-          <Typography align="center" color="textSecondary">
-            Please select values and submit
-          </Typography>
-        ) : responseData?.length === 0 ? (
-          <Typography align="center" color="textSecondary">
-            No data available
-          </Typography>
-        ) : (
-          <Typography align="center" color="green">
-            Data sent successfully
-          </Typography>
-        )}
-      </Box>
-    </Box>
-  );
-};
-
-export default PrayasIntegration;
+  return finalOutput;
+}
