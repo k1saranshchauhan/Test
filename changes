@@ -14,11 +14,10 @@ import { DataGrid, GridToolbarContainer, GridToolbarExport, GridRow } from "@mui
 import { Search, Clear, DragIndicator, Sort } from "@mui/icons-material";
 import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
 
-// --- Custom Draggable Row Component ---
+// --- Draggable Row Component ---
 const DraggableRow = (props) => {
-  const { id, index } = props;
+  const { id, index, style } = props;
 
-  // If DataGrid is mid-render or id is missing, return a standard row
   if (id === undefined) return <GridRow {...props} />;
 
   return (
@@ -29,19 +28,13 @@ const DraggableRow = (props) => {
           {...provided.draggableProps}
           {...provided.dragHandleProps}
           style={{
+            ...style,
             ...provided.draggableProps.style,
-            display: "contents", // Critical for maintaining DataGrid layout
+            backgroundColor: snapshot.isDragging ? "#f5f5f5" : "inherit",
+            cursor: "grab",
           }}
         >
-          <GridRow
-            {...props}
-            style={{
-              ...props.style,
-              backgroundColor: snapshot.isDragging ? "#f5f5f5" : "transparent",
-              cursor: "grab",
-              transition: "background-color 0.2s ease",
-            }}
-          />
+          <GridRow {...props} />
         </div>
       )}
     </Draggable>
@@ -56,39 +49,51 @@ const AdvancedDataGrid = ({
   searchPlaceholder = "Search and reorder...",
   onSelectionChange,
   checkboxSelection = true,
+  height = 500,
 }) => {
   const [searchText, setSearchText] = useState("");
   const [rows, setRows] = useState(data);
 
-  // Sync internal rows when external data prop changes
+  // Sync internal rows when external data changes
   useEffect(() => {
     setRows(data);
   }, [data]);
 
-  // 1. Filter Logic
+  // --- 1. Filter rows by search text ---
   const filteredRows = useMemo(() => {
     const term = searchText.toLowerCase().trim();
     if (!term) return rows;
     return rows.filter((row) =>
-      Object.values(row).some((val) => 
-        val !== null && String(val).toLowerCase().includes(term)
+      Object.values(row).some(
+        (val) => val !== null && String(val).toLowerCase().includes(term)
       )
     );
   }, [rows, searchText]);
 
-  // 2. Drag & Drop Logic
+  // --- 2. Drag & Drop Handler ---
   const onDragEnd = (result) => {
     if (!result.destination) return;
-    
-    const newItems = Array.from(rows);
+
+    // Use filtered rows to get the visible order
+    const newItems = Array.from(filteredRows);
     const [reorderedItem] = newItems.splice(result.source.index, 1);
     newItems.splice(result.destination.index, 0, reorderedItem);
-    
-    setRows(newItems);
+
+    // Update the original rows array to preserve order
+    const newRows = [...rows];
+    newItems.forEach((item, idx) => {
+      const originalIndex = newRows.findIndex((r) => r[rowIdField] === item[rowIdField]);
+      newRows.splice(originalIndex, 1); // remove
+      newRows.splice(idx, 0, item); // insert at new position
+    });
+
+    setRows(newRows);
   };
 
-  // 3. Add Drag Handle Column
+  // --- 3. Add Drag Handle Column ---
   const finalColumns = useMemo(() => {
+    if (!enableReorder) return columns;
+
     const dragCol = {
       field: "drag_handle",
       headerName: "",
@@ -96,11 +101,10 @@ const AdvancedDataGrid = ({
       sortable: false,
       filterable: false,
       disableColumnMenu: true,
-      renderCell: () => (
-        <DragIndicator sx={{ color: "action.disabled" }} />
-      ),
+      renderCell: () => <DragIndicator sx={{ color: "action.disabled" }} />,
     };
-    return enableReorder ? [dragCol, ...columns] : columns;
+
+    return [dragCol, ...columns];
   }, [columns, enableReorder]);
 
   return (
@@ -108,9 +112,14 @@ const AdvancedDataGrid = ({
       {/* Header / Search Bar */}
       <Box sx={{ p: 2, bgcolor: "white" }}>
         <Stack direction="row" justifyContent="space-between" alignItems="center">
-          <Typography variant="subtitle1" fontWeight="bold" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <Typography
+            variant="subtitle1"
+            fontWeight="bold"
+            sx={{ display: "flex", alignItems: "center", gap: 1 }}
+          >
             <Sort fontSize="small" /> Data Explorer
           </Typography>
+
           <TextField
             size="small"
             placeholder={searchPlaceholder}
@@ -118,23 +127,29 @@ const AdvancedDataGrid = ({
             onChange={(e) => setSearchText(e.target.value)}
             sx={{ width: 300 }}
             InputProps={{
-              startAdornment: <InputAdornment position="start"><Search fontSize="small" /></InputAdornment>,
+              startAdornment: (
+                <InputAdornment position="start">
+                  <Search fontSize="small" />
+                </InputAdornment>
+              ),
               endAdornment: searchText && (
-                <IconButton size="small" onClick={() => setSearchText("")}><Clear fontSize="small" /></IconButton>
+                <IconButton size="small" onClick={() => setSearchText("")}>
+                  <Clear fontSize="small" />
+                </IconButton>
               ),
             }}
           />
         </Stack>
       </Box>
 
-      {/* Drag Context wrapping the Grid */}
+      {/* DragDropContext */}
       <DragDropContext onDragEnd={onDragEnd}>
         <Droppable droppableId="grid-droppable">
           {(provided) => (
-            <Box 
-              ref={provided.innerRef} 
-              {...provided.droppableProps} 
-              sx={{ height: 500, width: '100%' }}
+            <Box
+              ref={provided.innerRef}
+              {...provided.droppableProps}
+              sx={{ height, width: "100%" }}
             >
               <DataGrid
                 rows={filteredRows}
@@ -143,11 +158,11 @@ const AdvancedDataGrid = ({
                 checkboxSelection={checkboxSelection}
                 onRowSelectionModelChange={(ids) => onSelectionChange?.(ids)}
                 disableRowSelectionOnClick
-                // disableVirtualization={true} // Uncomment if dragging feels glitchy
+                disableVirtualization={true} // ✅ required for drag-and-drop
                 slots={{
                   row: enableReorder ? DraggableRow : GridRow,
                   toolbar: () => (
-                    <GridToolbarContainer sx={{ p: 1, borderBottom: '1px solid #eee' }}>
+                    <GridToolbarContainer sx={{ p: 1, borderBottom: "1px solid #eee" }}>
                       <GridToolbarExport />
                     </GridToolbarContainer>
                   ),
