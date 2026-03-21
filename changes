@@ -1,169 +1,197 @@
 "use client";
 
-import React, { useEffect, useState, useMemo } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import {
   Box,
-  Button,
+  TextField,
+  Paper,
+  InputAdornment,
+  IconButton,
   Typography,
-  Tooltip,
-  Card,
-  CardContent,
   Stack,
 } from "@mui/material";
-import { CloudUpload, MergeType, Add } from "@mui/icons-material";
-import apiClient from "@/utils/apiClient";
-import EnhancedSupportingDocumentsRepeater from "./EnhancedSupportingDocRepeater";
-import AdvancedDataGrid from "./AdvancedDataGrid";
-import DynamicDialog from "./DynamicDialog";
+import { DataGrid, GridToolbarContainer, GridToolbarExport, GridRow } from "@mui/x-data-grid";
+import { Search, Clear, DragIndicator, Sort } from "@mui/icons-material";
+import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
 
-const DocumentMergePage = () => {
-  const [documents, setDocuments] = useState([]); // This stores the current order
-  const [selectionModel, setSelectionModel] = useState([]);
-  const [isUploadDialogOpen, setIsUploadDialogOpen] = useState(false);
-
-  useEffect(() => {
-    fetchDocuments();
-  }, []);
-
-  const fetchDocuments = async () => {
-    try {
-      const res = await apiClient.get("api/document/get-folder-documents/3");
-      if (res?.data?.success) {
-        const filteredDocs = res.data.result.filter((doc) =>
-          doc.document_name?.toLowerCase().endsWith(".docx")
-        );
-        setDocuments(filteredDocs);
-      }
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  // Professional upload handler for the dialog
-  const uploadMultipleFiles = async (files, titles = [], description) => {
-    const formData = new FormData();
-    files.forEach((file, idx) => {
-      formData.append("files", file);
-      formData.append("titles[]", titles[idx] || file.name);
-    });
-    formData.append("reference_type", "document");
-    formData.append("remarks", description);
-
-    try {
-      const res = await apiClient.post("api/document/upload-files", formData);
-      fetchDocuments(); // Refresh list after upload
-      setIsUploadDialogOpen(false); // Close dialog
-      return res.data.files;
-    } catch (err) {
-      console.error("Upload failed", err);
-      return [];
-    }
-  };
-
-  const handleMerge = async () => {
-    if (selectionModel.length < 2) return;
-
-    // Construct the payload based on the CURRENT order in the 'documents' state
-    // We only include documents that are currently selected
-    const orderedPayload = documents
-      .filter((doc) => selectionModel.includes(doc.document_id))
-      .map((doc, index) => ({
-        [index + 1]: doc.document_id,
-      }));
-
-    try {
-      await apiClient.post("api/merge-document", { 
-        documentIds: selectionModel,
-        order: orderedPayload 
-      });
-      alert("Documents merged successfully");
-      setSelectionModel([]);
-      fetchDocuments();
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  const columns = [
-    { field: "document_title", headerName: "Title", flex: 1 },
-    { field: "document_name", headerName: "File Name", flex: 1.5 },
-    { field: "uploaded_by", headerName: "Uploaded By", flex: 1 },
-    { field: "uploaded_at", headerName: "Uploaded At", flex: 1 },
-  ];
+// --- Smooth Draggable Row ---
+const DraggableRow = ({ id, index, style, ...props }) => {
+  if (id === undefined) return <GridRow {...props} />;
 
   return (
-    <Box p={3}>
-      <Stack direction="row" justifyContent="space-between" alignItems="center" mb={3}>
-        <Box>
-          <Typography variant="h5" fontWeight="bold">
-            Document Management
-          </Typography>
-          <Typography variant="body2" color="text.secondary">
-            Upload, reorder, and merge your .docx files
-          </Typography>
-        </Box>
-        
-        <Button
-          variant="outlined"
-          startIcon={<CloudUpload />}
-          onClick={() => setIsUploadDialogOpen(true)}
-          sx={{ borderRadius: 2 }}
-        >
-          Import New Documents
-        </Button>
-      </Stack>
+    <Draggable draggableId={String(id)} index={index}>
+      {(provided, snapshot) => {
+        const combinedStyle = {
+          ...style,
+          ...provided.draggableProps.style,
+          transition: snapshot.isDragging ? "all 0.2s ease" : "all 0.2s ease",
+          boxShadow: snapshot.isDragging ? "0 4px 12px rgba(0,0,0,0.1)" : "none",
+          backgroundColor: snapshot.isDragging ? "#f0f0f0" : "inherit",
+          cursor: "grab",
+          borderRadius: 2,
+        };
 
-      <Card elevation={3} sx={{ borderRadius: 2 }}>
-        <CardContent>
-          <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
-            <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <MergeType color="primary" /> Merge Sequence
-            </Typography>
-            
-            <Tooltip title={selectionModel.length < 2 ? "Select at least 2 documents" : "Generate merged document"}>
-              <span>
-                <Button
-                  variant="contained"
-                  color="primary"
-                  disabled={selectionModel.length < 2}
-                  onClick={handleMerge}
-                  sx={{ borderRadius: 2, px: 4 }}
-                >
-                  Merge Selected ({selectionModel.length})
-                </Button>
-              </span>
-            </Tooltip>
-          </Box>
-
-          <AdvancedDataGrid
-            data={documents}
-            columns={columns}
-            rowIdField="document_id"
-            enableReorder={true}
-            checkboxSelection={true}
-            onSelectionChange={setSelectionModel}
-            // Passing setDocuments allows the Grid to update the order in this parent state
-            onRowsOrderChange={setDocuments} 
-          />
-        </CardContent>
-      </Card>
-
-      {/* Professional Upload Dialog */}
-      <DynamicDialog
-        open={isUploadDialogOpen}
-        onClose={() => setIsUploadDialogOpen(false)}
-        title="Document Import Wizard"
-        maxWidth="md"
-      >
-        <EnhancedSupportingDocumentsRepeater
-          onUploadComplete={() => {
-             // Handled inside uploadMultipleFiles, but kept for compatibility
-          }}
-          uploadMultipleFiles={uploadMultipleFiles}
-        />
-      </DynamicDialog>
-    </Box>
+        return (
+          <div
+            ref={provided.innerRef}
+            {...provided.draggableProps}
+            {...provided.dragHandleProps}
+            style={combinedStyle}
+          >
+            <GridRow {...props} />
+          </div>
+        );
+      }}
+    </Draggable>
   );
 };
 
-export default DocumentMergePage;
+const AdvancedDataGrid = ({
+  data = [],
+  columns = [],
+  rowIdField = "id",
+  enableReorder = true,
+  searchPlaceholder = "Search and reorder...",
+  onSelectionChange,
+  onRowsReorder, // ✅ Callback for parent to get updated order
+  checkboxSelection = true,
+  height = 500,
+}) => {
+  const [searchText, setSearchText] = useState("");
+  const [rows, setRows] = useState(data);
+
+  // Sync rows when external data changes
+  useEffect(() => {
+    setRows(data);
+  }, [data]);
+
+  // --- Filter rows ---
+  const filteredRows = useMemo(() => {
+    const term = searchText.toLowerCase().trim();
+    if (!term) return rows;
+    return rows.filter((row) =>
+      Object.values(row).some(
+        (val) => val !== null && String(val).toLowerCase().includes(term)
+      )
+    );
+  }, [rows, searchText]);
+
+  // --- Drag & Drop ---
+  const onDragEnd = (result) => {
+    if (!result.destination) return;
+
+    // Work with filtered rows
+    const newItems = Array.from(filteredRows);
+    const [moved] = newItems.splice(result.source.index, 1);
+    newItems.splice(result.destination.index, 0, moved);
+
+    // Update the full rows array to preserve original state
+    const newRows = [...rows];
+    newItems.forEach((item, idx) => {
+      const originalIndex = newRows.findIndex((r) => r[rowIdField] === item[rowIdField]);
+      newRows.splice(originalIndex, 1);
+      newRows.splice(idx, 0, item);
+    });
+
+    setRows(newRows);
+
+    // ✅ Notify parent about new order
+    if (onRowsReorder) {
+      onRowsReorder(newRows);
+    }
+  };
+
+  // --- Add Drag Handle Column ---
+  const finalColumns = useMemo(() => {
+    if (!enableReorder) return columns;
+
+    return [
+      {
+        field: "drag_handle",
+        headerName: "",
+        width: 50,
+        sortable: false,
+        filterable: false,
+        disableColumnMenu: true,
+        renderCell: () => <DragIndicator sx={{ color: "action.disabled" }} />,
+      },
+      ...columns,
+    ];
+  }, [columns, enableReorder]);
+
+  return (
+    <Paper elevation={2} sx={{ borderRadius: 2, overflow: "hidden", border: "1px solid #eee" }}>
+      {/* Header / Search */}
+      <Box sx={{ p: 2, bgcolor: "white" }}>
+        <Stack direction="row" justifyContent="space-between" alignItems="center">
+          <Typography
+            variant="subtitle1"
+            fontWeight="bold"
+            sx={{ display: "flex", alignItems: "center", gap: 1 }}
+          >
+            <Sort fontSize="small" /> Data Explorer
+          </Typography>
+
+          <TextField
+            size="small"
+            placeholder={searchPlaceholder}
+            value={searchText}
+            onChange={(e) => setSearchText(e.target.value)}
+            sx={{ width: 300 }}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <Search fontSize="small" />
+                </InputAdornment>
+              ),
+              endAdornment: searchText && (
+                <IconButton size="small" onClick={() => setSearchText("")}>
+                  <Clear fontSize="small" />
+                </IconButton>
+              ),
+            }}
+          />
+        </Stack>
+      </Box>
+
+      {/* DragDropContext */}
+      <DragDropContext onDragEnd={onDragEnd}>
+        <Droppable droppableId="grid-droppable">
+          {(provided) => (
+            <Box
+              ref={provided.innerRef}
+              {...provided.droppableProps}
+              sx={{ height, width: "100%" }}
+            >
+              <DataGrid
+                rows={filteredRows}
+                columns={finalColumns}
+                getRowId={(row) => row[rowIdField]}
+                checkboxSelection={checkboxSelection}
+                onRowSelectionModelChange={(ids) => onSelectionChange?.(ids)}
+                disableRowSelectionOnClick
+                disableVirtualization={true} // required for drag
+                slots={{
+                  row: enableReorder ? DraggableRow : GridRow,
+                  toolbar: () => (
+                    <GridToolbarContainer sx={{ p: 1, borderBottom: "1px solid #eee" }}>
+                      <GridToolbarExport />
+                    </GridToolbarContainer>
+                  ),
+                }}
+                sx={{
+                  border: "none",
+                  "& .MuiDataGrid-row:hover": { bgcolor: "#f9f9f9" },
+                  "& .MuiDataGrid-columnHeaders": { bgcolor: "#fafafa", borderBottom: "2px solid #eee" },
+                }}
+              />
+              {provided.placeholder}
+            </Box>
+          )}
+        </Droppable>
+      </DragDropContext>
+    </Paper>
+  );
+};
+
+export default AdvancedDataGrid;
