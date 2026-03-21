@@ -1,149 +1,184 @@
-import React, { useEffect, useState } from "react";
+"use client";
+
+import React, { useEffect, useState, useMemo } from "react";
 import {
   Box,
-  Button,
+  TextField,
   Typography,
-  Tooltip,
-  Card,
-  CardContent,
+  Paper,
 } from "@mui/material";
-import { DataGrid } from "@mui/x-data-grid";
-import apiClient from "@/utils/apiClient";
-import EnhancedSupportingDocumentsRepeater from "@/src/components/superadmin/EnhancedSupportingDocumentsRepeater";
+import { DataGrid, GridToolbar } from "@mui/x-data-grid";
+import { DragDropContext, Droppable, Draggable } from "react-beautiful-dnd";
+import dayjs from "dayjs";
 
-const DocumentMergePage = () => {
-  const [documents, setDocuments] = useState([]);
-  const [loading, setLoading] = useState(false);
+/**
+ * AdvancedDataGrid
+ * Props:
+ *  - data: array of objects
+ *  - columns: DataGrid columns
+ *  - rowIdField: field name to use as row ID (default "id")
+ *  - enableReorder: boolean, allow drag & drop reordering
+ *  - searchPlaceholder: string
+ *  - onSelectionChange: callback for selected rows
+ */
+const AdvancedDataGrid = ({
+  data = [],
+  columns = [],
+  rowIdField = "id",
+  enableReorder = false,
+  searchPlaceholder = "Search...",
+  onSelectionChange,
+  checkboxSelection = false,
+}) => {
+  const [searchText, setSearchText] = useState("");
+  const [filteredData, setFilteredData] = useState(data);
+  const [gridData, setGridData] = useState(data);
   const [selectionModel, setSelectionModel] = useState([]);
 
-  // ✅ Uploaded files state
-  const [uploadState, setUploadState] = useState({
-    uploadedFiles: [],
-  });
-
   useEffect(() => {
-    fetchDocuments();
-  }, []);
+    setGridData(data);
+    setFilteredData(data);
+  }, [data]);
 
-  const fetchDocuments = async () => {
-    setLoading(true);
-    try {
-      const res = await apiClient.get("api/document/get-folder-documents/3");
-
-      if (res?.data?.success) {
-        const filteredDocs = res?.data?.result.filter((doc) =>
-          doc.document_name?.toLowerCase().endsWith(".docx")
-        );
-
-        setDocuments(filteredDocs);
-      }
-    } catch (err) {
-      console.error("Error fetching documents", err);
-    } finally {
-      setLoading(false);
+  // 🔍 Filtering
+  useEffect(() => {
+    const trimmedSearch = (searchText || "").trim().toLowerCase();
+    if (!trimmedSearch) {
+      setFilteredData(gridData);
+      return;
     }
-  };
 
-  // ✅ Upload function using same pattern as dialog
-  const uploadMultipleFiles = async (files, titles = [], description) => {
-    const formData = new FormData();
-    files.forEach((file, idx) => {
-      formData.append("files", file);
-      formData.append("titles[]", titles[idx] || file.name);
-    });
-    formData.append("reference_type", "document");
-    formData.append("remarks", description);
+    const ignoredKeys = ["id", "uuid", "raw"];
 
-    try {
-      const res = await apiClient.post("api/document/upload-files", formData);
-      return res.data.files;
-    } catch (err) {
-      console.error("Upload failed", err);
-      return [];
-    }
-  };
+    const searchObject = (obj) => {
+      if (!obj || typeof obj !== "object") return false;
 
-  const handleMerge = async () => {
-    if (selectionModel.length < 2) return;
-    try {
-      await apiClient.post("api/merge-document", {
-        documentIds: selectionModel,
+      // Shallow search
+      const shallowMatch = Object.entries(obj).some(([key, val]) => {
+        if (ignoredKeys.includes(key.toLowerCase()) || val == null) return false;
+
+        // Boolean
+        if (key === "is_active" && typeof val === "boolean") {
+          const statusText = val ? "active" : "inactive";
+          return statusText.startsWith(trimmedSearch);
+        }
+
+        // ISO date strings
+        if (typeof val === "string" && /^\d{4}-\d{2}-\d{2}T/.test(val)) {
+          const formattedDate = dayjs(val).format("DD-MMM-YYYY").toLowerCase();
+          return formattedDate.includes(trimmedSearch);
+        }
+
+        // string or number
+        if (typeof val === "string" || typeof val === "number") {
+          return val.toString().toLowerCase().includes(trimmedSearch);
+        }
+
+        return false;
       });
-      alert("Documents merged successfully");
-      setSelectionModel([]);
-      fetchDocuments();
-    } catch (err) {
-      console.error("Merge failed", err);
-    }
+
+      if (shallowMatch) return true;
+
+      // Deep recursive
+      return Object.entries(obj).some(([key, val]) => {
+        if (ignoredKeys.includes(key.toLowerCase()) || val == null) return false;
+        if (typeof val === "object") {
+          if (Array.isArray(val)) return val.some((item) => searchObject(item));
+          else return searchObject(val);
+        }
+        return false;
+      });
+    };
+
+    const filtered = gridData.filter((item) => searchObject(item));
+    setFilteredData(filtered);
+  }, [searchText, gridData]);
+
+  // 🔀 Drag & drop reordering
+  const handleDragEnd = (result) => {
+    if (!result.destination) return;
+    const newData = Array.from(filteredData);
+    const [removed] = newData.splice(result.source.index, 1);
+    newData.splice(result.destination.index, 0, removed);
+    setFilteredData(newData);
+    setGridData(newData); // persist reordered data
   };
 
-  const columns = [
-    { field: "document_title", headerName: "Title", flex: 1 },
-    { field: "document_name", headerName: "File Name", flex: 1.5 },
-    { field: "uploaded_by", headerName: "Uploaded By", flex: 1 },
-    { field: "uploaded_at", headerName: "Uploaded At", flex: 1 },
-  ];
+  // Selection callback
+  useEffect(() => {
+    if (onSelectionChange) onSelectionChange(selectionModel);
+  }, [selectionModel]);
 
   return (
-    <Box p={3}>
-      <Typography variant="h5" fontWeight="bold" mb={2}>
-        Document Merge
-      </Typography>
+    <Paper elevation={0}>
+      <Box mb={1}>
+        <TextField
+          size="small"
+          fullWidth
+          placeholder={searchPlaceholder}
+          value={searchText}
+          onChange={(e) => setSearchText(e.target.value)}
+        />
+      </Box>
 
-      {/* ✅ Enhanced Supporting Documents Repeater */}
-      <Card sx={{ mb: 3 }}>
-        <CardContent>
-          <Typography variant="h6" mb={2}>
-            Upload Documents
-          </Typography>
-
-          <EnhancedSupportingDocumentsRepeater
-            onUploadComplete={(uploadedFiles) =>
-              setUploadState({ uploadedFiles })
-            }
-            uploadMultipleFiles={uploadMultipleFiles}
-          />
-        </CardContent>
-      </Card>
-
-      {/* Available Documents DataGrid */}
-      <Card>
-        <CardContent>
-          <Box
-            display="flex"
-            justifyContent="space-between"
-            alignItems="center"
-            mb={2}
-          >
-            <Typography variant="h6">Available DOCX Documents</Typography>
-
-            <Tooltip title="Select at least 2 documents to merge">
-              <span>
-                <Button
-                  variant="contained"
-                  disabled={selectionModel.length < 2}
-                  onClick={handleMerge}
-                >
-                  Merge Documents
-                </Button>
-              </span>
-            </Tooltip>
-          </Box>
-
-          <DataGrid
-            rows={documents}
-            columns={columns}
-            getRowId={(row) => row.document_id}
-            checkboxSelection
-            loading={loading}
-            autoHeight
-            onRowSelectionModelChange={(ids) => setSelectionModel(ids)}
-            rowSelectionModel={selectionModel}
-          />
-        </CardContent>
-      </Card>
-    </Box>
+      {enableReorder ? (
+        <DragDropContext onDragEnd={handleDragEnd}>
+          <Droppable droppableId="droppable-grid">
+            {(provided) => (
+              <div {...provided.droppableProps} ref={provided.innerRef}>
+                {filteredData.map((row, index) => (
+                  <Draggable
+                    key={row[rowIdField]}
+                    draggableId={row[rowIdField].toString()}
+                    index={index}
+                  >
+                    {(provided, snapshot) => (
+                      <div
+                        ref={provided.innerRef}
+                        {...provided.draggableProps}
+                        {...provided.dragHandleProps}
+                        style={{
+                          marginBottom: 4,
+                          ...provided.draggableProps.style,
+                        }}
+                      >
+                        <DataGrid
+                          autoHeight
+                          rows={[row]}
+                          columns={columns}
+                          getRowId={(r) => r[rowIdField]}
+                          checkboxSelection={checkboxSelection}
+                          onRowSelectionModelChange={(ids) =>
+                            setSelectionModel(ids)
+                          }
+                          rowSelectionModel={selectionModel}
+                          hideFooter
+                        />
+                      </div>
+                    )}
+                  </Draggable>
+                ))}
+                {provided.placeholder}
+              </div>
+            )}
+          </Droppable>
+        </DragDropContext>
+      ) : (
+        <DataGrid
+          autoHeight
+          rows={filteredData}
+          columns={columns}
+          getRowId={(r) => r[rowIdField]}
+          checkboxSelection={checkboxSelection}
+          onRowSelectionModelChange={(ids) =>
+            setSelectionModel(ids)
+          }
+          rowSelectionModel={selectionModel}
+          components={{ Toolbar: GridToolbar }}
+        />
+      )}
+    </Paper>
   );
 };
 
-export default DocumentMergePage;
+export default AdvancedDataGrid;
