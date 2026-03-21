@@ -9,14 +9,14 @@ import {
 } from "@mui/material";
 import { DataGrid } from "@mui/x-data-grid";
 import apiClient from "@/utils/apiClient";
-import SupportingDocumentsRepeater from "@/src/components/superadmin/SupportingDocsRepeater";
+import EnhancedSupportingDocumentsRepeater from "@/src/components/superadmin/EnhancedSupportingDocumentsRepeater";
 
 const DocumentMergePage = () => {
   const [documents, setDocuments] = useState([]);
   const [loading, setLoading] = useState(false);
   const [selectionModel, setSelectionModel] = useState([]);
 
-  // ✅ IMPORTANT: Correct structure based on your reference
+  // ✅ Uploaded files state
   const [uploadState, setUploadState] = useState({
     uploadedFiles: [],
   });
@@ -28,9 +28,7 @@ const DocumentMergePage = () => {
   const fetchDocuments = async () => {
     setLoading(true);
     try {
-      const res = await apiClient.get(
-        "api/document/get-folder-documents/3"
-      );
+      const res = await apiClient.get("api/document/get-folder-documents/3");
 
       if (res?.data?.success) {
         const filteredDocs = res?.data?.result.filter((doc) =>
@@ -46,24 +44,18 @@ const DocumentMergePage = () => {
     }
   };
 
-  // ✅ SAME upload function pattern as your dialog
+  // ✅ Upload function using same pattern as dialog
   const uploadMultipleFiles = async (files, titles = [], description) => {
     const formData = new FormData();
-
     files.forEach((file, idx) => {
       formData.append("files", file);
       formData.append("titles[]", titles[idx] || file.name);
     });
-
     formData.append("reference_type", "document");
     formData.append("remarks", description);
 
     try {
-      const res = await apiClient.post(
-        "api/document/upload-files",
-        formData
-      );
-
+      const res = await apiClient.post("api/document/upload-files", formData);
       return res.data.files;
     } catch (err) {
       console.error("Upload failed", err);
@@ -72,43 +64,24 @@ const DocumentMergePage = () => {
   };
 
   const handleMerge = async () => {
+    if (selectionModel.length < 2) return;
     try {
       await apiClient.post("api/merge-document", {
         documentIds: selectionModel,
       });
-
       alert("Documents merged successfully");
       setSelectionModel([]);
+      fetchDocuments();
     } catch (err) {
       console.error("Merge failed", err);
     }
   };
 
   const columns = [
-    {
-      field: "document_title",
-      headerName: "Title",
-      flex: 1,
-    },
-    {
-      field: "document_name",
-      headerName: "File Name",
-      flex: 1.5,
-    },
-    {
-      field: "uploaded_by",
-      headerName: "Uploaded By",
-      flex: 1,
-    //   valueGetter: (params) =>
-    //     `${params.row.first_name || ""} ${params.row.last_name || ""}`,
-    },
-    {
-      field: "uploaded_at",
-      headerName: "Uploaded At",
-      flex: 1,
-    //   valueGetter: (params) =>
-    //     new Date(params.row.uploaded_at).toLocaleString(),
-    },
+    { field: "document_title", headerName: "Title", flex: 1 },
+    { field: "document_name", headerName: "File Name", flex: 1.5 },
+    { field: "uploaded_by", headerName: "Uploaded By", flex: 1 },
+    { field: "uploaded_at", headerName: "Uploaded At", flex: 1 },
   ];
 
   return (
@@ -117,29 +90,23 @@ const DocumentMergePage = () => {
         Document Merge
       </Typography>
 
-      {/* ✅ CORRECT SupportingDocumentsRepeater USAGE */}
+      {/* ✅ Enhanced Supporting Documents Repeater */}
       <Card sx={{ mb: 3 }}>
         <CardContent>
           <Typography variant="h6" mb={2}>
             Upload Documents
           </Typography>
 
-          <SupportingDocumentsRepeater
-            initialDocuments={uploadState.uploadedFiles || []}
-            handleJsonDataChange={(fieldName) => (e) => {
-              if (fieldName === "supportingDocuments") {
-                setUploadState((prev) => ({
-                  ...prev,
-                  uploadedFiles: e.target.value,
-                }));
-              }
-            }}
+          <EnhancedSupportingDocumentsRepeater
+            onUploadComplete={(uploadedFiles) =>
+              setUploadState({ uploadedFiles })
+            }
             uploadMultipleFiles={uploadMultipleFiles}
           />
         </CardContent>
       </Card>
 
-      {/* Data Grid */}
+      {/* Available Documents DataGrid */}
       <Card>
         <CardContent>
           <Box
@@ -170,9 +137,7 @@ const DocumentMergePage = () => {
             checkboxSelection
             loading={loading}
             autoHeight
-            onRowSelectionModelChange={(ids) =>
-              setSelectionModel(ids)
-            }
+            onRowSelectionModelChange={(ids) => setSelectionModel(ids)}
             rowSelectionModel={selectionModel}
           />
         </CardContent>
