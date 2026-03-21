@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useCallback } from "react";
 import {
   Box,
   Button,
@@ -6,8 +6,6 @@ import {
   IconButton,
   List,
   ListItem,
-  ListItemText,
-  ListItemSecondaryAction,
   TextField,
   Stack,
   Divider,
@@ -17,197 +15,202 @@ import {
   Alert,
   Fade,
   LinearProgress,
+  Paper,
 } from "@mui/material";
 import DeleteIcon from "@mui/icons-material/Delete";
 import UploadFileIcon from "@mui/icons-material/UploadFile";
 import CloudUploadIcon from "@mui/icons-material/CloudUpload";
-import ErrorOutlineIcon from "@mui/icons-material/ErrorOutline";
+import DescriptionIcon from "@mui/icons-material/Description";
+import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 
 const MAX_FILE_COUNT = 5;
+const MAX_FILE_SIZE_MB = 10;
+const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
 
-const EnhancedSupportingDocumentsRepeater = ({
-  onUploadComplete,
-  uploadMultipleFiles,
-}) => {
+const ProfessionalFileRepeater = ({ onUploadComplete, uploadMultipleFiles }) => {
   const [selectedFiles, setSelectedFiles] = useState([]);
   const [titles, setTitles] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  // Logic to determine if we can add more files
-  const isLimitReached = selectedFiles.length >= MAX_FILE_COUNT;
-  const remainingSlots = MAX_FILE_COUNT - selectedFiles.length;
-
-  const handleFileChange = (e) => {
+  const validateAndAddFiles = (files) => {
     setError("");
-    const files = Array.from(e.target.files);
-
+    
+    // Check Count
     if (selectedFiles.length + files.length > MAX_FILE_COUNT) {
-      setError(`You can only upload a maximum of ${MAX_FILE_COUNT} files.`);
+      setError(`Limit exceeded. You can only have ${MAX_FILE_COUNT} files total.`);
+      return;
+    }
+
+    // Check Size
+    const oversizedFiles = files.filter(f => f.size > MAX_FILE_SIZE_BYTES);
+    if (oversizedFiles.length > 0) {
+      setError(`One or more files exceed the ${MAX_FILE_SIZE_MB}MB limit.`);
       return;
     }
 
     const newFiles = [...selectedFiles, ...files];
     const newTitles = [
       ...titles,
-      ...files.map((file) => file.name.replace(/\.[^/.]+$/, "")),
+      ...files.map((f) => f.name.replace(/\.[^/.]+$/, "")),
     ];
 
     setSelectedFiles(newFiles);
     setTitles(newTitles);
   };
 
+  const handleFileChange = (e) => {
+    const files = Array.from(e.target.files);
+    validateAndAddFiles(files);
+    e.target.value = ""; // Reset input
+  };
+
   const handleRemove = (index) => {
     setSelectedFiles(prev => prev.filter((_, i) => i !== index));
     setTitles(prev => prev.filter((_, i) => i !== index));
-    if (selectedFiles.length <= MAX_FILE_COUNT) setError("");
-  };
-
-  const handleTitleChange = (index, value) => {
-    const updated = [...titles];
-    updated[index] = value;
-    setTitles(updated);
+    setError("");
   };
 
   const handleUpload = async () => {
-    if (selectedFiles.length === 0) return;
     setLoading(true);
     try {
-      const uploaded = await uploadMultipleFiles(
-        selectedFiles,
-        titles,
-        "Uploaded via enhanced component"
-      );
-      if (onUploadComplete) onUploadComplete(uploaded);
+      await uploadMultipleFiles(selectedFiles, titles, "System Upload");
+      if (onUploadComplete) onUploadComplete();
       setSelectedFiles([]);
       setTitles([]);
     } catch (err) {
-      setError("Upload failed. Please try again.");
+      setError("Server error during upload. Please try again.");
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <Card variant="outlined" sx={{ borderRadius: 2, boxShadow: 1 }}>
-      <CardContent>
+    <Card sx={{ maxWidth: 700, mx: "auto", borderRadius: 3, boxShadow: "0 8px 24px rgba(0,0,0,0.1)" }}>
+      <CardContent sx={{ p: 4 }}>
         <Stack spacing={3}>
-          <Box>
-            <Typography variant="h6" fontWeight="bold">
-              Supporting Documents
-            </Typography>
-            <Typography variant="body2" color="text.secondary">
-              Upload up to {MAX_FILE_COUNT} files. {remainingSlots} slots remaining.
-            </Typography>
+          {/* Header */}
+          <Box display="flex" justifyContent="space-between" alignItems="center">
+            <Box>
+              <Typography variant="h5" fontWeight={700} color="text.primary">
+                Supporting Documents
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                {selectedFiles.length} of {MAX_FILE_COUNT} files added
+              </Typography>
+            </Box>
+            {selectedFiles.length === MAX_FILE_COUNT && (
+              <CheckCircleIcon color="success" />
+            )}
           </Box>
 
-          {/* File Picker / Dropzone Style */}
-          <Box
+          {/* Upload Zone */}
+          <Paper
+            variant="outlined"
             sx={{
-              border: "2px dashed",
-              borderColor: isLimitReached ? "action.disabled" : "primary.main",
+              p: 4,
               borderRadius: 2,
-              p: 3,
+              border: "2px dashed",
+              borderColor: error ? "error.light" : "primary.light",
+              bgcolor: "grey.50",
               textAlign: "center",
-              bgcolor: isLimitReached ? "action.hover" : "primary.lighter",
-              transition: "0.3s",
+              cursor: selectedFiles.length >= MAX_FILE_COUNT ? "not-allowed" : "pointer",
+              "&:hover": { bgcolor: "action.hover" },
             }}
+            component="label"
           >
-            <Button
-              variant="contained"
-              component="label"
-              disabled={isLimitReached || loading}
-              startIcon={<UploadFileIcon />}
-              sx={{ px: 4 }}
-            >
-              {isLimitReached ? "Limit Reached" : "Select Files"}
-              <input type="file" hidden multiple onChange={handleFileChange} />
-            </Button>
-            <Typography variant="caption" display="block" sx={{ mt: 1, color: "text.secondary" }}>
-              PDF, JPG, or PNG (Max 10MB per file)
+            <input 
+              type="file" 
+              hidden 
+              multiple 
+              onChange={handleFileChange} 
+              disabled={selectedFiles.length >= MAX_FILE_COUNT}
+            />
+            <UploadFileIcon sx={{ fontSize: 40, color: "primary.main", mb: 1 }} />
+            <Typography variant="subtitle1" fontWeight={600}>
+              Click to browse or drag and drop
             </Typography>
-          </Box>
+            <Typography variant="caption" color="text.secondary">
+              PDF, PNG, JPG (Max {MAX_FILE_SIZE_MB}MB per file)
+            </Typography>
+          </Paper>
 
-          {/* Error Message */}
+          {/* Error Feedback */}
           {error && (
             <Fade in={!!error}>
-              <Alert severity="error" icon={<ErrorOutlineIcon />}>
+              <Alert severity="error" variant="filled" sx={{ borderRadius: 2 }}>
                 {error}
               </Alert>
             </Fade>
           )}
 
-          {/* Selected Files List */}
-          {selectedFiles.length > 0 && (
-            <Box>
-              <Divider sx={{ mb: 2 }} />
-              <List spacing={2}>
-                {selectedFiles.map((file, index) => (
-                  <ListItem
-                    key={`${file.name}-${index}`}
-                    sx={{
-                      border: "1px solid",
-                      borderColor: "divider",
-                      borderRadius: 1,
-                      mb: 1,
-                      flexDirection: "column",
-                      alignItems: "stretch",
-                      bgcolor: "background.paper",
-                    }}
-                  >
-                    <Box display="flex" alignItems="center" width="100%">
-                      <ListItemText
-                        primary={file.name}
-                        primaryTypographyProps={{ fontWeight: "medium", noWrap: true }}
-                        secondary={`${(file.size / 1024).toFixed(1)} KB`}
-                      />
-                      <ListItemSecondaryAction>
-                        <Tooltip title="Remove file">
-                          <IconButton edge="end" onClick={() => handleRemove(index)} disabled={loading}>
-                            <DeleteIcon color="error" />
-                          </IconButton>
-                        </Tooltip>
-                      </ListItemSecondaryAction>
-                    </Box>
-
+          {/* File List */}
+          <List disablePadding>
+            {selectedFiles.map((file, index) => (
+              <Paper
+                key={index}
+                variant="outlined"
+                sx={{ mb: 2, p: 2, borderRadius: 2, position: "relative", borderLeft: "4px solid", borderLeftColor: "primary.main" }}
+              >
+                <Box display="flex" alignItems="flex-start" gap={2}>
+                  <DescriptionIcon color="action" />
+                  <Box flex={1}>
+                    <Typography variant="body2" fontWeight={600} noWrap sx={{ maxWidth: 400 }}>
+                      {file.name}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 1 }}>
+                      {(file.size / 1024 / 1024).toFixed(2)} MB
+                    </Typography>
+                    
                     <TextField
-                      size="small"
                       fullWidth
-                      label="Custom Document Title"
-                      placeholder="e.g. Identity Proof"
+                      size="small"
+                      placeholder="Give this document a title..."
                       value={titles[index] || ""}
-                      onChange={(e) => handleTitleChange(index, e.target.value)}
-                      disabled={loading}
-                      sx={{ mt: 1, mb: 1 }}
+                      onChange={(e) => {
+                        const newTitles = [...titles];
+                        newTitles[index] = e.target.value;
+                        setTitles(newTitles);
+                      }}
+                      sx={{ "& .MuiInputBase-root": { fontSize: "0.875rem" } }}
                     />
-                  </ListItem>
-                ))}
-              </List>
-
-              {/* Progress & Upload */}
-              <Box sx={{ mt: 3 }}>
-                {loading && <LinearProgress sx={{ mb: 2, borderRadius: 1 }} />}
-                <Box display="flex" justifyContent="space-between" alignItems="center">
-                  <Button 
-                    color="inherit" 
-                    onClick={() => {setSelectedFiles([]); setTitles([]); setError("");}}
-                    disabled={loading}
-                  >
-                    Clear All
-                  </Button>
-                  <Button
-                    variant="contained"
-                    color="primary"
-                    size="large"
-                    startIcon={<CloudUploadIcon />}
-                    disabled={loading}
-                    onClick={handleUpload}
-                    sx={{ minWidth: 150 }}
-                  >
-                    {loading ? "Uploading..." : "Finish & Upload"}
-                  </Button>
+                  </Box>
+                  <IconButton onClick={() => handleRemove(index)} size="small" sx={{ color: "error.main" }}>
+                    <DeleteIcon />
+                  </IconButton>
                 </Box>
-              </Box>
+              </Paper>
+            ))}
+          </List>
+
+          {/* Footer Actions */}
+          {selectedFiles.length > 0 && (
+            <Box pt={2}>
+              {loading && <LinearProgress sx={{ mb: 2, borderRadius: 2 }} />}
+              <Stack direction="row" spacing={2} justifyContent="flex-end">
+                <Button 
+                  variant="text" 
+                  color="inherit" 
+                  onClick={() => {setSelectedFiles([]); setTitles([]);}}
+                >
+                  Discard All
+                </Button>
+                <Button
+                  variant="contained"
+                  startIcon={<CloudUploadIcon />}
+                  onClick={handleUpload}
+                  disabled={loading}
+                  sx={{ 
+                    borderRadius: 2, 
+                    px: 4, 
+                    textTransform: "none",
+                    fontWeight: 600,
+                    boxShadow: "0 4px 12px rgba(25, 118, 210, 0.3)"
+                  }}
+                >
+                  {loading ? "Uploading..." : "Confirm & Upload"}
+                </Button>
+              </Stack>
             </Box>
           )}
         </Stack>
@@ -216,4 +219,4 @@ const EnhancedSupportingDocumentsRepeater = ({
   );
 };
 
-export default EnhancedSupportingDocumentsRepeater;
+export default ProfessionalFileRepeater;
