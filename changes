@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import {
   Box,
   Button,
@@ -14,29 +14,38 @@ import {
   Tooltip,
   Card,
   CardContent,
+  Alert,
+  Fade,
+  LinearProgress,
 } from "@mui/material";
 import DeleteIcon from "@mui/icons-material/Delete";
 import UploadFileIcon from "@mui/icons-material/UploadFile";
 import CloudUploadIcon from "@mui/icons-material/CloudUpload";
+import ErrorOutlineIcon from "@mui/icons-material/ErrorOutline";
 
-/**
- * ✅ Improved SupportingDocumentsRepeater
- * - Files are NOT uploaded immediately
- * - User can review before upload
- * - Upload happens only on explicit action
- * - Clean UX + reusable
- */
+const MAX_FILE_COUNT = 5;
 
 const EnhancedSupportingDocumentsRepeater = ({
-  onUploadComplete, // callback after upload
-  uploadMultipleFiles, // API function (same contract)
+  onUploadComplete,
+  uploadMultipleFiles,
 }) => {
   const [selectedFiles, setSelectedFiles] = useState([]);
   const [titles, setTitles] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  // Logic to determine if we can add more files
+  const isLimitReached = selectedFiles.length >= MAX_FILE_COUNT;
+  const remainingSlots = MAX_FILE_COUNT - selectedFiles.length;
 
   const handleFileChange = (e) => {
+    setError("");
     const files = Array.from(e.target.files);
+
+    if (selectedFiles.length + files.length > MAX_FILE_COUNT) {
+      setError(`You can only upload a maximum of ${MAX_FILE_COUNT} files.`);
+      return;
+    }
 
     const newFiles = [...selectedFiles, ...files];
     const newTitles = [
@@ -49,11 +58,9 @@ const EnhancedSupportingDocumentsRepeater = ({
   };
 
   const handleRemove = (index) => {
-    const updatedFiles = selectedFiles.filter((_, i) => i !== index);
-    const updatedTitles = titles.filter((_, i) => i !== index);
-
-    setSelectedFiles(updatedFiles);
-    setTitles(updatedTitles);
+    setSelectedFiles(prev => prev.filter((_, i) => i !== index));
+    setTitles(prev => prev.filter((_, i) => i !== index));
+    if (selectedFiles.length <= MAX_FILE_COUNT) setError("");
   };
 
   const handleTitleChange = (index, value) => {
@@ -64,7 +71,6 @@ const EnhancedSupportingDocumentsRepeater = ({
 
   const handleUpload = async () => {
     if (selectedFiles.length === 0) return;
-
     setLoading(true);
     try {
       const uploaded = await uploadMultipleFiles(
@@ -72,97 +78,137 @@ const EnhancedSupportingDocumentsRepeater = ({
         titles,
         "Uploaded via enhanced component"
       );
-
-      if (onUploadComplete) {
-        onUploadComplete(uploaded);
-      }
-
-      // Reset after upload
+      if (onUploadComplete) onUploadComplete(uploaded);
       setSelectedFiles([]);
       setTitles([]);
     } catch (err) {
-      console.error("Upload failed", err);
+      setError("Upload failed. Please try again.");
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <Card variant="outlined">
+    <Card variant="outlined" sx={{ borderRadius: 2, boxShadow: 1 }}>
       <CardContent>
-        <Stack spacing={2}>
-          <Typography variant="h6">Upload Supporting Documents</Typography>
+        <Stack spacing={3}>
+          <Box>
+            <Typography variant="h6" fontWeight="bold">
+              Supporting Documents
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              Upload up to {MAX_FILE_COUNT} files. {remainingSlots} slots remaining.
+            </Typography>
+          </Box>
 
-          {/* File Picker */}
-          <Button
-            variant="outlined"
-            component="label"
-            startIcon={<UploadFileIcon />}
+          {/* File Picker / Dropzone Style */}
+          <Box
+            sx={{
+              border: "2px dashed",
+              borderColor: isLimitReached ? "action.disabled" : "primary.main",
+              borderRadius: 2,
+              p: 3,
+              textAlign: "center",
+              bgcolor: isLimitReached ? "action.hover" : "primary.lighter",
+              transition: "0.3s",
+            }}
           >
-            Select Files
-            <input
-              type="file"
-              hidden
-              multiple
-              onChange={handleFileChange}
-            />
-          </Button>
+            <Button
+              variant="contained"
+              component="label"
+              disabled={isLimitReached || loading}
+              startIcon={<UploadFileIcon />}
+              sx={{ px: 4 }}
+            >
+              {isLimitReached ? "Limit Reached" : "Select Files"}
+              <input type="file" hidden multiple onChange={handleFileChange} />
+            </Button>
+            <Typography variant="caption" display="block" sx={{ mt: 1, color: "text.secondary" }}>
+              PDF, JPG, or PNG (Max 10MB per file)
+            </Typography>
+          </Box>
 
-          {/* Selected Files Preview */}
+          {/* Error Message */}
+          {error && (
+            <Fade in={!!error}>
+              <Alert severity="error" icon={<ErrorOutlineIcon />}>
+                {error}
+              </Alert>
+            </Fade>
+          )}
+
+          {/* Selected Files List */}
           {selectedFiles.length > 0 && (
-            <>
-              <Divider />
-              <Typography variant="subtitle2">
-                Selected Files ({selectedFiles.length})
-              </Typography>
-
-              <List dense>
+            <Box>
+              <Divider sx={{ mb: 2 }} />
+              <List spacing={2}>
                 {selectedFiles.map((file, index) => (
-                  <ListItem key={index} divider>
-                    <Box width="100%">
+                  <ListItem
+                    key={`${file.name}-${index}`}
+                    sx={{
+                      border: "1px solid",
+                      borderColor: "divider",
+                      borderRadius: 1,
+                      mb: 1,
+                      flexDirection: "column",
+                      alignItems: "stretch",
+                      bgcolor: "background.paper",
+                    }}
+                  >
+                    <Box display="flex" alignItems="center" width="100%">
                       <ListItemText
                         primary={file.name}
+                        primaryTypographyProps={{ fontWeight: "medium", noWrap: true }}
                         secondary={`${(file.size / 1024).toFixed(1)} KB`}
                       />
-
-                      <TextField
-                        size="small"
-                        fullWidth
-                        label="Document Title"
-                        value={titles[index] || ""}
-                        onChange={(e) =>
-                          handleTitleChange(index, e.target.value)
-                        }
-                        sx={{ mt: 1 }}
-                      />
+                      <ListItemSecondaryAction>
+                        <Tooltip title="Remove file">
+                          <IconButton edge="end" onClick={() => handleRemove(index)} disabled={loading}>
+                            <DeleteIcon color="error" />
+                          </IconButton>
+                        </Tooltip>
+                      </ListItemSecondaryAction>
                     </Box>
 
-                    <ListItemSecondaryAction>
-                      <Tooltip title="Remove file">
-                        <IconButton
-                          edge="end"
-                          onClick={() => handleRemove(index)}
-                        >
-                          <DeleteIcon color="error" />
-                        </IconButton>
-                      </Tooltip>
-                    </ListItemSecondaryAction>
+                    <TextField
+                      size="small"
+                      fullWidth
+                      label="Custom Document Title"
+                      placeholder="e.g. Identity Proof"
+                      value={titles[index] || ""}
+                      onChange={(e) => handleTitleChange(index, e.target.value)}
+                      disabled={loading}
+                      sx={{ mt: 1, mb: 1 }}
+                    />
                   </ListItem>
                 ))}
               </List>
 
-              {/* Upload Button */}
-              <Box display="flex" justifyContent="flex-end">
-                <Button
-                  variant="contained"
-                  startIcon={<CloudUploadIcon />}
-                  disabled={loading}
-                  onClick={handleUpload}
-                >
-                  {loading ? "Uploading..." : "Upload Files"}
-                </Button>
+              {/* Progress & Upload */}
+              <Box sx={{ mt: 3 }}>
+                {loading && <LinearProgress sx={{ mb: 2, borderRadius: 1 }} />}
+                <Box display="flex" justifyContent="space-between" alignItems="center">
+                  <Button 
+                    color="inherit" 
+                    onClick={() => {setSelectedFiles([]); setTitles([]); setError("");}}
+                    disabled={loading}
+                  >
+                    Clear All
+                  </Button>
+                  <Button
+                    variant="contained"
+                    color="primary"
+                    size="large"
+                    startIcon={<CloudUploadIcon />}
+                    disabled={loading}
+                    onClick={handleUpload}
+                    sx={{ minWidth: 150 }}
+                  >
+                    {loading ? "Uploading..." : "Finish & Upload"}
+                  </Button>
+                </Box>
               </Box>
-            </>
+            </Box>
           )}
         </Stack>
       </CardContent>
