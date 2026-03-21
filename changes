@@ -1,182 +1,205 @@
 "use client";
 
-import React, { useEffect, useState, useMemo } from "react";
+import React, { useState, useMemo } from "react";
 import {
   Box,
   TextField,
-  Typography,
   Paper,
+  InputAdornment,
+  IconButton,
+  Typography,
+  Chip,
+  Stack,
+  Divider,
 } from "@mui/material";
-import { DataGrid, GridToolbar } from "@mui/x-data-grid";
-import { DragDropContext, Droppable, Draggable } from "react-beautiful-dnd";
-import dayjs from "dayjs";
+import {
+  DataGrid,
+  GridToolbarContainer,
+  GridToolbarExport,
+  GridToolbarColumnsButton,
+} from "@mui/x-data-grid";
+import {
+  Search,
+  Clear,
+  KeyboardArrowUp,
+  KeyboardArrowDown,
+  FilterList,
+} from "@mui/icons-material";
 
-/**
- * AdvancedDataGrid
- * Props:
- *  - data: array of objects
- *  - columns: DataGrid columns
- *  - rowIdField: field name to use as row ID (default "id")
- *  - enableReorder: boolean, allow drag & drop reordering
- *  - searchPlaceholder: string
- *  - onSelectionChange: callback for selected rows
- */
 const AdvancedDataGrid = ({
   data = [],
   columns = [],
   rowIdField = "id",
   enableReorder = false,
-  searchPlaceholder = "Search...",
+  searchPlaceholder = "Search records...",
   onSelectionChange,
-  checkboxSelection = false,
+  checkboxSelection = true,
 }) => {
   const [searchText, setSearchText] = useState("");
-  const [filteredData, setFilteredData] = useState(data);
-  const [gridData, setGridData] = useState(data);
-  const [selectionModel, setSelectionModel] = useState([]);
+  const [tableData, setTableData] = useState(data);
 
-  useEffect(() => {
-    setGridData(data);
-    setFilteredData(data);
+  // Update internal state if props change
+  React.useEffect(() => {
+    setTableData(data);
   }, [data]);
 
-  // 🔍 Filtering
-  useEffect(() => {
-    const trimmedSearch = (searchText || "").trim().toLowerCase();
-    if (!trimmedSearch) {
-      setFilteredData(gridData);
-      return;
-    }
+  // 1. High-Performance Search Logic
+  const filteredRows = useMemo(() => {
+    const term = searchText.toLowerCase().trim();
+    if (!term) return tableData;
 
-    const ignoredKeys = ["id", "uuid", "raw"];
-
-    const searchObject = (obj) => {
-      if (!obj || typeof obj !== "object") return false;
-
-      // Shallow search
-      const shallowMatch = Object.entries(obj).some(([key, val]) => {
-        if (ignoredKeys.includes(key.toLowerCase()) || val == null) return false;
-
-        // Boolean
-        if (key === "is_active" && typeof val === "boolean") {
-          const statusText = val ? "active" : "inactive";
-          return statusText.startsWith(trimmedSearch);
-        }
-
-        // ISO date strings
-        if (typeof val === "string" && /^\d{4}-\d{2}-\d{2}T/.test(val)) {
-          const formattedDate = dayjs(val).format("DD-MMM-YYYY").toLowerCase();
-          return formattedDate.includes(trimmedSearch);
-        }
-
-        // string or number
-        if (typeof val === "string" || typeof val === "number") {
-          return val.toString().toLowerCase().includes(trimmedSearch);
-        }
-
-        return false;
+    return tableData.filter((row) => {
+      return Object.values(row).some((val) => {
+        if (val === null || val === undefined) return false;
+        // Handles nested objects, strings, and numbers
+        return JSON.stringify(val).toLowerCase().includes(term);
       });
+    });
+  }, [tableData, searchText]);
 
-      if (shallowMatch) return true;
+  // 2. Manual Reordering Logic (Stable alternative to DnD)
+  const handleMove = (index, direction) => {
+    const newData = [...tableData];
+    const targetIndex = direction === "up" ? index - 1 : index + 1;
+    if (targetIndex < 0 || targetIndex >= newData.length) return;
 
-      // Deep recursive
-      return Object.entries(obj).some(([key, val]) => {
-        if (ignoredKeys.includes(key.toLowerCase()) || val == null) return false;
-        if (typeof val === "object") {
-          if (Array.isArray(val)) return val.some((item) => searchObject(item));
-          else return searchObject(val);
-        }
-        return false;
-      });
-    };
-
-    const filtered = gridData.filter((item) => searchObject(item));
-    setFilteredData(filtered);
-  }, [searchText, gridData]);
-
-  // 🔀 Drag & drop reordering
-  const handleDragEnd = (result) => {
-    if (!result.destination) return;
-    const newData = Array.from(filteredData);
-    const [removed] = newData.splice(result.source.index, 1);
-    newData.splice(result.destination.index, 0, removed);
-    setFilteredData(newData);
-    setGridData(newData); // persist reordered data
+    [newData[index], newData[targetIndex]] = [newData[targetIndex], newData[index]];
+    setTableData(newData);
   };
 
-  // Selection callback
-  useEffect(() => {
-    if (onSelectionChange) onSelectionChange(selectionModel);
-  }, [selectionModel]);
+  // 3. Enhance Columns with Reorder Buttons (if enabled)
+  const finalColumns = useMemo(() => {
+    const baseCols = columns.map((col) => ({
+      ...col,
+      flex: col.flex || 1,
+      minWidth: col.width || 150,
+      renderCell: (params) => {
+        // Auto-format booleans into nice Chips
+        if (typeof params.value === "boolean") {
+          return (
+            <Chip
+              label={params.value ? "Active" : "Inactive"}
+              color={params.value ? "success" : "default"}
+              size="small"
+              variant="outlined"
+            />
+          );
+        }
+        return params.value;
+      },
+    }));
+
+    if (enableReorder) {
+      return [
+        {
+          field: "reorder_actions",
+          headerName: "Order",
+          width: 100,
+          sortable: false,
+          renderCell: (params) => {
+            const index = tableData.findIndex((r) => r[rowIdField] === params.id);
+            return (
+              <Stack direction="row">
+                <IconButton 
+                  size="small" 
+                  disabled={index === 0} 
+                  onClick={() => handleMove(index, "up")}
+                >
+                  <KeyboardArrowUp fontSize="small" />
+                </IconButton>
+                <IconButton 
+                  size="small" 
+                  disabled={index === tableData.length - 1} 
+                  onClick={() => handleMove(index, "down")}
+                >
+                  <KeyboardArrowDown fontSize="small" />
+                </IconButton>
+              </Stack>
+            );
+          },
+        },
+        ...baseCols,
+      ];
+    }
+    return baseCols;
+  }, [columns, enableReorder, tableData]);
 
   return (
-    <Paper elevation={0}>
-      <Box mb={1}>
-        <TextField
-          size="small"
-          fullWidth
-          placeholder={searchPlaceholder}
-          value={searchText}
-          onChange={(e) => setSearchText(e.target.value)}
-        />
+    <Paper
+      elevation={3}
+      sx={{
+        borderRadius: 3,
+        overflow: "hidden",
+        border: "1px solid",
+        borderColor: "divider",
+        transition: "box-shadow 0.3s ease",
+        "&:hover": { boxShadow: 6 },
+      }}
+    >
+      {/* Search & Header Section */}
+      <Box sx={{ p: 2, bgcolor: "background.paper" }}>
+        <Stack direction="row" spacing={2} alignItems="center" mb={2}>
+          <Typography variant="h6" fontWeight="700" sx={{ flexGrow: 1, color: "primary.main" }}>
+            Data Management
+          </Typography>
+          <TextField
+            size="small"
+            placeholder={searchPlaceholder}
+            value={searchText}
+            onChange={(e) => setSearchText(e.target.value)}
+            sx={{ width: 300 }}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <Search color="action" />
+                </InputAdornment>
+              ),
+              endAdornment: searchText && (
+                <IconButton size="small" onClick={() => setSearchText("")}>
+                  <Clear fontSize="small" />
+                </IconButton>
+              ),
+            }}
+          />
+        </Stack>
+        <Divider />
       </Box>
 
-      {enableReorder ? (
-        <DragDropContext onDragEnd={handleDragEnd}>
-          <Droppable droppableId="droppable-grid">
-            {(provided) => (
-              <div {...provided.droppableProps} ref={provided.innerRef}>
-                {filteredData.map((row, index) => (
-                  <Draggable
-                    key={row[rowIdField]}
-                    draggableId={row[rowIdField].toString()}
-                    index={index}
-                  >
-                    {(provided, snapshot) => (
-                      <div
-                        ref={provided.innerRef}
-                        {...provided.draggableProps}
-                        {...provided.dragHandleProps}
-                        style={{
-                          marginBottom: 4,
-                          ...provided.draggableProps.style,
-                        }}
-                      >
-                        <DataGrid
-                          autoHeight
-                          rows={[row]}
-                          columns={columns}
-                          getRowId={(r) => r[rowIdField]}
-                          checkboxSelection={checkboxSelection}
-                          onRowSelectionModelChange={(ids) =>
-                            setSelectionModel(ids)
-                          }
-                          rowSelectionModel={selectionModel}
-                          hideFooter
-                        />
-                      </div>
-                    )}
-                  </Draggable>
-                ))}
-                {provided.placeholder}
-              </div>
-            )}
-          </Droppable>
-        </DragDropContext>
-      ) : (
+      {/* Grid Section */}
+      <Box sx={{ height: 600, width: "100%", px: 1 }}>
         <DataGrid
-          autoHeight
-          rows={filteredData}
-          columns={columns}
-          getRowId={(r) => r[rowIdField]}
+          rows={filteredRows}
+          columns={finalColumns}
+          getRowId={(row) => row[rowIdField]}
           checkboxSelection={checkboxSelection}
-          onRowSelectionModelChange={(ids) =>
-            setSelectionModel(ids)
-          }
-          rowSelectionModel={selectionModel}
-          components={{ Toolbar: GridToolbar }}
+          onRowSelectionModelChange={(ids) => onSelectionChange?.(ids)}
+          disableRowSelectionOnClick
+          slots={{
+            toolbar: () => (
+              <GridToolbarContainer sx={{ p: 1 }}>
+                <GridToolbarColumnsButton />
+                <GridToolbarExport />
+                <Box sx={{ flexGrow: 1 }} />
+                <Chip icon={<FilterList />} label={`${filteredRows.length} Records`} variant="outlined" />
+              </GridToolbarContainer>
+            ),
+          }}
+          sx={{
+            border: "none",
+            "& .MuiDataGrid-columnHeader": {
+              bgcolor: "grey.50",
+              fontWeight: "bold",
+            },
+            "& .MuiDataGrid-row:hover": {
+              bgcolor: "primary.lighter", // Custom hover color (requires theme customization or use hex)
+              cursor: "pointer",
+            },
+            "& .MuiDataGrid-cell": {
+              borderColor: "grey.100",
+            },
+          }}
         />
-      )}
+      </Box>
     </Paper>
   );
 };
