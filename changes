@@ -1,4 +1,6 @@
-import React, { useEffect, useState } from "react";
+"use client";
+
+import React, { useEffect, useState, useMemo } from "react";
 import {
   Box,
   Button,
@@ -6,17 +8,18 @@ import {
   Tooltip,
   Card,
   CardContent,
+  Stack,
 } from "@mui/material";
+import { CloudUpload, MergeType, Add } from "@mui/icons-material";
 import apiClient from "@/utils/apiClient";
 import EnhancedSupportingDocumentsRepeater from "./EnhancedSupportingDocRepeater";
 import AdvancedDataGrid from "./AdvancedDataGrid";
 import DynamicDialog from "./DynamicDialog";
 
 const DocumentMergePage = () => {
-  const [documents, setDocuments] = useState([]);
+  const [documents, setDocuments] = useState([]); // This stores the current order
   const [selectionModel, setSelectionModel] = useState([]);
-
-  const [uploadState, setUploadState] = useState({ uploadedFiles: [] });
+  const [isUploadDialogOpen, setIsUploadDialogOpen] = useState(false);
 
   useEffect(() => {
     fetchDocuments();
@@ -36,6 +39,7 @@ const DocumentMergePage = () => {
     }
   };
 
+  // Professional upload handler for the dialog
   const uploadMultipleFiles = async (files, titles = [], description) => {
     const formData = new FormData();
     files.forEach((file, idx) => {
@@ -47,6 +51,8 @@ const DocumentMergePage = () => {
 
     try {
       const res = await apiClient.post("api/document/upload-files", formData);
+      fetchDocuments(); // Refresh list after upload
+      setIsUploadDialogOpen(false); // Close dialog
       return res.data.files;
     } catch (err) {
       console.error("Upload failed", err);
@@ -56,8 +62,20 @@ const DocumentMergePage = () => {
 
   const handleMerge = async () => {
     if (selectionModel.length < 2) return;
+
+    // Construct the payload based on the CURRENT order in the 'documents' state
+    // We only include documents that are currently selected
+    const orderedPayload = documents
+      .filter((doc) => selectionModel.includes(doc.document_id))
+      .map((doc, index) => ({
+        [index + 1]: doc.document_id,
+      }));
+
     try {
-      await apiClient.post("api/merge-document", { documentIds: selectionModel });
+      await apiClient.post("api/merge-document", { 
+        documentIds: selectionModel,
+        order: orderedPayload 
+      });
       alert("Documents merged successfully");
       setSelectionModel([]);
       fetchDocuments();
@@ -75,37 +93,43 @@ const DocumentMergePage = () => {
 
   return (
     <Box p={3}>
-      <Typography variant="h5" fontWeight="bold" mb={2}>
-        Document Merge
-      </Typography>
-
-      <Card sx={{ mb: 3 }}>
-        <CardContent>
-          <Typography variant="h6" mb={2}>
-            Upload Documents
+      <Stack direction="row" justifyContent="space-between" alignItems="center" mb={3}>
+        <Box>
+          <Typography variant="h5" fontWeight="bold">
+            Document Management
           </Typography>
+          <Typography variant="body2" color="text.secondary">
+            Upload, reorder, and merge your .docx files
+          </Typography>
+        </Box>
+        
+        <Button
+          variant="outlined"
+          startIcon={<CloudUpload />}
+          onClick={() => setIsUploadDialogOpen(true)}
+          sx={{ borderRadius: 2 }}
+        >
+          Import New Documents
+        </Button>
+      </Stack>
 
-          <EnhancedSupportingDocumentsRepeater
-            onUploadComplete={(uploadedFiles) =>
-              setUploadState({ uploadedFiles })
-            }
-            uploadMultipleFiles={uploadMultipleFiles}
-          />
-        </CardContent>
-      </Card>
-
-      <Card>
+      <Card elevation={3} sx={{ borderRadius: 2 }}>
         <CardContent>
           <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
-            <Typography variant="h6">Available DOCX Documents</Typography>
-            <Tooltip title="Select at least 2 documents to merge">
+            <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <MergeType color="primary" /> Merge Sequence
+            </Typography>
+            
+            <Tooltip title={selectionModel.length < 2 ? "Select at least 2 documents" : "Generate merged document"}>
               <span>
                 <Button
                   variant="contained"
+                  color="primary"
                   disabled={selectionModel.length < 2}
                   onClick={handleMerge}
+                  sx={{ borderRadius: 2, px: 4 }}
                 >
-                  Merge Documents
+                  Merge Selected ({selectionModel.length})
                 </Button>
               </span>
             </Tooltip>
@@ -118,9 +142,26 @@ const DocumentMergePage = () => {
             enableReorder={true}
             checkboxSelection={true}
             onSelectionChange={setSelectionModel}
+            // Passing setDocuments allows the Grid to update the order in this parent state
+            onRowsOrderChange={setDocuments} 
           />
         </CardContent>
       </Card>
+
+      {/* Professional Upload Dialog */}
+      <DynamicDialog
+        open={isUploadDialogOpen}
+        onClose={() => setIsUploadDialogOpen(false)}
+        title="Document Import Wizard"
+        maxWidth="md"
+      >
+        <EnhancedSupportingDocumentsRepeater
+          onUploadComplete={() => {
+             // Handled inside uploadMultipleFiles, but kept for compatibility
+          }}
+          uploadMultipleFiles={uploadMultipleFiles}
+        />
+      </DynamicDialog>
     </Box>
   );
 };
