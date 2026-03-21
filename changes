@@ -13,9 +13,8 @@ import {
 
 const ProgressTable = ({ data }) => {
   const formatDecimal = (value) => {
-    if (value === null || value === undefined || value === "-") return "-";
     const num = Number(value);
-    return !isNaN(num) ? num.toFixed(2) : value;
+    return !isNaN(num) ? num.toFixed(2) : value ?? "-";
   };
 
   const getBackgroundColor = (value) => {
@@ -34,6 +33,7 @@ const ProgressTable = ({ data }) => {
   const hierarchy = useMemo(() => {
     const tree = {};
     years.forEach((year) => {
+      if (!reportData[year]) return;
       reportData[year].forEach((schemeEntry) => {
         const minName = schemeEntry.ministryId?.name || "Unknown Ministry";
         const deptName = schemeEntry.departmentId?.name || "Unknown Department";
@@ -62,6 +62,7 @@ const ProgressTable = ({ data }) => {
               tree[minName][deptName][schemeName].indicatorRows[rowKey].yearlyValues[year] = {
                 target: ind.target,
                 progress: ind.progress,
+                achieved: ind.achieved,
               };
             });
           });
@@ -74,7 +75,7 @@ const ProgressTable = ({ data }) => {
   const getSubKeys = (frequency) => {
     if (frequency === "Quarterly") return ["Q1", "Q2", "Q3", "Q4"];
     if (frequency === "Half-Yearly") return ["HY1", "HY2"];
-    return ["Yearly"];
+    return ["Yearly"]; // For Yearly frequency
   };
 
   return (
@@ -94,7 +95,14 @@ const ProgressTable = ({ data }) => {
               {Object.entries(schemes).map(([schemeName, schemeContent], schemeIdx) => {
                 const firstRow = Object.values(schemeContent.indicatorRows)[0];
                 const frequency = firstRow?.frequency || "Yearly";
+                const isYearly = frequency === "Yearly";
                 const subKeys = getSubKeys(frequency);
+                
+                // Calculate colSpan: (subperiods + TotalColumn) * 3 metrics
+                // For Yearly, TotalColumn is 0. For others, it's 1.
+                const showTotalCol = !isYearly;
+                const metricsCount = 3; // Target, Progress, Achieved
+                const colSpanPerYear = (subKeys.length + (showTotalCol ? 1 : 0)) * metricsCount;
 
                 return (
                   <Box key={schemeName} sx={{ ml: 2, mb: 6 }}>
@@ -109,29 +117,37 @@ const ProgressTable = ({ data }) => {
                             <TableCell rowSpan={3} sx={{ color: "#fff", fontWeight: "bold", border: "1px solid #632a6d", textAlign: "center" }}>Indicator</TableCell>
                             <TableCell rowSpan={3} sx={{ color: "#fff", fontWeight: "bold", border: "1px solid #632a6d", textAlign: "center" }}>Unit</TableCell>
                             {years.map((year) => (
-                              <TableCell key={year} colSpan={subKeys.length * 3 + 3} align="center" sx={{ color: "#fff", fontWeight: "bold", border: "1px solid #632a6d" }}>
+                              <TableCell key={year} colSpan={colSpanPerYear} align="center" sx={{ color: "#fff", fontWeight: "bold", border: "1px solid #632a6d" }}>
                                 {year}-{parseInt(year) + 1}
                               </TableCell>
                             ))}
                           </TableRow>
                           <TableRow sx={{ backgroundColor: "#45154F" }}>
                             {years.map((year) => (
-                              <React.Fragment key={year}>
-                                <TableCell colSpan={subKeys.length + 1} align="center" sx={{ color: "#fff", border: "1px solid #632a6d", fontSize: "0.75rem" }}>Target</TableCell>
-                                <TableCell colSpan={subKeys.length + 1} align="center" sx={{ color: "#fff", border: "1px solid #632a6d", fontSize: "0.75rem" }}>Progress</TableCell>
-                                <TableCell colSpan={subKeys.length + 1} align="center" sx={{ color: "#fff", border: "1px solid #632a6d", fontSize: "0.75rem" }}>Achieved</TableCell>
+                              <React.Fragment key={`head-m-${year}`}>
+                                <TableCell colSpan={subKeys.length + (showTotalCol ? 1 : 0)} align="center" sx={{ color: "#fff", border: "1px solid #632a6d", fontSize: "0.75rem" }}>Target</TableCell>
+                                <TableCell colSpan={subKeys.length + (showTotalCol ? 1 : 0)} align="center" sx={{ color: "#fff", border: "1px solid #632a6d", fontSize: "0.75rem" }}>Progress</TableCell>
+                                <TableCell colSpan={subKeys.length + (showTotalCol ? 1 : 0)} align="center" sx={{ color: "#fff", border: "1px solid #632a6d", fontSize: "0.75rem" }}>Achieved</TableCell>
                               </React.Fragment>
                             ))}
                           </TableRow>
                           <TableRow sx={{ backgroundColor: "#45154F" }}>
                             {years.map((year) => (
-                              <React.Fragment key={year}>
-                                {subKeys.map(sk => <TableCell key={`th-t-${sk}`} sx={{ color: "#fff", border: "1px solid #632a6d", fontSize: "0.65rem" }}>{sk}</TableCell>)}
-                                <TableCell sx={{ color: "#fff", border: "1px solid #632a6d", fontWeight: "bold", fontSize: "0.65rem" }}>Total</TableCell>
-                                {subKeys.map(sk => <TableCell key={`th-p-${sk}`} sx={{ color: "#fff", border: "1px solid #632a6d", fontSize: "0.65rem" }}>{sk}</TableCell>)}
-                                <TableCell sx={{ color: "#fff", border: "1px solid #632a6d", fontWeight: "bold", fontSize: "0.65rem" }}>Total</TableCell>
-                                {subKeys.map(sk => <TableCell key={`th-a-${sk}`} sx={{ color: "#fff", border: "1px solid #632a6d", fontSize: "0.65rem" }}>{sk}</TableCell>)}
-                                <TableCell sx={{ color: "#fff", border: "1px solid #632a6d", fontWeight: "bold", fontSize: "0.65rem", backgroundColor: "#2e0e35" }}>Total %</TableCell>
+                              <React.Fragment key={`head-s-${year}`}>
+                                {["T", "P", "A"].map((mType) => (
+                                  <React.Fragment key={mType}>
+                                    {subKeys.map(sk => (
+                                      <TableCell key={`${mType}-${sk}`} align="center" sx={{ color: "#fff", border: "1px solid #632a6d", fontSize: "0.65rem" }}>
+                                        {isYearly ? "Yearly" : sk}
+                                      </TableCell>
+                                    ))}
+                                    {showTotalCol && (
+                                      <TableCell align="center" sx={{ color: "#fff", border: "1px solid #632a6d", fontWeight: "bold", fontSize: "0.65rem", backgroundColor: mType === "A" ? "#2e0e35" : "inherit" }}>
+                                        Total {mType === "A" ? "%" : ""}
+                                      </TableCell>
+                                    )}
+                                  </React.Fragment>
+                                ))}
                               </React.Fragment>
                             ))}
                           </TableRow>
@@ -145,35 +161,32 @@ const ProgressTable = ({ data }) => {
                               {years.map((year) => {
                                 const val = row.yearlyValues[year] || {};
                                 
-                                // Calculation logic
-                                let sumTarget = 0, sumProgress = 0, isValid = true;
-                                subKeys.forEach(sk => {
-                                  const t = frequency === "Yearly" ? val.target : val.target?.[sk];
-                                  const p = frequency === "Yearly" ? val.progress : val.progress?.[sk];
-                                  if (typeof t === 'number' && typeof p === 'number') {
-                                    sumTarget += t; sumProgress += p;
-                                  } else { isValid = false; }
-                                });
+                                const getSum = (obj) => {
+                                  if (isYearly) return Number(obj) || 0;
+                                  return subKeys.reduce((acc, key) => acc + (Number(obj?.[key]) || 0), 0);
+                                };
 
-                                const totalPct = (isValid && sumTarget > 0) ? (sumProgress / sumTarget) * 100 : "N/A";
+                                const totalTarget = getSum(val.target);
+                                const totalProgress = getSum(val.progress);
+                                const totalPct = totalTarget > 0 ? (totalProgress / totalTarget) * 100 : 0;
 
                                 return (
                                   <React.Fragment key={year}>
-                                    {/* Target Columns */}
-                                    {subKeys.map(sk => <TableCell key={`t-${sk}`} align="right" sx={{ border: "1px solid #ddd" }}>{formatDecimal(frequency === "Yearly" ? val.target : val.target?.[sk])}</TableCell>)}
-                                    <TableCell align="right" sx={{ border: "1px solid #ddd", fontWeight: "bold" }}>{isValid ? formatDecimal(sumTarget) : "N/A"}</TableCell>
+                                    {/* Target Cells */}
+                                    {subKeys.map(sk => <TableCell key={`t-${sk}`} align="right" sx={{ border: "1px solid #ddd" }}>{formatDecimal(isYearly ? val.target : val.target?.[sk])}</TableCell>)}
+                                    {showTotalCol && <TableCell align="right" sx={{ border: "1px solid #ddd", fontWeight: "bold" }}>{formatDecimal(totalTarget)}</TableCell>}
                                     
-                                    {/* Progress Columns */}
-                                    {subKeys.map(sk => <TableCell key={`p-${sk}`} align="right" sx={{ border: "1px solid #ddd" }}>{formatDecimal(frequency === "Yearly" ? val.progress : val.progress?.[sk])}</TableCell>)}
-                                    <TableCell align="right" sx={{ border: "1px solid #ddd", fontWeight: "bold" }}>{isValid ? formatDecimal(sumProgress) : "N/A"}</TableCell>
+                                    {/* Progress Cells */}
+                                    {subKeys.map(sk => <TableCell key={`p-${sk}`} align="right" sx={{ border: "1px solid #ddd" }}>{formatDecimal(isYearly ? val.progress : val.progress?.[sk])}</TableCell>)}
+                                    {showTotalCol && <TableCell align="right" sx={{ border: "1px solid #ddd", fontWeight: "bold" }}>{formatDecimal(totalProgress)}</TableCell>}
                                     
-                                    {/* Achieved Columns (Raw value/Indicator, no calculation) */}
-                                    {subKeys.map(sk => <TableCell key={`a-${sk}`} align="right" sx={{ border: "1px solid #ddd" }}>-</TableCell>)}
-                                    
-                                    {/* Total Achieved % Column (CALCULATED & COLORED) */}
-                                    <TableCell align="right" sx={{ border: "1px solid #ddd", fontWeight: "bold", backgroundColor: getBackgroundColor(totalPct) }}>
-                                      {isValid && typeof totalPct === 'number' ? `${totalPct.toFixed(2)}%` : "N/A"}
-                                    </TableCell>
+                                    {/* Achieved Cells */}
+                                    {subKeys.map(sk => <TableCell key={`a-${sk}`} align="right" sx={{ border: "1px solid #ddd" }}>{formatDecimal(isYearly ? val.achieved : val.achieved?.[sk])}</TableCell>)}
+                                    {showTotalCol && (
+                                      <TableCell align="right" sx={{ border: "1px solid #ddd", fontWeight: "bold", backgroundColor: getBackgroundColor(totalPct) }}>
+                                        {totalPct.toFixed(2)}%
+                                      </TableCell>
+                                    )}
                                   </React.Fragment>
                                 );
                               })}
