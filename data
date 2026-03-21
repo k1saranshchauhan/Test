@@ -121,7 +121,6 @@ const ProgressTable = ({ data }) => {
                       <Table size="small" sx={{ border: "1px solid #ccc", minWidth: 1400 }}>
                         <TableHead>
                           <TableRow sx={{ backgroundColor: "#45154F" }}>
-                            {/* Restored Columns Headers */}
                             <TableCell rowSpan={3} sx={{ color: "#fff", fontWeight: "bold", border: "1px solid #632a6d", textAlign: "center" }}>Indicator Type</TableCell>
                             <TableCell rowSpan={3} sx={{ color: "#fff", fontWeight: "bold", border: "1px solid #632a6d", textAlign: "center" }}>Indicator Statement</TableCell>
                             <TableCell rowSpan={3} sx={{ color: "#fff", fontWeight: "bold", border: "1px solid #632a6d", textAlign: "center" }}>Indicator</TableCell>
@@ -133,7 +132,7 @@ const ProgressTable = ({ data }) => {
                                 {year}-{parseInt(year) + 1}
                               </TableCell>
                             ))}
-                            <TableCell colSpan={2} rowSpan={2} align="center" sx={{ color: "#fff", fontWeight: "bold", border: "1px solid #632a6d", backgroundColor: "#2e0e35" }}>Cumulative</TableCell>
+                            <TableCell colSpan={3} rowSpan={2} align="center" sx={{ color: "#fff", fontWeight: "bold", border: "1px solid #632a6d", backgroundColor: "#2e0e35" }}>Cumulative (All Years)</TableCell>
                           </TableRow>
 
                           <TableRow sx={{ backgroundColor: "#45154F" }}>
@@ -151,14 +150,16 @@ const ProgressTable = ({ data }) => {
                               <React.Fragment key={`s-${year}`}>
                                 {["T", "P", "A"].map((type) => (
                                   <React.Fragment key={type}>
-                                    {subKeys.map((sk) => <TableCell key={sk} align="center" sx={{ color: "#fff", border: "1px solid #632a6d", fontSize: "0.6rem" }}>{isYearly ? "Yearly" : sk}</TableCell>)}
+                                    {subKeys.map((sk) => <TableCell key={sk} align="center" sx={{ color: "#fff", border: "1px solid #632a6d", fontSize: "0.6rem" }}>{isYearly ? "Value" : sk}</TableCell>)}
                                     {showTotalCol && <TableCell align="center" sx={{ color: "#fff", border: "1px solid #632a6d", fontWeight: "bold", fontSize: "0.6rem" }}>{type === "A" ? "Total %" : "Total"}</TableCell>}
                                   </React.Fragment>
                                 ))}
                               </React.Fragment>
                             ))}
+                            {/* Cumulative Sub-headers */}
                             <TableCell align="center" sx={{ color: "#fff", border: "1px solid #632a6d", fontSize: "0.7rem" }}>Target</TableCell>
                             <TableCell align="center" sx={{ color: "#fff", border: "1px solid #632a6d", fontSize: "0.7rem" }}>Progress</TableCell>
+                            <TableCell align="center" sx={{ color: "#fff", border: "1px solid #632a6d", fontSize: "0.7rem", backgroundColor: "#2e0e35" }}>Achieved %</TableCell>
                           </TableRow>
                         </TableHead>
 
@@ -171,7 +172,6 @@ const ProgressTable = ({ data }) => {
 
                               return (
                                 <TableRow key={rIdx} sx={{ "&:nth-of-type(even)": { backgroundColor: "#f9f9f9" } }}>
-                                  {/* Restored Body Cells */}
                                   <TableCell sx={{ border: "1px solid #ddd" }}>{row.type}</TableCell>
                                   <TableCell sx={{ border: "1px solid #ddd", fontSize: "0.8rem" }}>{row.statement}</TableCell>
                                   <TableCell sx={{ border: "1px solid #ddd" }}>{row.indicatorName}</TableCell>
@@ -194,15 +194,12 @@ const ProgressTable = ({ data }) => {
 
                                     return (
                                       <React.Fragment key={year}>
-                                        {/* Target */}
                                         {subKeys.map(sk => <TableCell key={sk} align="right" sx={{ border: "1px solid #ddd" }}>{formatDecimal(isYearly ? val.target : val.target?.[sk])}</TableCell>)}
                                         {showTotalCol && <TableCell align="right" sx={{ border: "1px solid #ddd", fontWeight: "bold" }}>{formatDecimal(yearlyTarget)}</TableCell>}
                                         
-                                        {/* Progress */}
                                         {subKeys.map(sk => <TableCell key={sk} align="right" sx={{ border: "1px solid #ddd" }}>{formatDecimal(isYearly ? val.progress : val.progress?.[sk])}</TableCell>)}
                                         {showTotalCol && <TableCell align="right" sx={{ border: "1px solid #ddd", fontWeight: "bold" }}>{formatDecimal(yearlyProgress)}</TableCell>}
                                         
-                                        {/* Achieved */}
                                         {subKeys.map(sk => <TableCell key={sk} align="right" sx={{ border: "1px solid #ddd" }}>{formatDecimal(isYearly ? val.achieved : val.achieved?.[sk])}</TableCell>)}
                                         {showTotalCol && (
                                           <TableCell align="right" sx={{ border: "1px solid #ddd", fontWeight: "bold", backgroundColor: getBackgroundColor(yearlyPct) }}>
@@ -213,8 +210,16 @@ const ProgressTable = ({ data }) => {
                                     );
                                   })}
                                   
+                                  {/* Cumulative Section Columns */}
                                   <TableCell align="right" sx={{ border: "1px solid #ddd", fontWeight: "bold", backgroundColor: "#f0f4ff" }}>{formatDecimal(grandTarget)}</TableCell>
                                   <TableCell align="right" sx={{ border: "1px solid #ddd", fontWeight: "bold", backgroundColor: "#f0f4ff" }}>{formatDecimal(grandProgress)}</TableCell>
+                                  <TableCell align="right" sx={{ 
+                                    border: "1px solid #ddd", 
+                                    fontWeight: "bold", 
+                                    backgroundColor: getBackgroundColor(grandTarget > 0 ? (grandProgress / grandTarget) * 100 : 0) 
+                                  }}>
+                                    {grandTarget > 0 ? ((grandProgress / grandTarget) * 100).toFixed(2) : "0.00"}%
+                                  </TableCell>
                                 </TableRow>
                               );
                             })}
