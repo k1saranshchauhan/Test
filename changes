@@ -24,14 +24,16 @@ const MAX_FILE_COUNT = 5;
 const MAX_FILE_SIZE_MB = 100;
 const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
 
-const ProfessionalFileRepeater = ({ onUploadComplete, uploadMultipleFiles,maxWidth }) => {
+// ✅ Allowed file types (CONFIGURABLE)
+const ALLOWED_FILE_TYPES = ["pdf", "doc", "docx"]; 
+
+const ProfessionalFileRepeater = ({ onUploadComplete, uploadMultipleFiles, maxWidth }) => {
   const [selectedFiles, setSelectedFiles] = useState([]);
   const [titles, setTitles] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [isDragging, setIsDragging] = useState(false);
 
-  // Helper to clear error and state
   const resetForm = () => {
     setSelectedFiles([]);
     setTitles([]);
@@ -39,19 +41,37 @@ const ProfessionalFileRepeater = ({ onUploadComplete, uploadMultipleFiles,maxWid
   };
 
   const validateAndAddFiles = useCallback((files) => {
-    setError(""); // Clear previous errors on new attempt
-    
+    setError("");
+
+    // ✅ File count validation
     if (selectedFiles.length + files.length > MAX_FILE_COUNT) {
       setError(`Maximum limit of ${MAX_FILE_COUNT} files reached.`);
       return;
     }
 
+    // ✅ File size validation
     const oversizedFiles = files.filter(f => f.size > MAX_FILE_SIZE_BYTES);
     if (oversizedFiles.length > 0) {
       setError(`Some files exceed the ${MAX_FILE_SIZE_MB}MB limit.`);
       return;
     }
 
+    // ✅ NEW: File type validation
+    const invalidFiles = files.filter(file => {
+      const extension = file.name.split(".").pop()?.toLowerCase();
+      return !ALLOWED_FILE_TYPES.includes(extension);
+    });
+
+    if (invalidFiles.length > 0) {
+      setError(
+        `Invalid file type(s): ${invalidFiles
+          .map(f => f.name)
+          .join(", ")}. Allowed types: ${ALLOWED_FILE_TYPES.join(", ")}`
+      );
+      return;
+    }
+
+    // ✅ If all validations pass
     setSelectedFiles(prev => [...prev, ...files]);
     setTitles(prev => [
       ...prev,
@@ -79,8 +99,7 @@ const ProfessionalFileRepeater = ({ onUploadComplete, uploadMultipleFiles,maxWid
     const updatedFiles = selectedFiles.filter((_, i) => i !== index);
     setSelectedFiles(updatedFiles);
     setTitles(prev => prev.filter((_, i) => i !== index));
-    
-    // Auto-clear error if we are now under the limit
+
     if (updatedFiles.length < MAX_FILE_COUNT) {
       setError("");
     }
@@ -101,100 +120,80 @@ const ProfessionalFileRepeater = ({ onUploadComplete, uploadMultipleFiles,maxWid
   };
 
   return (
-    <Card sx={{ maxWidth: {maxWidth}, mx: "auto", borderRadius: 4, border: '1px solid', borderColor: 'divider', boxShadow: '0 4px 20px rgba(0,0,0,0.05)' }}>
+    <Card sx={{ maxWidth: { maxWidth }, mx: "auto", borderRadius: 4, border: '1px solid', borderColor: 'divider', boxShadow: '0 4px 20px rgba(0,0,0,0.05)' }}>
       <CardContent sx={{ p: 3 }}>
         
-        {/* Header with Visual Counter */}
         <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 4 }}>
           <Box>
-            <Typography variant="h6" color="primary" fontWeight={800} sx={{ letterSpacing: '-0.5px' }}>
+            <Typography variant="h6" color="primary" fontWeight={800}>
               Upload Documents
             </Typography>
-            {/* <Typography variant="body2" color="text.secondary">
-              Attach  files for your application.
-            </Typography> */}
           </Box>
-          <Box sx={{ position: 'relative', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+
+          <Box sx={{ position: 'relative', display: 'inline-flex' }}>
             <CircularProgress 
-                variant="determinate" 
-                value={(selectedFiles.length / MAX_FILE_COUNT) * 100} 
-                size={50} 
-                thickness={5}
-                color={selectedFiles.length === MAX_FILE_COUNT ? "success" : "primary"}
+              variant="determinate" 
+              value={(selectedFiles.length / MAX_FILE_COUNT) * 100} 
+              size={50}
             />
-            <Typography variant="caption" component="div" sx={{ position: 'absolute', fontWeight: 700 }}>
+            <Typography variant="caption" sx={{ position: 'absolute', fontWeight: 700 }}>
               {selectedFiles.length}/{MAX_FILE_COUNT}
             </Typography>
           </Box>
         </Stack>
 
-        {/* Improved Drag & Drop Zone */}
+        {/* ✅ Updated accept attribute */}
         <Paper
           onDragEnter={handleDrag}
           onDragLeave={handleDrag}
           onDragOver={handleDrag}
           onDrop={handleDrop}
-          elevation={0}
+          component="label"
           sx={{
             p: 6,
-            width:"100%",
-            borderRadius: 3,
             border: "2px dashed",
-            transition: "all 0.2s ease",
             cursor: selectedFiles.length >= MAX_FILE_COUNT ? "not-allowed" : "pointer",
-            borderColor: isDragging ? "primary.main" : "grey.300",
-            bgcolor: isDragging ? alpha("#1976d2", 0.04) : "grey.50",
-            "&:hover": { bgcolor: selectedFiles.length < MAX_FILE_COUNT ? "grey.100" : "grey.50" }
           }}
-          component="label"
         >
-          <input type="file" multiple hidden onChange={(e) => validateAndAddFiles(Array.from(e.target.files))} disabled={selectedFiles.length >= MAX_FILE_COUNT} />
-          <Stack spacing={1} alignItems="center">
-            <FileUploadOutlinedIcon sx={{ fontSize: 40, color: isDragging ? "primary.main" : "text.secondary" }} />
-            <Typography variant="subtitle1" fontWeight={700}>
-                {selectedFiles.length >= MAX_FILE_COUNT ? "File Limit Reached" : "Click or drag files here"}
+          <input
+            type="file"
+            multiple
+            hidden
+            accept={ALLOWED_FILE_TYPES.map(type => `.${type}`).join(",")}
+            onChange={(e) =>
+              validateAndAddFiles(Array.from(e.target.files))
+            }
+            disabled={selectedFiles.length >= MAX_FILE_COUNT}
+          />
+
+          <Stack alignItems="center">
+            <FileUploadOutlinedIcon />
+            <Typography>
+              Click or drag files here
             </Typography>
-            <Typography variant="caption" color="text.secondary">
-              Word file up to {MAX_FILE_SIZE_MB}MB
+            <Typography variant="caption">
+              Allowed: {ALLOWED_FILE_TYPES.join(", ")} | Max {MAX_FILE_SIZE_MB}MB
             </Typography>
           </Stack>
         </Paper>
 
-        {/* Validation Error */}
         <Fade in={!!error}>
-          <Alert severity="error" variant="filled" sx={{ mt: 2, borderRadius: 2, fontWeight: 500 }}>
+          <Alert severity="error" sx={{ mt: 2 }}>
             {error}
           </Alert>
         </Fade>
 
-        {/* Document List */}
         <Stack spacing={2} sx={{ mt: 4 }}>
           {selectedFiles.map((file, index) => (
-            <Paper 
-                key={index} 
-                variant="outlined" 
-                sx={{ p: 2, borderRadius: 2, bgcolor: 'background.paper', "&:hover": { boxShadow: '0 2px 8px rgba(0,0,0,0.05)' } }}
-            >
-              <Stack direction="row" spacing={2} alignItems="flex-start">
-                <Box sx={{ p: 1, borderRadius: 1.5, bgcolor: alpha("#1976d2", 0.1), color: "primary.main", display: 'flex' }}>
-                  <InsertDriveFileIcon />
-                </Box>
+            <Paper key={index} sx={{ p: 2 }}>
+              <Stack direction="row" spacing={2}>
+                <InsertDriveFileIcon />
                 <Box flex={1}>
-                  <Stack direction="row" justifyContent="space-between" alignItems="center">
-                    <Typography variant="body2" fontWeight={700} noWrap sx={{ maxWidth: '80%' }}>
-                      {file.name}
-                    </Typography>
-                    <IconButton onClick={() => handleRemove(index)} size="small" sx={{ color: 'text.disabled', "&:hover": { color: 'error.main' } }}>
-                      <DeleteOutlineIcon fontSize="small" />
-                    </IconButton>
-                  </Stack>
-                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
-                    {(file.size / (1024 * 1024)).toFixed(2)} MB
-                  </Typography>
+                  <Typography>{file.name}</Typography>
+
                   <TextField
                     fullWidth
                     size="small"
-                    variant="filled"
                     label="Document Title"
                     value={titles[index] || ""}
                     onChange={(e) => {
@@ -202,35 +201,28 @@ const ProfessionalFileRepeater = ({ onUploadComplete, uploadMultipleFiles,maxWid
                       newTitles[index] = e.target.value;
                       setTitles(newTitles);
                     }}
-                    sx={{ "& .MuiInputBase-root": { bgcolor: 'white' } }}
                   />
                 </Box>
+
+                <IconButton onClick={() => handleRemove(index)}>
+                  <DeleteOutlineIcon />
+                </IconButton>
               </Stack>
             </Paper>
           ))}
         </Stack>
 
-        {/* Action Footer */}
         {selectedFiles.length > 0 && (
-          <Box sx={{ mt: 4, pt: 3, borderTop: '1px solid', borderColor: 'divider' }}>
-            <Stack direction="row" spacing={2} justifyContent="flex-end">
-              <Button color="inherit" onClick={resetForm} disabled={loading} sx={{ fontWeight: 600 }}>
-                Discard All
-              </Button>
-              <Button
-                variant="contained"
-                onClick={handleUpload}
-                disabled={loading}
-                startIcon={loading ? <CircularProgress size={20} color="inherit" /> : <CloudDoneIcon />}
-                sx={{ px: 4, py: 1, borderRadius: 2, fontWeight: 700, textTransform: 'none' }}
-              >
-                {loading ? "Uploading..." : "Finish Upload"}
-              </Button>
-            </Stack>
+          <Box sx={{ mt: 4 }}>
+            <Button onClick={resetForm}>Discard</Button>
+            <Button variant="contained" onClick={handleUpload}>
+              Upload
+            </Button>
           </Box>
         )}
       </CardContent>
-      {loading && <LinearProgress sx={{ position: 'absolute', bottom: 0, left: 0, right: 0 }} />}
+
+      {loading && <LinearProgress />}
     </Card>
   );
 };
