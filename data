@@ -1,240 +1,204 @@
-import React, { useMemo } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   Box,
+  Button,
+  Tooltip,
   Typography,
   Paper,
-  TableContainer,
-  Table,
-  TableHead,
-  TableRow,
-  TableCell,
-  TableBody,
+  CircularProgress,
 } from "@mui/material";
+import { DataGrid } from "@mui/x-data-grid";
+import MergeIcon from "@mui/icons-material/CallMerge";
+import RefreshIcon from "@mui/icons-material/Refresh";
+import SupportingDocumentsRepeater from "./SupportingDocumentsRepeater"; // adjust path
+import apiClient from "@/utils/apiClient";
 
-const ProgressTable = ({ data }) => {
-  const formatDecimal = (value) => {
-    if (value === null || value === undefined || value === "-") return "-";
-    const num = Number(value);
-    return !isNaN(num) ? num.toFixed(2) : value;
+const FILE_SERVER_URL = `${process.env.NEXT_PUBLIC_API_BASE_URL}api/public/download-file/`;
+
+const DocumentMergePage = () => {
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [selectionModel, setSelectionModel] = useState([]);
+  const [uploading, setUploading] = useState(false);
+
+  const fetchDocuments = async () => {
+    setLoading(true);
+    try {
+      const res = await apiClient.get(
+        `api/document/get-folder-documents/3`
+      );
+
+      const filtered = (res?.result || [])
+        .filter((doc) => doc.document_name?.toLowerCase().endsWith(".docx"))
+        .map((doc) => ({
+          id: doc.document_id,
+          title: doc.document_title,
+          fileName: doc.document_name,
+          uploadedAt: doc.uploaded_at,
+          uploadedBy: `${doc.first_name || ""} ${doc.last_name || ""}`,
+          downloadId: doc.download_id,
+        }));
+
+      setRows(filtered);
+    } catch (err) {
+      console.error("Fetch failed", err);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const getBackgroundColor = (value) => {
-    const num = Number(value);
-    if (isNaN(num) || value === "-" || value === null) return "transparent";
-    if (num > 80) return "#90ee90"; // lightgreen
-    if (num >= 50) return "#fff9c4"; // lightyellow
-    return "#f8bbd0"; // lightcoral
-  };
+  useEffect(() => {
+    fetchDocuments();
+  }, []);
 
-  if (!data?.data) return null;
-
-  const reportData = data.data;
-  const years = Object.keys(reportData).sort();
-
-  const hierarchy = useMemo(() => {
-    const tree = {};
-    years.forEach((year) => {
-      if (!reportData[year]) return;
-      reportData[year].forEach((schemeEntry) => {
-        const minName = schemeEntry.ministryId?.name || "Unknown Ministry";
-        const deptName = schemeEntry.departmentId?.name || "Unknown Department";
-        const schemeName = schemeEntry.schemeId?.name || "Unknown Scheme";
-
-        if (!tree[minName]) tree[minName] = {};
-        if (!tree[minName][deptName]) tree[minName][deptName] = {};
-        if (!tree[minName][deptName][schemeName]) {
-          tree[minName][deptName][schemeName] = {
-            indicatorRows: {},
-            financialInfo: {},
-          };
-        }
-
-        tree[minName][deptName][schemeName].financialInfo[year] = {
-          be: schemeEntry.financialOutlay || 0,
-          ae: schemeEntry.actualExpenditure || 0,
-        };
-
-        schemeEntry.indicatorData.forEach((typeGroup) => {
-          typeGroup.sections.forEach((section) => {
-            section.indicators.forEach((ind) => {
-              const rowKey = `${typeGroup.indicatorType.name}-${section.name}-${ind.indicator.name}`;
-              if (!tree[minName][deptName][schemeName].indicatorRows[rowKey]) {
-                tree[minName][deptName][schemeName].indicatorRows[rowKey] = {
-                  type: typeGroup.indicatorType.name,
-                  statement: section.name,
-                  indicatorName: ind.indicator.name,
-                  unit: ind.unit?.name || "nos.",
-                  period: ind.period?.name || "Duration",
-                  frequency: ind.frequency?.name || "Yearly",
-                  yearlyValues: {},
-                };
-              }
-              tree[minName][deptName][schemeName].indicatorRows[rowKey].yearlyValues[year] = {
-                target: ind.target,
-                progress: ind.progress,
-                achieved: ind.achieved,
-              };
-            });
-          });
-        });
+  const handleMerge = async () => {
+    try {
+      setUploading(true);
+      await apiClient.post("api/merge-document", {
+        documentIds: selectionModel,
       });
-    });
-    return tree;
-  }, [reportData, years]);
 
-  const getSubKeys = (frequency) => {
-    if (frequency === "Quarterly") return ["Q1", "Q2", "Q3", "Q4"];
-    if (frequency === "Half-Yearly") return ["HY1", "HY2"];
-    return ["Yearly"];
+      alert("Documents merged successfully");
+      setSelectionModel([]);
+    } catch (err) {
+      console.error("Merge failed", err);
+      alert("Merge failed");
+    } finally {
+      setUploading(false);
+    }
   };
+
+  const columns = useMemo(
+    () => [
+      {
+        field: "title",
+        headerName: "Title",
+        flex: 1,
+      },
+      {
+        field: "fileName",
+        headerName: "File Name",
+        flex: 1,
+      },
+      {
+        field: "uploadedBy",
+        headerName: "Uploaded By",
+        flex: 1,
+      },
+      {
+        field: "uploadedAt",
+        headerName: "Uploaded At",
+        flex: 1,
+        valueFormatter: (params) =>
+          new Date(params.value).toLocaleString("en-IN"),
+      },
+      {
+        field: "download",
+        headerName: "Download",
+        renderCell: (params) => (
+          <a
+            href={`${FILE_SERVER_URL}${params.row.downloadId}`}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            View
+          </a>
+        ),
+      },
+    ],
+    []
+  );
 
   return (
-    <Box sx={{ p: 2, backgroundColor: "#fdfdfd" }}>
-      {Object.entries(hierarchy).map(([minName, departments], minIdx) => (
-        <Box key={minName} sx={{ mb: 6 }}>
-          <Typography variant="h4" sx={{ color: "#1a237e", fontWeight: "bold", mb: 2, fontSize: "22px" }}>
-            {minIdx + 1}) {minName}
-          </Typography>
+    <Box p={3}>
+      <Typography variant="h5" fontWeight={600} mb={2}>
+        Document Management & Merge
+      </Typography>
 
-          {Object.entries(departments).map(([deptName, schemes], deptIdx) => (
-            <Box key={deptName} sx={{ ml: 2, mb: 4 }}>
-              <Typography variant="h5" sx={{ color: "black", fontWeight: "600", mb: 2, fontSize: "20px" }}>
-                {minIdx + 1}.{deptIdx + 1}) {deptName}
-              </Typography>
+      {/* Upload Section */}
+      <Paper sx={{ p: 2, mb: 3 }} elevation={3}>
+        <Typography variant="h6" mb={1}>
+          Upload Documents
+        </Typography>
 
-              {Object.entries(schemes).map(([schemeName, schemeContent], schemeIdx) => {
-                const firstRow = Object.values(schemeContent.indicatorRows)[0];
-                const frequency = firstRow?.frequency || "Yearly";
-                const isYearly = frequency === "Yearly";
-                const subKeys = getSubKeys(frequency);
-                const showTotalCol = !isYearly;
+        <SupportingDocumentsRepeater
+          isViewing={false}
+          supportingName="Upload Supporting Documents"
+          handleJsonDataChange={() => () => {}}
+          uploadMultipleFiles={async (files, titles, descriptions) => {
+            // mock wrapper for your existing API
+            const formData = new FormData();
+            files.forEach((file, i) => {
+              formData.append("files", file);
+              formData.append("titles", titles[i]);
+              formData.append("descriptions", descriptions[i]);
+            });
 
-                const yearColSpan = (subKeys.length + (showTotalCol ? 1 : 0)) * 3;
+            const res = await apiClient.post(
+              "api/document/upload-multiple",
+              formData
+            );
 
-                return (
-                  <Box key={schemeName} sx={{ ml: 2, mb: 6 }}>
-                    <Typography variant="h6" sx={{ color: "#45154F", fontWeight: "bold", mb: 2, fontSize: "18px" }}>
-                      {minIdx + 1}.{deptIdx + 1}.{schemeIdx + 1}) {schemeName}
-                    </Typography>
+            fetchDocuments();
+            return res?.data || [];
+          }}
+        />
+      </Paper>
 
-                    <TableContainer component={Paper} sx={{ boxShadow: "0px 4px 20px rgba(0,0,0,0.1)", borderRadius: "8px" }}>
-                      <Table size="small" sx={{ border: "1px solid #ccc", minWidth: 1400 }}>
-                        <TableHead>
-                          <TableRow sx={{ backgroundColor: "#45154F" }}>
-                            <TableCell rowSpan={3} sx={{ color: "#fff", fontWeight: "bold", border: "1px solid #632a6d", textAlign: "center" }}>Indicator Type</TableCell>
-                            <TableCell rowSpan={3} sx={{ color: "#fff", fontWeight: "bold", border: "1px solid #632a6d", textAlign: "center" }}>Indicator Statement</TableCell>
-                            <TableCell rowSpan={3} sx={{ color: "#fff", fontWeight: "bold", border: "1px solid #632a6d", textAlign: "center" }}>Indicator</TableCell>
-                            <TableCell rowSpan={3} sx={{ color: "#fff", fontWeight: "bold", border: "1px solid #632a6d", textAlign: "center" }}>Unit</TableCell>
-                            <TableCell rowSpan={3} sx={{ color: "#fff", fontWeight: "bold", border: "1px solid #632a6d", textAlign: "center" }}>Period Attribute</TableCell>
-                            
-                            {years.map((year) => (
-                              <TableCell key={year} colSpan={yearColSpan} align="center" sx={{ color: "#fff", fontWeight: "bold", border: "1px solid #632a6d" }}>
-                                {year}-{parseInt(year) + 1}
-                              </TableCell>
-                            ))}
-                            <TableCell colSpan={3} rowSpan={2} align="center" sx={{ color: "#fff", fontWeight: "bold", border: "1px solid #632a6d", backgroundColor: "#2e0e35" }}>Cumulative (All Years)</TableCell>
-                          </TableRow>
+      {/* Data Grid Section */}
+      <Paper sx={{ p: 2 }} elevation={3}>
+        <Box display="flex" justifyContent="space-between" mb={2}>
+          <Typography variant="h6">Available DOCX Documents</Typography>
 
-                          <TableRow sx={{ backgroundColor: "#45154F" }}>
-                            {years.map((year) => (
-                              <React.Fragment key={`m-${year}`}>
-                                <TableCell colSpan={subKeys.length + (showTotalCol ? 1 : 0)} align="center" sx={{ color: "#fff", border: "1px solid #632a6d", fontSize: "0.75rem" }}>Target</TableCell>
-                                <TableCell colSpan={subKeys.length + (showTotalCol ? 1 : 0)} align="center" sx={{ color: "#fff", border: "1px solid #632a6d", fontSize: "0.75rem" }}>Progress</TableCell>
-                                <TableCell colSpan={subKeys.length + (showTotalCol ? 1 : 0)} align="center" sx={{ color: "#fff", border: "1px solid #632a6d", fontSize: "0.75rem" }}>Achieved</TableCell>
-                              </React.Fragment>
-                            ))}
-                          </TableRow>
+          <Box display="flex" gap={1}>
+            <Button
+              variant="outlined"
+              startIcon={<RefreshIcon />}
+              onClick={fetchDocuments}
+            >
+              Refresh
+            </Button>
 
-                          <TableRow sx={{ backgroundColor: "#45154F" }}>
-                            {years.map((year) => (
-                              <React.Fragment key={`s-${year}`}>
-                                {["T", "P", "A"].map((type) => (
-                                  <React.Fragment key={type}>
-                                    {subKeys.map((sk) => <TableCell key={sk} align="center" sx={{ color: "#fff", border: "1px solid #632a6d", fontSize: "0.6rem" }}>{isYearly ? "Value" : sk}</TableCell>)}
-                                    {showTotalCol && <TableCell align="center" sx={{ color: "#fff", border: "1px solid #632a6d", fontWeight: "bold", fontSize: "0.6rem" }}>{type === "A" ? "Total %" : "Total"}</TableCell>}
-                                  </React.Fragment>
-                                ))}
-                              </React.Fragment>
-                            ))}
-                            {/* Cumulative Sub-headers */}
-                            <TableCell align="center" sx={{ color: "#fff", border: "1px solid #632a6d", fontSize: "0.7rem" }}>Target</TableCell>
-                            <TableCell align="center" sx={{ color: "#fff", border: "1px solid #632a6d", fontSize: "0.7rem" }}>Progress</TableCell>
-                            <TableCell align="center" sx={{ color: "#fff", border: "1px solid #632a6d", fontSize: "0.7rem", backgroundColor: "#2e0e35" }}>Achieved %</TableCell>
-                          </TableRow>
-                        </TableHead>
-
-                        <TableBody>
-                          {Object.values(schemeContent.indicatorRows)
-                            .sort((a, b) => (a.type === "Outcome" ? -1 : 1))
-                            .map((row, rIdx) => {
-                              let grandTarget = 0;
-                              let grandProgress = 0;
-
-                              return (
-                                <TableRow key={rIdx} sx={{ "&:nth-of-type(even)": { backgroundColor: "#f9f9f9" } }}>
-                                  <TableCell sx={{ border: "1px solid #ddd" }}>{row.type}</TableCell>
-                                  <TableCell sx={{ border: "1px solid #ddd", fontSize: "0.8rem" }}>{row.statement}</TableCell>
-                                  <TableCell sx={{ border: "1px solid #ddd" }}>{row.indicatorName}</TableCell>
-                                  <TableCell sx={{ border: "1px solid #ddd", textAlign: "center" }}>{row.unit}</TableCell>
-                                  <TableCell sx={{ border: "1px solid #ddd", textAlign: "center" }}>{row.period}</TableCell>
-                                  
-                                  {years.map((year) => {
-                                    const val = row.yearlyValues[year] || {};
-                                    const getSum = (obj) => {
-                                      if (isYearly) return Number(obj) || 0;
-                                      return subKeys.reduce((acc, key) => acc + (Number(obj?.[key]) || 0), 0);
-                                    };
-
-                                    const yearlyTarget = getSum(val.target);
-                                    const yearlyProgress = getSum(val.progress);
-                                    const yearlyPct = yearlyTarget > 0 ? (yearlyProgress / yearlyTarget) * 100 : 0;
-
-                                    grandTarget += yearlyTarget;
-                                    grandProgress += yearlyProgress;
-
-                                    return (
-                                      <React.Fragment key={year}>
-                                        {subKeys.map(sk => <TableCell key={sk} align="right" sx={{ border: "1px solid #ddd" }}>{formatDecimal(isYearly ? val.target : val.target?.[sk])}</TableCell>)}
-                                        {showTotalCol && <TableCell align="right" sx={{ border: "1px solid #ddd", fontWeight: "bold" }}>{formatDecimal(yearlyTarget)}</TableCell>}
-                                        
-                                        {subKeys.map(sk => <TableCell key={sk} align="right" sx={{ border: "1px solid #ddd" }}>{formatDecimal(isYearly ? val.progress : val.progress?.[sk])}</TableCell>)}
-                                        {showTotalCol && <TableCell align="right" sx={{ border: "1px solid #ddd", fontWeight: "bold" }}>{formatDecimal(yearlyProgress)}</TableCell>}
-                                        
-                                        {subKeys.map(sk => <TableCell key={sk} align="right" sx={{ border: "1px solid #ddd" }}>{formatDecimal(isYearly ? val.achieved : val.achieved?.[sk])}</TableCell>)}
-                                        {showTotalCol && (
-                                          <TableCell align="right" sx={{ border: "1px solid #ddd", fontWeight: "bold", backgroundColor: getBackgroundColor(yearlyPct) }}>
-                                            {yearlyPct.toFixed(2)}%
-                                          </TableCell>
-                                        )}
-                                      </React.Fragment>
-                                    );
-                                  })}
-                                  
-                                  {/* Cumulative Section Columns */}
-                                  <TableCell align="right" sx={{ border: "1px solid #ddd", fontWeight: "bold", backgroundColor: "#f0f4ff" }}>{formatDecimal(grandTarget)}</TableCell>
-                                  <TableCell align="right" sx={{ border: "1px solid #ddd", fontWeight: "bold", backgroundColor: "#f0f4ff" }}>{formatDecimal(grandProgress)}</TableCell>
-                                  <TableCell align="right" sx={{ 
-                                    border: "1px solid #ddd", 
-                                    fontWeight: "bold", 
-                                    backgroundColor: getBackgroundColor(grandTarget > 0 ? (grandProgress / grandTarget) * 100 : 0) 
-                                  }}>
-                                    {grandTarget > 0 ? ((grandProgress / grandTarget) * 100).toFixed(2) : "0.00"}%
-                                  </TableCell>
-                                </TableRow>
-                              );
-                            })}
-                        </TableBody>
-                      </Table>
-                    </TableContainer>
-                  </Box>
-                );
-              })}
-            </Box>
-          ))}
+            <Tooltip
+              title={
+                selectionModel.length < 2
+                  ? "Select at least 2 documents to merge"
+                  : "Merge selected documents"
+              }
+            >
+              <span>
+                <Button
+                  variant="contained"
+                  startIcon={
+                    uploading ? <CircularProgress size={18} /> : <MergeIcon />
+                  }
+                  disabled={selectionModel.length < 2 || uploading}
+                  onClick={handleMerge}
+                >
+                  Merge Documents
+                </Button>
+              </span>
+            </Tooltip>
+          </Box>
         </Box>
-      ))}
+
+        <div style={{ height: 500, width: "100%" }}>
+          <DataGrid
+            rows={rows}
+            columns={columns}
+            checkboxSelection
+            disableRowSelectionOnClick
+            onRowSelectionModelChange={(newSelection) =>
+              setSelectionModel(newSelection)
+            }
+            rowSelectionModel={selectionModel}
+            loading={loading}
+            pageSizeOptions={[5, 10, 20]}
+          />
+        </div>
+      </Paper>
     </Box>
   );
 };
 
-export default ProgressTable;
+export default DocumentMergePage;
