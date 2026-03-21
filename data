@@ -1,59 +1,78 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   Box,
   Button,
-  Tooltip,
   Typography,
-  Paper,
-  CircularProgress,
+  Tooltip,
+  Card,
+  CardContent,
 } from "@mui/material";
 import { DataGrid } from "@mui/x-data-grid";
-import MergeIcon from "@mui/icons-material/CallMerge";
-import RefreshIcon from "@mui/icons-material/Refresh";
-import SupportingDocumentsRepeater from "./SupportingDocumentsRepeater"; // adjust path
 import apiClient from "@/utils/apiClient";
-
-const FILE_SERVER_URL = `${process.env.NEXT_PUBLIC_API_BASE_URL}api/public/download-file/`;
+import SupportingDocumentsRepeater from "@/src/components/superadmin/SupportingDocsRepeater";
 
 const DocumentMergePage = () => {
-  const [rows, setRows] = useState([]);
+  const [documents, setDocuments] = useState([]);
   const [loading, setLoading] = useState(false);
   const [selectionModel, setSelectionModel] = useState([]);
-  const [uploading, setUploading] = useState(false);
 
-  const fetchDocuments = async () => {
-    setLoading(true);
-    try {
-      const res = await apiClient.get(
-        `api/document/get-folder-documents/3`
-      );
-
-      const filtered = (res?.result || [])
-        .filter((doc) => doc.document_name?.toLowerCase().endsWith(".docx"))
-        .map((doc) => ({
-          id: doc.document_id,
-          title: doc.document_title,
-          fileName: doc.document_name,
-          uploadedAt: doc.uploaded_at,
-          uploadedBy: `${doc.first_name || ""} ${doc.last_name || ""}`,
-          downloadId: doc.download_id,
-        }));
-
-      setRows(filtered);
-    } catch (err) {
-      console.error("Fetch failed", err);
-    } finally {
-      setLoading(false);
-    }
-  };
+  // ✅ IMPORTANT: Correct structure based on your reference
+  const [uploadState, setUploadState] = useState({
+    uploadedFiles: [],
+  });
 
   useEffect(() => {
     fetchDocuments();
   }, []);
 
+  const fetchDocuments = async () => {
+    setLoading(true);
+    try {
+      const res = await apiClient.get(
+        "api/document/get-folder-documents/3"
+      );
+
+      if (res.data.success) {
+        const filteredDocs = res.data.result.filter((doc) =>
+          doc.document_name?.toLowerCase().endsWith(".docx")
+        );
+
+        setDocuments(filteredDocs);
+      }
+    } catch (err) {
+      console.error("Error fetching documents", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // ✅ SAME upload function pattern as your dialog
+  const uploadMultipleFiles = async (files, titles = [], description) => {
+    const formData = new FormData();
+
+    files.forEach((file, idx) => {
+      formData.append("files", file);
+      formData.append("titles[]", titles[idx] || file.name);
+    });
+
+    formData.append("reference_type", "document");
+    formData.append("remarks", description);
+
+    try {
+      const res = await apiClient.post(
+        "api/document/upload-files",
+        formData
+      );
+
+      return res.data.files;
+    } catch (err) {
+      console.error("Upload failed", err);
+      return [];
+    }
+  };
+
   const handleMerge = async () => {
     try {
-      setUploading(true);
       await apiClient.post("api/merge-document", {
         documentIds: selectionModel,
       });
@@ -62,117 +81,80 @@ const DocumentMergePage = () => {
       setSelectionModel([]);
     } catch (err) {
       console.error("Merge failed", err);
-      alert("Merge failed");
-    } finally {
-      setUploading(false);
     }
   };
 
-  const columns = useMemo(
-    () => [
-      {
-        field: "title",
-        headerName: "Title",
-        flex: 1,
-      },
-      {
-        field: "fileName",
-        headerName: "File Name",
-        flex: 1,
-      },
-      {
-        field: "uploadedBy",
-        headerName: "Uploaded By",
-        flex: 1,
-      },
-      {
-        field: "uploadedAt",
-        headerName: "Uploaded At",
-        flex: 1,
-        valueFormatter: (params) =>
-          new Date(params.value).toLocaleString("en-IN"),
-      },
-      {
-        field: "download",
-        headerName: "Download",
-        renderCell: (params) => (
-          <a
-            href={`${FILE_SERVER_URL}${params.row.downloadId}`}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            View
-          </a>
-        ),
-      },
-    ],
-    []
-  );
+  const columns = [
+    {
+      field: "document_title",
+      headerName: "Title",
+      flex: 1,
+    },
+    {
+      field: "document_name",
+      headerName: "File Name",
+      flex: 1.5,
+    },
+    {
+      field: "uploaded_by",
+      headerName: "Uploaded By",
+      flex: 1,
+      valueGetter: (params) =>
+        `${params.row.first_name || ""} ${params.row.last_name || ""}`,
+    },
+    {
+      field: "uploaded_at",
+      headerName: "Uploaded At",
+      flex: 1,
+      valueGetter: (params) =>
+        new Date(params.row.uploaded_at).toLocaleString(),
+    },
+  ];
 
   return (
     <Box p={3}>
-      <Typography variant="h5" fontWeight={600} mb={2}>
-        Document Management & Merge
+      <Typography variant="h5" fontWeight="bold" mb={2}>
+        Document Merge
       </Typography>
 
-      {/* Upload Section */}
-      <Paper sx={{ p: 2, mb: 3 }} elevation={3}>
-        <Typography variant="h6" mb={1}>
-          Upload Documents
-        </Typography>
+      {/* ✅ CORRECT SupportingDocumentsRepeater USAGE */}
+      <Card sx={{ mb: 3 }}>
+        <CardContent>
+          <Typography variant="h6" mb={2}>
+            Upload Documents
+          </Typography>
 
-        <SupportingDocumentsRepeater
-          isViewing={false}
-          supportingName="Upload Supporting Documents"
-          handleJsonDataChange={() => () => {}}
-          uploadMultipleFiles={async (files, titles, descriptions) => {
-            // mock wrapper for your existing API
-            const formData = new FormData();
-            files.forEach((file, i) => {
-              formData.append("files", file);
-              formData.append("titles", titles[i]);
-              formData.append("descriptions", descriptions[i]);
-            });
-
-            const res = await apiClient.post(
-              "api/document/upload-multiple",
-              formData
-            );
-
-            fetchDocuments();
-            return res?.data || [];
-          }}
-        />
-      </Paper>
-
-      {/* Data Grid Section */}
-      <Paper sx={{ p: 2 }} elevation={3}>
-        <Box display="flex" justifyContent="space-between" mb={2}>
-          <Typography variant="h6">Available DOCX Documents</Typography>
-
-          <Box display="flex" gap={1}>
-            <Button
-              variant="outlined"
-              startIcon={<RefreshIcon />}
-              onClick={fetchDocuments}
-            >
-              Refresh
-            </Button>
-
-            <Tooltip
-              title={
-                selectionModel.length < 2
-                  ? "Select at least 2 documents to merge"
-                  : "Merge selected documents"
+          <SupportingDocumentsRepeater
+            initialDocuments={uploadState.uploadedFiles || []}
+            handleJsonDataChange={(fieldName) => (e) => {
+              if (fieldName === "supportingDocuments") {
+                setUploadState((prev) => ({
+                  ...prev,
+                  uploadedFiles: e.target.value,
+                }));
               }
-            >
+            }}
+            uploadMultipleFiles={uploadMultipleFiles}
+          />
+        </CardContent>
+      </Card>
+
+      {/* Data Grid */}
+      <Card>
+        <CardContent>
+          <Box
+            display="flex"
+            justifyContent="space-between"
+            alignItems="center"
+            mb={2}
+          >
+            <Typography variant="h6">Available DOCX Documents</Typography>
+
+            <Tooltip title="Select at least 2 documents to merge">
               <span>
                 <Button
                   variant="contained"
-                  startIcon={
-                    uploading ? <CircularProgress size={18} /> : <MergeIcon />
-                  }
-                  disabled={selectionModel.length < 2 || uploading}
+                  disabled={selectionModel.length < 2}
                   onClick={handleMerge}
                 >
                   Merge Documents
@@ -180,23 +162,21 @@ const DocumentMergePage = () => {
               </span>
             </Tooltip>
           </Box>
-        </Box>
 
-        <div style={{ height: 500, width: "100%" }}>
           <DataGrid
-            rows={rows}
+            rows={documents}
             columns={columns}
+            getRowId={(row) => row.document_id}
             checkboxSelection
-            disableRowSelectionOnClick
-            onRowSelectionModelChange={(newSelection) =>
-              setSelectionModel(newSelection)
+            loading={loading}
+            autoHeight
+            onRowSelectionModelChange={(ids) =>
+              setSelectionModel(ids)
             }
             rowSelectionModel={selectionModel}
-            loading={loading}
-            pageSizeOptions={[5, 10, 20]}
           />
-        </div>
-      </Paper>
+        </CardContent>
+      </Card>
     </Box>
   );
 };
