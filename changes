@@ -1,173 +1,180 @@
-// import React, { useState } from "react";
-// import {
-//   Box,
-//   Button,
-//   Typography,
-//   IconButton,
-//   List,
-//   ListItem,
-//   ListItemText,
-//   ListItemSecondaryAction,
-//   TextField,
-//   Stack,
-//   Divider,
-//   Tooltip,
-//   Card,
-//   CardContent,
-// } from "@mui/material";
-// import DeleteIcon from "@mui/icons-material/Delete";
-// import UploadFileIcon from "@mui/icons-material/UploadFile";
-// import CloudUploadIcon from "@mui/icons-material/CloudUpload";
+"use client";
 
-// /**
-//  * ✅ Improved SupportingDocumentsRepeater
-//  * - Files are NOT uploaded immediately
-//  * - User can review before upload
-//  * - Upload happens only on explicit action
-//  * - Clean UX + reusable
-//  */
+import React, { useState, useEffect, useMemo, useCallback } from "react";
+import {
+  Box,
+  TextField,
+  Paper,
+  InputAdornment,
+  IconButton,
+  Typography,
+  Stack,
+  Divider,
+  Card,
+  CardContent,
+} from "@mui/material";
+import { DataGrid, GridToolbarContainer, GridToolbarExport } from "@mui/x-data-grid";
+import { Search, Clear, DragIndicator, Storage } from "@mui/icons-material";
+import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
 
-// const EnhancedSupportingDocumentsRepeater = ({
-//   onUploadComplete, // callback after upload
-//   uploadMultipleFiles, // API function (same contract)
-// }) => {
-//   const [selectedFiles, setSelectedFiles] = useState([]);
-//   const [titles, setTitles] = useState([]);
-//   const [loading, setLoading] = useState(false);
+/**
+ * 1. Define Toolbar outside to prevent re-render loops
+ */
+const CustomToolbar = () => (
+  <GridToolbarContainer sx={{ p: 1, borderBottom: "1px solid", borderColor: "divider" }}>
+    <GridToolbarExport />
+  </GridToolbarContainer>
+);
 
-//   const handleFileChange = (e) => {
-//     const files = Array.from(e.target.files);
+const AdvancedDataGrid = ({
+  data = [],
+  columns = [],
+  rowIdField = "id",
+  enableReorder = true,
+  searchPlaceholder = "Search records...",
+  onSelectionChange,
+  checkboxSelection = true,
+}) => {
+  const [searchText, setSearchText] = useState("");
+  const [gridRows, setGridRows] = useState([]);
 
-//     const newFiles = [...selectedFiles, ...files];
-//     const newTitles = [
-//       ...titles,
-//       ...files.map((file) => file.name.replace(/\.[^/.]+$/, "")),
-//     ];
+  // Sync rows whenever the prop data changes
+  useEffect(() => {
+    if (data) {
+      setGridRows(data);
+    }
+  }, [data]);
 
-//     setSelectedFiles(newFiles);
-//     setTitles(newTitles);
-//   };
+  // 2. High-Performance Search Logic
+  const filteredRows = useMemo(() => {
+    const term = searchText.toLowerCase().trim();
+    if (!term) return gridRows;
 
-//   const handleRemove = (index) => {
-//     const updatedFiles = selectedFiles.filter((_, i) => i !== index);
-//     const updatedTitles = titles.filter((_, i) => i !== index);
+    return gridRows.filter((row) =>
+      Object.values(row).some(
+        (val) => val !== null && val !== undefined && String(val).toLowerCase().includes(term)
+      )
+    );
+  }, [gridRows, searchText]);
 
-//     setSelectedFiles(updatedFiles);
-//     setTitles(updatedTitles);
-//   };
+  // 3. Drag and Drop Handler
+  const onDragEnd = useCallback((result) => {
+    if (!result.destination) return;
 
-//   const handleTitleChange = (index, value) => {
-//     const updated = [...titles];
-//     updated[index] = value;
-//     setTitles(updated);
-//   };
+    const reordered = Array.from(gridRows);
+    const [movedItem] = reordered.splice(result.source.index, 1);
+    reordered.splice(result.destination.index, 0, movedItem);
 
-//   const handleUpload = async () => {
-//     if (selectedFiles.length === 0) return;
+    setGridRows(reordered);
+  }, [gridRows]);
 
-//     setLoading(true);
-//     try {
-//       const uploaded = await uploadMultipleFiles(
-//         selectedFiles,
-//         titles,
-//         "Uploaded via enhanced component"
-//       );
+  // 4. Column Definitions (adding Drag Handle)
+  const finalColumns = useMemo(() => {
+    const baseColumns = columns.map((col) => ({
+      ...col,
+      flex: col.flex || 1,
+      minWidth: col.width || 120,
+    }));
 
-//       if (onUploadComplete) {
-//         onUploadComplete(uploaded);
-//       }
+    if (enableReorder) {
+      return [
+        {
+          field: "drag_handle",
+          headerName: "",
+          width: 50,
+          sortable: false,
+          filterable: false,
+          disableColumnMenu: true,
+          renderCell: () => (
+            <Box sx={{ display: "flex", alignItems: "center", height: "100%" }}>
+              <DragIndicator sx={{ color: "action.disabled", cursor: "grab" }} />
+            </Box>
+          ),
+        },
+        ...baseColumns,
+      ];
+    }
+    return baseColumns;
+  }, [columns, enableReorder]);
 
-//       // Reset after upload
-//       setSelectedFiles([]);
-//       setTitles([]);
-//     } catch (err) {
-//       console.error("Upload failed", err);
-//     } finally {
-//       setLoading(false);
-//     }
-//   };
+  return (
+    <Card variant="outlined" sx={{ borderRadius: 2, boxShadow: "0 2px 10px rgba(0,0,0,0.05)" }}>
+      <CardContent sx={{ p: 0, "&:last-child": { pb: 0 } }}>
+        <Stack spacing={0}>
+          {/* Header Section styled like your reference code */}
+          <Box sx={{ p: 2, bgcolor: "background.paper" }}>
+            <Stack direction={{ xs: "column", sm: "row" }} spacing={2} alignItems="center">
+              <Stack direction="row" spacing={1} alignItems="center" sx={{ flexGrow: 1 }}>
+                <Storage color="primary" />
+                <Typography variant="h6" fontWeight="600">
+                  Data Management
+                </Typography>
+              </Stack>
 
-//   return (
-//     <Card variant="outlined">
-//       <CardContent>
-//         <Stack spacing={2}>
-//           <Typography variant="h6">Upload Supporting Documents</Typography>
+              <TextField
+                size="small"
+                variant="outlined"
+                placeholder={searchPlaceholder}
+                value={searchText}
+                onChange={(e) => setSearchText(e.target.value)}
+                sx={{ width: { xs: "100%", sm: 300 }, bgcolor: "white" }}
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <Search fontSize="small" color="action" />
+                    </InputAdornment>
+                  ),
+                  endAdornment: searchText && (
+                    <IconButton size="small" onClick={() => setSearchText("")}>
+                      <Clear fontSize="small" />
+                    </IconButton>
+                  ),
+                }}
+              />
+            </Stack>
+          </Box>
 
-//           {/* File Picker */}
-//           <Button
-//             variant="outlined"
-//             component="label"
-//             startIcon={<UploadFileIcon />}
-//           >
-//             Select Files
-//             <input
-//               type="file"
-//               hidden
-//               multiple
-//               onChange={handleFileChange}
-//             />
-//           </Button>
+          <Divider />
 
-//           {/* Selected Files Preview */}
-//           {selectedFiles.length > 0 && (
-//             <>
-//               <Divider />
-//               <Typography variant="subtitle2">
-//                 Selected Files ({selectedFiles.length})
-//               </Typography>
+          {/* Grid Section */}
+          <Box sx={{ height: 500, width: "100%" }}>
+            <DragDropContext onDragEnd={onDragEnd}>
+              <Droppable droppableId="datagrid-droppable">
+                {(provided) => (
+                  <div {...provided.droppableProps} ref={provided.innerRef} style={{ height: "100%" }}>
+                    <DataGrid
+                      rows={filteredRows}
+                      columns={finalColumns}
+                      getRowId={(row) => row[rowIdField]}
+                      checkboxSelection={checkboxSelection}
+                      onRowSelectionModelChange={(ids) => onSelectionChange?.(ids)}
+                      disableRowSelectionOnClick
+                      slots={{ toolbar: CustomToolbar }}
+                      sx={{
+                        border: "none",
+                        "& .MuiDataGrid-columnHeaders": {
+                          bgcolor: "grey.50",
+                          color: "text.primary",
+                          fontWeight: "bold",
+                        },
+                        "& .MuiDataGrid-cell:focus": {
+                          outline: "none",
+                        },
+                        "& .MuiDataGrid-row:hover": {
+                          bgcolor: "action.hover",
+                        },
+                      }}
+                    />
+                    {provided.placeholder}
+                  </div>
+                )}
+              </Droppable>
+            </DragDropContext>
+          </Box>
+        </Stack>
+      </CardContent>
+    </Card>
+  );
+};
 
-//               <List dense>
-//                 {selectedFiles.map((file, index) => (
-//                   <ListItem key={index} divider>
-//                     <Box width="100%">
-//                       <ListItemText
-//                         primary={file.name}
-//                         secondary={`${(file.size / 1024).toFixed(1)} KB`}
-//                       />
-
-//                       <TextField
-//                         size="small"
-//                         fullWidth
-//                         label="Document Title"
-//                         value={titles[index] || ""}
-//                         onChange={(e) =>
-//                           handleTitleChange(index, e.target.value)
-//                         }
-//                         sx={{ mt: 1 }}
-//                       />
-//                     </Box>
-
-//                     <ListItemSecondaryAction>
-//                       <Tooltip title="Remove file">
-//                         <IconButton
-//                           edge="end"
-//                           onClick={() => handleRemove(index)}
-//                         >
-//                           <DeleteIcon color="error" />
-//                         </IconButton>
-//                       </Tooltip>
-//                     </ListItemSecondaryAction>
-//                   </ListItem>
-//                 ))}
-//               </List>
-
-//               {/* Upload Button */}
-//               <Box display="flex" justifyContent="flex-end">
-//                 <Button
-//                   variant="contained"
-//                   startIcon={<CloudUploadIcon />}
-//                   disabled={loading}
-//                   onClick={handleUpload}
-//                 >
-//                   {loading ? "Uploading..." : "Upload Files"}
-//                 </Button>
-//               </Box>
-//             </>
-//           )}
-//         </Stack>
-//       </CardContent>
-//     </Card>
-//   );
-// };
-
-// export default EnhancedSupportingDocumentsRepeater;
+export default AdvancedDataGrid;
