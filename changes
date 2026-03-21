@@ -1,164 +1,154 @@
 "use client";
 
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import {
   Box,
-  TextField,
-  Paper,
-  InputAdornment,
-  IconButton,
-  Chip,
+  Button,
+  Typography,
+  Tooltip,
+  Card,
+  CardContent,
   Stack,
-  Divider,
 } from "@mui/material";
-import {
-  DataGrid,
-  GridToolbarContainer,
-} from "@mui/x-data-grid";
-import {
-  Search,
-  Clear,
-  KeyboardArrowUp,
-  KeyboardArrowDown,
-} from "@mui/icons-material";
+import { CloudUpload, MergeType } from "@mui/icons-material";
+import apiClient from "@/utils/apiClient";
+import EnhancedSupportingDocumentsRepeater from "./EnhancedSupportingDocRepeater";
+import AdvancedDataGrid from "./AdvancedDataGrid";
+import DynamicDialog from "./DynamicDialog";
 
-const AdvancedDataGrid = ({
-  data = [],
-  columns = [],
-  rowIdField = "id",
-  enableReorder = false,
-  searchPlaceholder = "Search records...",
-  onSelectionChange,
-  onOrderChange, // <--- New prop to sync with parent
-  checkboxSelection = true,
-}) => {
-  const [searchText, setSearchText] = useState("");
-  const [tableData, setTableData] = useState(data);
+const DocumentMergePage = () => {
+  const [documents, setDocuments] = useState([]);
+  const [selectionModel, setSelectionModel] = useState([]);
+  const [isDialogOpen, setIsDialogOpen] = useState(false);
 
   useEffect(() => {
-    setTableData(data);
-  }, [data]);
+    fetchDocuments();
+  }, []);
 
-  const filteredRows = useMemo(() => {
-    const term = searchText.toLowerCase().trim();
-    if (!term) return tableData;
-
-    return tableData.filter((row) => {
-      return Object.values(row).some((val) => {
-        if (val === null || val === undefined) return false;
-        return JSON.stringify(val).toLowerCase().includes(term);
-      });
-    });
-  }, [tableData, searchText]);
-
-  const handleMove = (index, direction) => {
-    const newData = [...tableData];
-    const targetIndex = direction === "up" ? index - 1 : index + 1;
-    if (targetIndex < 0 || targetIndex >= newData.length) return;
-
-    // Swap items
-    [newData[index], newData[targetIndex]] = [newData[targetIndex], newData[index]];
-    
-    setTableData(newData);
-    
-    // Notify parent immediately so the payload stays in sync
-    if (onOrderChange) {
-      onOrderChange(newData);
+  const fetchDocuments = async () => {
+    try {
+      const res = await apiClient.get("api/document/get-folder-documents/3");
+      if (res?.data?.success) {
+        const filteredDocs = res.data.result.filter((doc) =>
+          doc.document_name?.toLowerCase().endsWith(".docx")
+        );
+        setDocuments(filteredDocs);
+      }
+    } catch (err) {
+      console.error(err);
     }
   };
 
-  const finalColumns = useMemo(() => {
-    const baseCols = columns.map((col) => ({
-      ...col,
-      flex: col.flex || 1,
-      minWidth: col.width || 150,
-      renderCell: (params) => {
-        if (typeof params.value === "boolean") {
-          return (
-            <Chip
-              label={params.value ? "Active" : "Inactive"}
-              color={params.value ? "success" : "default"}
-              size="small"
-              variant="outlined"
-            />
-          );
-        }
-        return params.value;
-      },
-    }));
+  const uploadMultipleFiles = async (files, titles = [], description) => {
+    const formData = new FormData();
+    files.forEach((file, idx) => {
+      formData.append("files", file);
+      formData.append("titles[]", titles[idx] || file.name);
+    });
+    formData.append("reference_type", "document");
+    formData.append("remarks", description);
 
-    if (enableReorder) {
-      return [
-        {
-          field: "reorder_actions",
-          headerName: "Order",
-          width: 100,
-          sortable: false,
-          renderCell: (params) => {
-            const index = tableData.findIndex((r) => r[rowIdField] === params.id);
-            return (
-              <Stack direction="row">
-                <IconButton 
-                  size="small" 
-                  disabled={index === 0} 
-                  onClick={() => handleMove(index, "up")}
-                >
-                  <KeyboardArrowUp fontSize="small" />
-                </IconButton>
-                <IconButton 
-                  size="small" 
-                  disabled={index === tableData.length - 1} 
-                  onClick={() => handleMove(index, "down")}
-                >
-                  <KeyboardArrowDown fontSize="small" />
-                </IconButton>
-              </Stack>
-            );
-          },
-        },
-        ...baseCols,
-      ];
+    try {
+      const res = await apiClient.post("api/document/upload-files", formData);
+      fetchDocuments(); // Refresh the list
+      setIsDialogOpen(false); // Close dialog on success
+      return res.data.files;
+    } catch (err) {
+      console.error("Upload failed", err);
+      return [];
     }
-    return baseCols;
-  }, [columns, enableReorder, tableData]);
+  };
+
+  const handleMerge = async () => {
+    if (selectionModel.length < 2) return;
+
+    // Generate payload based on CURRENT visual order in 'documents' state
+    const orderedPayload = documents
+      .filter((doc) => selectionModel.includes(doc.document_id))
+      .map((doc, index) => ({
+        // Using index + 1 as the order key as requested: { order: documentId }
+        [index + 1]: doc.document_id,
+      }));
+
+    try {
+      await apiClient.post("api/merge-document", { 
+        documentIds: selectionModel,
+        order: orderedPayload 
+      });
+      alert("Documents merged successfully");
+      setSelectionModel([]);
+      fetchDocuments();
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const columns = [
+    { field: "document_title", headerName: "Title", flex: 1 },
+    { field: "document_name", headerName: "File Name", flex: 1.5 },
+    { field: "uploaded_by", headerName: "Uploaded By", flex: 1 },
+    { field: "uploaded_at", headerName: "Uploaded At", flex: 1 },
+  ];
 
   return (
-    <Paper elevation={3} sx={{ borderRadius: 3, overflow: "hidden", border: "1px solid #eee" }}>
-      <Box sx={{ p: 2, bgcolor: "background.paper" }}>
-        <TextField
-          size="small"
-          placeholder={searchPlaceholder}
-          value={searchText}
-          onChange={(e) => setSearchText(e.target.value)}
-          sx={{ width: 300 }}
-          InputProps={{
-            startAdornment: <InputAdornment position="start"><Search color="action" /></InputAdornment>,
-            endAdornment: searchText && (
-              <IconButton size="small" onClick={() => setSearchText("")}><Clear fontSize="small" /></IconButton>
-            ),
-          }}
+    <Box p={3}>
+      <Stack direction="row" justifyContent="space-between" alignItems="center" mb={3}>
+        <Typography variant="h5" fontWeight="bold">Document Merge Center</Typography>
+        <Button
+          variant="contained"
+          color="primary"
+          startIcon={<CloudUpload />}
+          onClick={() => setIsDialogOpen(true)}
+        >
+          Source Document Import
+        </Button>
+      </Stack>
+
+      <Card sx={{ borderRadius: 2 }}>
+        <CardContent>
+          <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
+            <Typography variant="h6">Merge Queue</Typography>
+            <Tooltip title="Select 2+ files to merge">
+              <span>
+                <Button
+                  variant="contained"
+                  color="success"
+                  startIcon={<MergeType />}
+                  disabled={selectionModel.length < 2}
+                  onClick={handleMerge}
+                >
+                  Merge Selected
+                </Button>
+              </span>
+            </Tooltip>
+          </Box>
+
+          <AdvancedDataGrid
+            data={documents}
+            columns={columns}
+            rowIdField="document_id"
+            enableReorder={true}
+            checkboxSelection={true}
+            onSelectionChange={setSelectionModel}
+            onOrderChange={setDocuments} // Keeps the parent array in sync with UI
+          />
+        </CardContent>
+      </Card>
+
+      {/* Professional Import Dialog */}
+      <DynamicDialog
+        open={isDialogOpen}
+        onClose={() => setIsDialogOpen(false)}
+        title="Upload Source Documents"
+        maxWidth="md"
+      >
+        <EnhancedSupportingDocumentsRepeater
+          onUploadComplete={() => {}} 
+          uploadMultipleFiles={uploadMultipleFiles}
         />
-      </Box>
-      <Divider />
-      <Box sx={{ height: 500, width: "100%", px: 1 }}>
-        <DataGrid
-          rows={filteredRows}
-          columns={finalColumns}
-          getRowId={(row) => row[rowIdField]}
-          checkboxSelection={checkboxSelection}
-          onRowSelectionModelChange={(ids) => onSelectionChange?.(ids)}
-          disableRowSelectionOnClick
-          slots={{
-            toolbar: () => (
-              <GridToolbarContainer sx={{ p: 1 }}>
-                <Box sx={{ flexGrow: 1 }} />
-              </GridToolbarContainer>
-            ),
-          }}
-        />
-      </Box>
-    </Paper>
+      </DynamicDialog>
+    </Box>
   );
 };
 
-export default AdvancedDataGrid;
+export default DocumentMergePage;
