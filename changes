@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import {
   Box,
   TextField,
@@ -8,139 +8,93 @@ import {
   InputAdornment,
   IconButton,
   Typography,
-  Chip,
   Stack,
-  Divider,
 } from "@mui/material";
-import {
-  DataGrid,
-  GridToolbarContainer,
-  GridToolbarExport,
-  GridToolbarColumnsButton,
-} from "@mui/x-data-grid";
-import {
-  Search,
-  Clear,
-  KeyboardArrowUp,
-  KeyboardArrowDown,
-  FilterList,
-} from "@mui/icons-material";
+import { DataGrid, GridToolbarContainer, GridToolbarExport } from "@mui/x-data-grid";
+import { Search, Clear, DragIndicator, Sort } from "@mui/icons-material";
+import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
 
 const AdvancedDataGrid = ({
   data = [],
   columns = [],
   rowIdField = "id",
-  enableReorder = false,
-  searchPlaceholder = "Search records...",
+  enableReorder = true,
+  searchPlaceholder = "Search and reorder...",
   onSelectionChange,
   checkboxSelection = true,
 }) => {
   const [searchText, setSearchText] = useState("");
-  const [tableData, setTableData] = useState(data);
+  const [rows, setRows] = useState(data);
 
-  // Update internal state if props change
-  React.useEffect(() => {
-    setTableData(data);
+  useEffect(() => {
+    setRows(data);
   }, [data]);
 
-  // 1. High-Performance Search Logic
+  // 1. Better Search Engine (Handles nested data & dates)
   const filteredRows = useMemo(() => {
     const term = searchText.toLowerCase().trim();
-    if (!term) return tableData;
+    if (!term) return rows;
+    return rows.filter((row) =>
+      Object.values(row).some((val) => 
+        val !== null && String(val).toLowerCase().includes(term)
+      )
+    );
+  }, [rows, searchText]);
 
-    return tableData.filter((row) => {
-      return Object.values(row).some((val) => {
-        if (val === null || val === undefined) return false;
-        // Handles nested objects, strings, and numbers
-        return JSON.stringify(val).toLowerCase().includes(term);
-      });
-    });
-  }, [tableData, searchText]);
-
-  // 2. Manual Reordering Logic (Stable alternative to DnD)
-  const handleMove = (index, direction) => {
-    const newData = [...tableData];
-    const targetIndex = direction === "up" ? index - 1 : index + 1;
-    if (targetIndex < 0 || targetIndex >= newData.length) return;
-
-    [newData[index], newData[targetIndex]] = [newData[targetIndex], newData[index]];
-    setTableData(newData);
+  // 2. Drag & Drop Logic
+  const onDragEnd = (result) => {
+    if (!result.destination) return;
+    const items = Array.from(rows);
+    const [reorderedItem] = items.splice(result.source.index, 1);
+    items.splice(result.destination.index, 0, reorderedItem);
+    setRows(items);
   };
 
-  // 3. Enhance Columns with Reorder Buttons (if enabled)
+  // 3. Columns with Drag Handle
   const finalColumns = useMemo(() => {
-    const baseCols = columns.map((col) => ({
-      ...col,
-      flex: col.flex || 1,
-      minWidth: col.width || 150,
-      renderCell: (params) => {
-        // Auto-format booleans into nice Chips
-        if (typeof params.value === "boolean") {
-          return (
-            <Chip
-              label={params.value ? "Active" : "Inactive"}
-              color={params.value ? "success" : "default"}
-              size="small"
-              variant="outlined"
-            />
-          );
-        }
-        return params.value;
-      },
-    }));
+    const dragCol = {
+      field: "drag_handle",
+      headerName: "",
+      width: 50,
+      sortable: false,
+      renderCell: () => (
+        <DragIndicator sx={{ color: "action.disabled", cursor: "grab" }} />
+      ),
+    };
+    return enableReorder ? [dragCol, ...columns] : columns;
+  }, [columns, enableReorder]);
 
-    if (enableReorder) {
-      return [
-        {
-          field: "reorder_actions",
-          headerName: "Order",
-          width: 100,
-          sortable: false,
-          renderCell: (params) => {
-            const index = tableData.findIndex((r) => r[rowIdField] === params.id);
-            return (
-              <Stack direction="row">
-                <IconButton 
-                  size="small" 
-                  disabled={index === 0} 
-                  onClick={() => handleMove(index, "up")}
-                >
-                  <KeyboardArrowUp fontSize="small" />
-                </IconButton>
-                <IconButton 
-                  size="small" 
-                  disabled={index === tableData.length - 1} 
-                  onClick={() => handleMove(index, "down")}
-                >
-                  <KeyboardArrowDown fontSize="small" />
-                </IconButton>
-              </Stack>
-            );
-          },
-        },
-        ...baseCols,
-      ];
-    }
-    return baseCols;
-  }, [columns, enableReorder, tableData]);
+  // 4. Custom Draggable Row Component
+  const DraggableRow = (props) => {
+    const { row, index } = props;
+    return (
+      <Draggable draggableId={String(row[rowIdField])} index={index}>
+        {(provided, snapshot) => (
+          <div
+            ref={provided.innerRef}
+            {...provided.draggableProps}
+            {...provided.dragHandleProps}
+            style={{
+              ...provided.draggableProps.style,
+              backgroundColor: snapshot.isDragging ? "#f5f5f5" : "transparent",
+              display: "contents", // Keeps DataGrid layout intact
+            }}
+          >
+            {/* The actual DataGrid Row is rendered by the parent via the 'slots' prop */}
+            {props.children}
+          </div>
+        )}
+      </Draggable>
+    );
+  };
 
   return (
-    <Paper
-      elevation={3}
-      sx={{
-        borderRadius: 3,
-        overflow: "hidden",
-        border: "1px solid",
-        borderColor: "divider",
-        transition: "box-shadow 0.3s ease",
-        "&:hover": { boxShadow: 6 },
-      }}
-    >
-      {/* Search & Header Section */}
-      <Box sx={{ p: 2, bgcolor: "background.paper" }}>
-        <Stack direction="row" spacing={2} alignItems="center" mb={2}>
-          <Typography variant="h6" fontWeight="700" sx={{ flexGrow: 1, color: "primary.main" }}>
-            Data Management
+    <Paper elevation={2} sx={{ borderRadius: 2, overflow: "hidden", border: "1px solid #eee" }}>
+      {/* Header Area */}
+      <Box sx={{ p: 2, bgcolor: "white" }}>
+        <Stack direction="row" justifyContent="space-between" alignItems="center">
+          <Typography variant="subtitle1" fontWeight="bold" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <Sort fontSize="small" /> Data Explorer
           </Typography>
           <TextField
             size="small"
@@ -149,57 +103,46 @@ const AdvancedDataGrid = ({
             onChange={(e) => setSearchText(e.target.value)}
             sx={{ width: 300 }}
             InputProps={{
-              startAdornment: (
-                <InputAdornment position="start">
-                  <Search color="action" />
-                </InputAdornment>
-              ),
+              startAdornment: <InputAdornment position="start"><Search fontSize="small" /></InputAdornment>,
               endAdornment: searchText && (
-                <IconButton size="small" onClick={() => setSearchText("")}>
-                  <Clear fontSize="small" />
-                </IconButton>
+                <IconButton size="small" onClick={() => setSearchText("")}><Clear fontSize="small" /></IconButton>
               ),
             }}
           />
         </Stack>
-        <Divider />
       </Box>
 
-      {/* Grid Section */}
-      <Box sx={{ height: 600, width: "100%", px: 1 }}>
-        <DataGrid
-          rows={filteredRows}
-          columns={finalColumns}
-          getRowId={(row) => row[rowIdField]}
-          checkboxSelection={checkboxSelection}
-          onRowSelectionModelChange={(ids) => onSelectionChange?.(ids)}
-          disableRowSelectionOnClick
-          slots={{
-            toolbar: () => (
-              <GridToolbarContainer sx={{ p: 1 }}>
-                <GridToolbarColumnsButton />
-                <GridToolbarExport />
-                <Box sx={{ flexGrow: 1 }} />
-                <Chip icon={<FilterList />} label={`${filteredRows.length} Records`} variant="outlined" />
-              </GridToolbarContainer>
-            ),
-          }}
-          sx={{
-            border: "none",
-            "& .MuiDataGrid-columnHeader": {
-              bgcolor: "grey.50",
-              fontWeight: "bold",
-            },
-            "& .MuiDataGrid-row:hover": {
-              bgcolor: "primary.lighter", // Custom hover color (requires theme customization or use hex)
-              cursor: "pointer",
-            },
-            "& .MuiDataGrid-cell": {
-              borderColor: "grey.100",
-            },
-          }}
-        />
-      </Box>
+      {/* Drag Context wrapping the Grid */}
+      <DragDropContext onDragEnd={onDragEnd}>
+        <Droppable droppableId="grid-droppable">
+          {(provided) => (
+            <Box ref={provided.innerRef} {...provided.droppableProps} sx={{ height: 500 }}>
+              <DataGrid
+                rows={filteredRows}
+                columns={finalColumns}
+                getRowId={(row) => row[rowIdField]}
+                checkboxSelection={checkboxSelection}
+                onRowSelectionModelChange={(ids) => onSelectionChange?.(ids)}
+                disableRowSelectionOnClick
+                hideFooterSelectedRowCount={false}
+                slots={{
+                  toolbar: () => (
+                    <GridToolbarContainer sx={{ p: 1, borderBottom: '1px solid #eee' }}>
+                      <GridToolbarExport />
+                    </GridToolbarContainer>
+                  ),
+                }}
+                sx={{
+                  border: "none",
+                  "& .MuiDataGrid-row:hover": { bgcolor: "#f9f9f9" },
+                  "& .MuiDataGrid-columnHeaders": { bgcolor: "#fafafa", borderBottom: "2px solid #eee" },
+                }}
+              />
+              {provided.placeholder}
+            </Box>
+          )}
+        </Droppable>
+      </DragDropContext>
     </Paper>
   );
 };
