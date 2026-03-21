@@ -1,209 +1,1028 @@
-import React, { useMemo } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
+import FileInfo from "../common/FileInfo";
 import {
   Box,
-  Typography,
+  Button,
+  FormControl,
+  FormLabel,
+  IconButton,
+  TextField,
+  Link,
   Paper,
-  TableContainer,
-  Table,
-  TableHead,
-  TableRow,
-  TableCell,
-  TableBody,
+  Grid,
+  Typography,
+  Fade,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  LinearProgress,
+  Tooltip,
+  Alert,
 } from "@mui/material";
+import DeleteIcon from "@mui/icons-material/Delete";
+import CloudUploadIcon from "@mui/icons-material/CloudUpload";
+import PictureAsPdfIcon from "@mui/icons-material/PictureAsPdf";
+import TableChartIcon from "@mui/icons-material/TableChart";
+import ArticleIcon from "@mui/icons-material/Article";
+import ImageIcon from "@mui/icons-material/Image";
+import InsertDriveFileIcon from "@mui/icons-material/InsertDriveFile";
+import FilePresentIcon from "@mui/icons-material/FilePresent";
+import DescriptionIcon from "@mui/icons-material/Description";
+import SlideshowIcon from "@mui/icons-material/Slideshow";
+import CodeIcon from "@mui/icons-material/Code";
+import ArchiveIcon from "@mui/icons-material/Archive";
+import { useRouter } from "next/router";
+import apiClient from "@/utils/apiClient";
+import { useDispatch, useSelector } from "react-redux";
+import { setError, setSuccess } from "@/store/slices/errorSlice";
 
-const ProgressTable = ({ data }) => {
-  const formatDecimal = (value) => {
-    const num = Number(value);
-    return !isNaN(num) ? num.toFixed(2) : value ?? "-";
-  };
+const FILE_SERVER_URL = `${process.env.NEXT_PUBLIC_API_BASE_URL}api/public/download-file/`;
+const MAX_FILE_SIZE_MB = 100;
 
-  const getBackgroundColor = (value) => {
-    const num = Number(value);
-    if (isNaN(num) || value === "-" || value === null) return "transparent";
-    if (num > 80) return "#90ee90"; // lightgreen
-    if (num >= 50) return "#fff9c4"; // lightyellow
-    return "#f8bbd0"; // lightcoral
-  };
+const ALLOWED_FILE_TYPES = [
+  "application/pdf",
+  "application/vnd.ms-excel",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "text/csv",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/rtf",
+  "application/vnd.ms-powerpoint",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  "image/png",
+  "image/jpeg",
+  "image/jpg",
+  "image/gif",
+  "image/bmp",
+  "image/tiff",
+  "image/webp",
+  "text/plain",
+  "text/html",
+  "text/css",
+  "text/javascript",
+  "application/json",
+  "application/xml",
+  "text/xml",
+  "text/x-log",
+  "audio/mpeg",
+  "audio/wav",
+  "video/mp4",
+  "video/mpeg",
+  "application/zip",
+  "application/x-rar-compressed",
+  "application/x-7z-compressed",
+  "text/csv",
+  "application/csv",
+  "application/vnd.ms-excel", // Excel sometimes reports CSV as this
+  "application/x-csv",
+  "text/comma-separated-values",
+  "text/x-comma-separated-values",
+];
 
-  if (!data?.data) return null;
+const DOC_TITLE_REGEX = /^[A-Za-z][A-Za-z0-9-_]{2,}$/;
 
-  const reportData = data.data;
-  const years = Object.keys(reportData).sort();
+const getFileIcon = (filename) => {
+  const ext = filename?.split(".").pop()?.toLowerCase();
+  if (!ext) return <InsertDriveFileIcon sx={{ color: "gray" }} />;
 
-  const hierarchy = useMemo(() => {
-    const tree = {};
-    years.forEach((year) => {
-      if (!reportData[year]) return;
-      reportData[year].forEach((schemeEntry) => {
-        const minName = schemeEntry.ministryId?.name || "Unknown Ministry";
-        const deptName = schemeEntry.departmentId?.name || "Unknown Department";
-        const schemeName = schemeEntry.schemeId?.name || "Unknown Scheme";
+  switch (ext) {
+    case "pdf":
+      return <PictureAsPdfIcon sx={{ color: "#D32F2F" }} />;
+    case "xls":
+    case "xlsx":
+    case "csv":
+      return <TableChartIcon sx={{ color: "#2E7D32" }} />;
+    case "doc":
+    case "docx":
+    case "rtf":
+      return <ArticleIcon sx={{ color: "#1565C0" }} />;
+    case "ppt":
+    case "pptx":
+      return <SlideshowIcon sx={{ color: "#D44726" }} />;
+    case "png":
+    case "jpg":
+    case "jpeg":
+    case "gif":
+    case "bmp":
+    case "tiff":
+    case "webp":
+      return <ImageIcon sx={{ color: "#FBC02D" }} />;
+    case "txt":
+    case "log":
+      return <DescriptionIcon sx={{ color: "#6A1B9A" }} />;
+    case "json":
+    case "xml":
+    case "html":
+    case "css":
+    case "js":
+      return <CodeIcon sx={{ color: "#4A148C" }} />;
+    case "mp3":
+    case "wav":
+    case "mp4":
+    case "mpeg":
+      return <FilePresentIcon sx={{ color: "#00838F" }} />;
+    case "zip":
+    case "rar":
+    case "7z":
+      return <ArchiveIcon sx={{ color: "#BF360C" }} />;
+    default:
+      return <FilePresentIcon sx={{ color: "#78909C" }} />;
+  }
+};
 
-        if (!tree[minName]) tree[minName] = {};
-        if (!tree[minName][deptName]) tree[minName][deptName] = {};
-        if (!tree[minName][deptName][schemeName]) {
-          tree[minName][deptName][schemeName] = { indicatorRows: {} };
-        }
+const getFileCategory = (filename) => {
+  const ext = filename?.split(".").pop()?.toLowerCase();
+  if (!ext) return "Other Documents";
 
-        schemeEntry.indicatorData.forEach((typeGroup) => {
-          typeGroup.sections.forEach((section) => {
-            section.indicators.forEach((ind) => {
-              const rowKey = `${typeGroup.indicatorType.name}-${section.name}-${ind.indicator.name}`;
-              if (!tree[minName][deptName][schemeName].indicatorRows[rowKey]) {
-                tree[minName][deptName][schemeName].indicatorRows[rowKey] = {
-                  type: typeGroup.indicatorType.name,
-                  statement: section.name,
-                  indicatorName: ind.indicator.name,
-                  unit: ind.unit?.name || "nos.",
-                  frequency: ind.frequency?.name || "Yearly",
-                  yearlyValues: {},
-                };
-              }
-              tree[minName][deptName][schemeName].indicatorRows[rowKey].yearlyValues[year] = {
-                target: ind.target,
-                progress: ind.progress,
-                achieved: ind.achieved,
-              };
-            });
-          });
-        });
+  switch (ext) {
+    case "pdf":
+      return "PDF Documents";
+    case "xls":
+    case "xlsx":
+    case "csv":
+      return "Spreadsheet Documents";
+    case "doc":
+    case "docx":
+    case "rtf":
+      return "Word Documents";
+    case "ppt":
+    case "pptx":
+      return "Presentation Documents";
+    case "png":
+    case "jpg":
+    case "jpeg":
+    case "gif":
+    case "bmp":
+    case "tiff":
+    case "webp":
+      return "Image Files";
+    case "txt":
+    case "log":
+    case "json":
+    case "xml":
+    case "html":
+    case "css":
+    case "js":
+      return "Text & Code Files";
+    case "mp3":
+    case "wav":
+    case "mp4":
+    case "mpeg":
+      return "Audio & Video Files";
+    case "zip":
+    case "rar":
+    case "7z":
+      return "Compressed Archives";
+    default:
+      return "Other Documents";
+  }
+};
+
+// Human-friendly validation
+const validateDocument = (doc) => {
+  const errors = {};
+  const title = doc.name?.trim();
+  const desc = doc.description?.trim();
+
+  if (!title) {
+    errors.name = "Please enter a title for this document";
+  } else if (!DOC_TITLE_REGEX.test(title)) {
+    errors.name =
+      "Title must start with a letter and be at least 3 characters. Only letters, numbers, '-', and '_' are allowed.";
+  }
+
+  if (desc && desc.length > 1000) {
+    errors.description =
+      "Description is too long. Please keep it under 1000 characters.";
+  }
+
+  return errors;
+};
+
+const SupportingDocumentsRepeater = ({
+  isViewing,
+  handleJsonDataChange,
+  initialDocuments = [],
+  uploadMultipleFiles,
+  supportingName,
+}) => {
+  const [documents, setDocuments] = useState([]);
+  const [filePreviews, setFilePreviews] = useState({});
+  const [droppedFiles, setDroppedFiles] = useState([]);
+  const [dropInputs, setDropInputs] = useState({});
+  const [dropErrors, setDropErrors] = useState({});
+  const [dropDialogOpen, setDropDialogOpen] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState({});
+  const [filterQuery, setFilterQuery] = useState("");
+  const [dragOver, setDragOver] = useState(false);
+  const [validationError, setValidationError] = useState("");
+  const debounceTimeout = useRef(null);
+  const fileInputRef = useRef(null);
+  const router = useRouter();
+  const dispatch = useDispatch();
+
+  // Initialize from props
+  useEffect(() => {
+    if (initialDocuments?.length > 0) {
+      setDocuments(
+        initialDocuments.map((doc) => ({
+          id: doc.id || Math.random().toString(36).substr(2, 9), // Fixed typo
+          name: doc.title || "",
+          description: doc.description || "",
+          file: null,
+          uploadedFile:
+            doc.file || doc.uploadedFile || doc.existingFile?.name || null,
+          uploadedAt: doc.uploadedAt || null,
+          docId: doc.id || undefined,
+          uploading: false,
+          downloadId: doc.downloadId || doc.existingFile?.downloadId || "",
+        }))
+      );
+    }
+  }, [initialDocuments]);
+
+  const updateParent = useCallback(
+    (docs) => {
+      const formatted = docs.map(
+        ({
+          name,
+          description,
+          uploadedFile,
+          uploadedAt,
+          docId,
+          id,
+          downloadId,
+        }) => ({
+          id: docId || id,
+          title: name,
+          description,
+          file: uploadedFile,
+          uploadedAt,
+          downloadId,
+        })
+      );
+      handleJsonDataChange("supportingDocuments")({
+        target: { type: "custom", value: formatted },
       });
-    });
-    return tree;
-  }, [reportData, years]);
+    },
+    [handleJsonDataChange]
+  );
 
-  const getSubKeys = (frequency) => {
-    if (frequency === "Quarterly") return ["Q1", "Q2", "Q3", "Q4"];
-    if (frequency === "Half-Yearly") return ["HY1", "HY2"];
-    return ["Yearly"]; // For Yearly frequency
+  const debouncedUpdateParent = useCallback(
+    (currentDocs) => {
+      if (debounceTimeout.current) clearTimeout(debounceTimeout.current);
+      debounceTimeout.current = setTimeout(
+        () => updateParent(currentDocs),
+        300
+      );
+    },
+    [updateParent]
+  );
+
+  const handleChange = (docId, field, value) => {
+    const updated = documents.map((doc) =>
+      doc.id === docId ? { ...doc, [field]: value } : doc
+    );
+    setDocuments(updated);
+
+    const doc = updated.find((d) => d.id === docId);
+    const errors = validateDocument(doc);
+    setFieldErrors((prev) => ({ ...prev, [docId]: errors }));
+
+    debouncedUpdateParent(updated);
   };
+
+  const validateFile = (file) => {
+    if (!ALLOWED_FILE_TYPES.includes(file.type)) {
+      setValidationError(
+        `Sorry, "${file.name.split(".").pop()}" files are not supported.`
+      );
+      return false;
+    }
+    if (file.size > MAX_FILE_SIZE_MB * 1024 * 1024) {
+      setValidationError(
+        `"${file.name}" is too large. Max size is ${MAX_FILE_SIZE_MB}MB.`
+      );
+      return false;
+    }
+    setValidationError("");
+    return true;
+  };
+
+  const handleFileChange = async (docId, event) => {
+    const file = event.target.files[0];
+    if (!file || !validateFile(file)) return;
+
+    const doc = documents.find((d) => d.id === docId);
+    const errors = validateDocument(doc);
+    if (Object.keys(errors).length > 0) {
+      setValidationError("Please fix the title before uploading.");
+      return;
+    }
+
+    const updated = documents.map((d) =>
+      d.id === docId
+        ? { ...d, file, uploading: true, uploadedFile: null, uploadedAt: null }
+        : d
+    );
+    setDocuments(updated);
+    updateParent(updated);
+
+    try {
+      const docName = doc.name.trim() || file.name.split(".")[0];
+      const uploadedFiles = await uploadMultipleFiles(
+        [file],
+        [docName],
+        doc.description || ""
+      );
+
+      if (uploadedFiles.length > 0) {
+        const final = documents.map((d) =>
+          d.id === docId
+            ? {
+                ...d,
+                uploadedFile: uploadedFiles[0].filename,
+                uploadedAt:
+                  uploadedFiles[0].uploaded_at || new Date().toISOString(),
+                file: null,
+                uploading: false,
+                docId: uploadedFiles[0].id,
+                downloadId: uploadedFiles[0].downloadId,
+              }
+            : d
+        );
+        const sorted = [...final].sort(
+          (a, b) => new Date(b.uploadedAt || 0) - new Date(a.uploadedAt || 0)
+        );
+        setDocuments(sorted);
+        updateParent(sorted);
+      }
+    } catch (error) {
+      console.error("Upload failed:", error);
+      setDocuments((prev) =>
+        prev.map((d) => (d.id === docId ? { ...d, uploading: false } : d))
+      );
+      setValidationError("Upload failed. Please try again.");
+    }
+  };
+
+  const handleAdd = () => {
+    const newDoc = {
+      id: Math.random().toString(36).substr(2, 9),
+      name: "",
+      description: "",
+      file: null,
+      uploadedFile: null,
+      uploadedAt: null,
+      uploading: false,
+      isNew: true,
+    };
+    const updated = [...documents, newDoc];
+    setDocuments(updated);
+    updateParent(updated);
+  };
+
+  // const handleRemove = async (docId) => {
+  //   const updated = documents.filter((d) => d.id !== docId);
+  //   const res = await apiClient.delete(`api/master/delete-document/${docId}`);
+  //   console.log(res, "doc ");
+  //   setDocuments(updated);
+  //   updateParent(updated);
+  // };
+  const handleRemove = async (docId) => {
+    try {
+      const updated = documents?.filter((d) => d.id !== docId);
+      // Soft delete (no API call if no ID)
+      if (isNaN(Number(docId))) {
+        setDocuments(updated);
+        updateParent(updated);
+        return;
+      }
+      // Hard delete (API call if ID exists)
+      await apiClient.delete(`api/master/delete-document/${docId}`);
+
+      setDocuments(updated);
+      updateParent(updated);
+
+      dispatch(setSuccess("Document deleted successfully"));
+    } catch (error) {
+      console.error("Error deleting document:", error);
+      dispatch(setError("Failed to delete document"));
+    }
+  };
+
+  useEffect(() => {
+    const previews = {};
+    documents.forEach((doc) => {
+      if (doc.uploadedFile) {
+        previews[doc.id] = FILE_SERVER_URL + doc.downloadId;
+      } else if (doc.file instanceof File) {
+        previews[doc.id] = URL.createObjectURL(doc.file);
+      }
+    });
+    setFilePreviews(previews);
+
+    return () => {
+      Object.values(previews).forEach((url) => {
+        if (url.startsWith("blob:")) URL.revokeObjectURL(url);
+      });
+    };
+  }, [documents]);
+
+  const filteredAndGroupedDocs = documents
+    .filter((doc) => {
+      const category = getFileCategory(doc.uploadedFile || doc.file?.name);
+      const term = filterQuery.toLowerCase();
+      return (
+        doc.name.toLowerCase().includes(term) ||
+        doc.description.toLowerCase().includes(term) ||
+        category.toLowerCase().includes(term) ||
+        doc.uploadedFile?.toLowerCase().includes(term)
+      );
+    })
+    .reduce((acc, doc) => {
+      const key = getFileCategory(doc.uploadedFile || doc.file?.name);
+      acc[key] = acc[key] || [];
+      acc[key].push(doc);
+      return acc;
+    }, {});
+
+  const handleDrop = (e, fromClick = false) => {
+    e.preventDefault();
+    setDragOver(false);
+
+    const files = fromClick
+      ? Array.from(e.target.files || [])
+      : Array.from(e.dataTransfer?.files || []);
+
+    if (!files.length) return;
+
+    const validFiles = files.filter(validateFile);
+    if (!validFiles.length) {
+      setValidationError(
+        "No valid files were selected. Please check file type and size."
+      );
+      return;
+    }
+
+    const initial = {};
+    const errors = {};
+    validFiles.forEach((_, i) => {
+      initial[i] = { title: "", description: "" };
+      errors[i] = {};
+    });
+
+    setDroppedFiles(validFiles);
+    setDropInputs(initial);
+    setDropErrors(errors);
+    setDropDialogOpen(true);
+    setValidationError("");
+    if (fromClick) e.target.value = "";
+  };
+
+  const validateDropInput = (index) => {
+    const input = dropInputs[index] || {};
+    const title = input.title?.trim();
+    const desc = input.description?.trim();
+    const errors = {};
+
+    if (title && !DOC_TITLE_REGEX.test(title)) {
+      errors.title =
+        "Title must start with a letter and be at least 3 characters. Only letters, numbers, '-', and '_' are allowed.";
+    }
+    if (desc && desc.length > 1000) {
+      errors.description = "Description is too long. Max 1000 characters.";
+    }
+
+    setDropErrors((prev) => ({ ...prev, [index]: errors }));
+    return Object.keys(errors).length === 0;
+  };
+
+  const handleConfirmDroppedFiles = async () => {
+    const hasError = droppedFiles.some((_, i) => !validateDropInput(i));
+    if (hasError) return;
+
+    setDropDialogOpen(false);
+    const tempDocs = droppedFiles.map((file, i) => {
+      const title = dropInputs[i]?.title?.trim() || file.name.split(".")[0];
+      return {
+        id: Math.random().toString(36).substr(2, 9),
+        name: title,
+        description: dropInputs[i]?.description || "",
+        file,
+        uploadedFile: null,
+        uploadedAt: null,
+        uploading: true,
+        isNew: true,
+      };
+    });
+
+    setDocuments((prev) => [...prev, ...tempDocs]);
+    updateParent([...documents, ...tempDocs]);
+
+    try {
+      const titles = tempDocs.map((d) => d.name);
+      const descriptions = tempDocs.map((d) => d.description);
+      const results = await uploadMultipleFiles(
+        droppedFiles,
+        titles,
+        descriptions
+      );
+
+      const newDocs = results.map((res, i) => ({
+        ...tempDocs[i],
+        uploadedFile: res.filename,
+        uploadedAt: res.uploaded_at || new Date().toISOString(),
+        file: null,
+        uploading: false,
+        docId: res.id,
+        downloadId: res.downloadId,
+      }));
+
+      const final = [
+        ...documents.filter((d) => !tempDocs.some((t) => t.id === d.id)),
+        ...newDocs,
+      ].sort(
+        (a, b) => new Date(b.uploadedAt || 0) - new Date(a.uploadedAt || 0)
+      );
+
+      setDocuments(final);
+      updateParent(final);
+      setDroppedFiles([]);
+      setDropInputs({});
+      setDropErrors({});
+    } catch (error) {
+      console.error("Batch upload failed:", error);
+      setValidationError(
+        "One or more files failed to upload. Please try again."
+      );
+      setDocuments((prev) =>
+        prev.map((d) =>
+          tempDocs.some((t) => t.id === d.id) ? { ...d, uploading: false } : d
+        )
+      );
+    }
+  };
+
+  const canAddMore = !documents.some(
+    (doc) =>
+      doc.uploading ||
+      (!doc.uploadedFile &&
+        !doc.file &&
+        (doc.name.trim() || doc.description.trim()))
+  );
 
   return (
-    <Box sx={{ p: 2, backgroundColor: "#fdfdfd" }}>
-      {Object.entries(hierarchy).map(([minName, departments], minIdx) => (
-        <Box key={minName} sx={{ mb: 6 }}>
-          <Typography variant="h4" sx={{ color: "#1a237e", fontWeight: "bold", mb: 2, fontSize: "22px" }}>
-            {minIdx + 1}) {minName}
-          </Typography>
+    <FormControl fullWidth sx={{ gap: 2, mb: 3 }}>
+      <FormLabel sx={{ mb: 1, fontSize: "1.1rem", fontWeight: 600 }}>
+        {supportingName || "Supporting Documents"}<FileInfo/>
+      </FormLabel>
 
-          {Object.entries(departments).map(([deptName, schemes], deptIdx) => (
-            <Box key={deptName} sx={{ ml: 2, mb: 4 }}>
-              <Typography variant="h5" sx={{ color: "black", fontWeight: "600", mb: 2, fontSize: "20px" }}>
-                {minIdx + 1}.{deptIdx + 1}) {deptName}
+      {!isViewing && (
+        <>
+          <TextField
+            label="Search Documents"
+            variant="outlined"
+            size="small"
+            fullWidth
+            sx={{ mb: 2 }}
+            onChange={(e) => setFilterQuery(e.target.value)}
+          />
+
+          {validationError && (
+            <Alert
+              severity="error"
+              sx={{ mb: 2 }}
+              onClose={() => setValidationError("")}
+            >
+              {validationError}
+            </Alert>
+          )}
+
+          <Tooltip
+            title="Click to select files or drag & drop here"
+            placement="top"
+            arrow
+          >
+            <Box
+              onClick={() => fileInputRef.current?.click()}
+              onDragOver={(e) => {
+                e.preventDefault();
+                setDragOver(true);
+              }}
+              onDragLeave={(e) => {
+                e.preventDefault();
+                setDragOver(false);
+              }}
+              onDrop={handleDrop}
+              sx={{
+                border: `2px dashed ${dragOver ? "primary.main" : "#ccc"}`,
+                borderRadius: 2,
+                p: 3,
+                textAlign: "center",
+                mb: 2,
+                color: "text.secondary",
+                cursor: "pointer",
+                bgcolor: dragOver ? "primary.light" : "action.hover",
+                transition: "all 0.3s ease-in-out",
+                "&:hover": { boxShadow: 4, transform: "scale(1.01)" },
+              }}
+            >
+              <input
+                type="file"
+                multiple
+                hidden
+                ref={fileInputRef}
+                onChange={(e) => handleDrop(e, true)}
+              />
+              <CloudUploadIcon
+                sx={{ fontSize: 40, mb: 1, color: "primary.main" }}
+              />
+              <Typography variant="body1" fontWeight="medium">
+                Click or Drag & Drop files here
               </Typography>
-
-              {Object.entries(schemes).map(([schemeName, schemeContent], schemeIdx) => {
-                const firstRow = Object.values(schemeContent.indicatorRows)[0];
-                const frequency = firstRow?.frequency || "Yearly";
-                const isYearly = frequency === "Yearly";
-                const subKeys = getSubKeys(frequency);
-                
-                // Calculate colSpan: (subperiods + TotalColumn) * 3 metrics
-                // For Yearly, TotalColumn is 0. For others, it's 1.
-                const showTotalCol = !isYearly;
-                const metricsCount = 3; // Target, Progress, Achieved
-                const colSpanPerYear = (subKeys.length + (showTotalCol ? 1 : 0)) * metricsCount;
-
-                return (
-                  <Box key={schemeName} sx={{ ml: 2, mb: 6 }}>
-                    <Typography variant="h6" sx={{ color: "#45154F", fontWeight: "bold", mb: 2, fontSize: "18px" }}>
-                      {minIdx + 1}.{deptIdx + 1}.{schemeIdx + 1}) {schemeName}
-                    </Typography>
-
-                    <TableContainer component={Paper} sx={{ borderRadius: "8px", overflowX: "auto" }}>
-                      <Table size="small" sx={{ border: "1px solid #ccc", minWidth: 1200 }}>
-                        <TableHead>
-                          <TableRow sx={{ backgroundColor: "#45154F" }}>
-                            <TableCell rowSpan={3} sx={{ color: "#fff", fontWeight: "bold", border: "1px solid #632a6d", textAlign: "center" }}>Indicator</TableCell>
-                            <TableCell rowSpan={3} sx={{ color: "#fff", fontWeight: "bold", border: "1px solid #632a6d", textAlign: "center" }}>Unit</TableCell>
-                            {years.map((year) => (
-                              <TableCell key={year} colSpan={colSpanPerYear} align="center" sx={{ color: "#fff", fontWeight: "bold", border: "1px solid #632a6d" }}>
-                                {year}-{parseInt(year) + 1}
-                              </TableCell>
-                            ))}
-                          </TableRow>
-                          <TableRow sx={{ backgroundColor: "#45154F" }}>
-                            {years.map((year) => (
-                              <React.Fragment key={`head-m-${year}`}>
-                                <TableCell colSpan={subKeys.length + (showTotalCol ? 1 : 0)} align="center" sx={{ color: "#fff", border: "1px solid #632a6d", fontSize: "0.75rem" }}>Target</TableCell>
-                                <TableCell colSpan={subKeys.length + (showTotalCol ? 1 : 0)} align="center" sx={{ color: "#fff", border: "1px solid #632a6d", fontSize: "0.75rem" }}>Progress</TableCell>
-                                <TableCell colSpan={subKeys.length + (showTotalCol ? 1 : 0)} align="center" sx={{ color: "#fff", border: "1px solid #632a6d", fontSize: "0.75rem" }}>Achieved</TableCell>
-                              </React.Fragment>
-                            ))}
-                          </TableRow>
-                          <TableRow sx={{ backgroundColor: "#45154F" }}>
-                            {years.map((year) => (
-                              <React.Fragment key={`head-s-${year}`}>
-                                {["T", "P", "A"].map((mType) => (
-                                  <React.Fragment key={mType}>
-                                    {subKeys.map(sk => (
-                                      <TableCell key={`${mType}-${sk}`} align="center" sx={{ color: "#fff", border: "1px solid #632a6d", fontSize: "0.65rem" }}>
-                                        {isYearly ? "Yearly" : sk}
-                                      </TableCell>
-                                    ))}
-                                    {showTotalCol && (
-                                      <TableCell align="center" sx={{ color: "#fff", border: "1px solid #632a6d", fontWeight: "bold", fontSize: "0.65rem", backgroundColor: mType === "A" ? "#2e0e35" : "inherit" }}>
-                                        Total {mType === "A" ? "%" : ""}
-                                      </TableCell>
-                                    )}
-                                  </React.Fragment>
-                                ))}
-                              </React.Fragment>
-                            ))}
-                          </TableRow>
-                        </TableHead>
-
-                        <TableBody>
-                          {Object.values(schemeContent.indicatorRows).map((row, rIdx) => (
-                            <TableRow key={rIdx}>
-                              <TableCell sx={{ border: "1px solid #ddd" }}>{row.indicatorName}</TableCell>
-                              <TableCell sx={{ border: "1px solid #ddd", textAlign: "center" }}>{row.unit}</TableCell>
-                              {years.map((year) => {
-                                const val = row.yearlyValues[year] || {};
-                                
-                                const getSum = (obj) => {
-                                  if (isYearly) return Number(obj) || 0;
-                                  return subKeys.reduce((acc, key) => acc + (Number(obj?.[key]) || 0), 0);
-                                };
-
-                                const totalTarget = getSum(val.target);
-                                const totalProgress = getSum(val.progress);
-                                const totalPct = totalTarget > 0 ? (totalProgress / totalTarget) * 100 : 0;
-
-                                return (
-                                  <React.Fragment key={year}>
-                                    {/* Target Cells */}
-                                    {subKeys.map(sk => <TableCell key={`t-${sk}`} align="right" sx={{ border: "1px solid #ddd" }}>{formatDecimal(isYearly ? val.target : val.target?.[sk])}</TableCell>)}
-                                    {showTotalCol && <TableCell align="right" sx={{ border: "1px solid #ddd", fontWeight: "bold" }}>{formatDecimal(totalTarget)}</TableCell>}
-                                    
-                                    {/* Progress Cells */}
-                                    {subKeys.map(sk => <TableCell key={`p-${sk}`} align="right" sx={{ border: "1px solid #ddd" }}>{formatDecimal(isYearly ? val.progress : val.progress?.[sk])}</TableCell>)}
-                                    {showTotalCol && <TableCell align="right" sx={{ border: "1px solid #ddd", fontWeight: "bold" }}>{formatDecimal(totalProgress)}</TableCell>}
-                                    
-                                    {/* Achieved Cells */}
-                                    {subKeys.map(sk => <TableCell key={`a-${sk}`} align="right" sx={{ border: "1px solid #ddd" }}>{formatDecimal(isYearly ? val.achieved : val.achieved?.[sk])}</TableCell>)}
-                                    {showTotalCol && (
-                                      <TableCell align="right" sx={{ border: "1px solid #ddd", fontWeight: "bold", backgroundColor: getBackgroundColor(totalPct) }}>
-                                        {totalPct.toFixed(2)}%
-                                      </TableCell>
-                                    )}
-                                  </React.Fragment>
-                                );
-                              })}
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </TableContainer>
-                  </Box>
-                );
-              })}
+              <Typography variant="body2" color="text.secondary">
+                Max {MAX_FILE_SIZE_MB}MB | PDF, Word, Excel, Images etc.
+              </Typography>
             </Box>
-          ))}
+          </Tooltip>
+        </>
+      )}
+
+      {documents.length === 0 && !filterQuery && (
+        <Paper
+          elevation={1}
+          sx={{ p: 3, textAlign: "center", color: "text.secondary" }}
+        >
+          <DescriptionIcon sx={{ fontSize: 50, mb: 1, color: "grey.400" }} />
+          <Typography variant="h6">No documents uploaded yet.</Typography>
+          {!isViewing && (
+            <Typography variant="body2">
+              Click above or use "Add More Documents" to begin.
+            </Typography>
+          )}
+        </Paper>
+      )}
+
+      {Object.entries(filteredAndGroupedDocs).map(([category, docs]) => (
+        <Box key={category} mb={3}>
+          <Typography
+            variant="h6"
+            sx={{ mb: 1, display: "flex", alignItems: "center", gap: 1 }}
+          >
+            {category}
+          </Typography>
+          <Grid container spacing={2}>
+            {docs.map((doc) => {
+              const errors = fieldErrors[doc.id] || {};
+              const canUpload =
+                doc.name.trim() && !errors.name && !doc.uploading;
+
+              return (
+                <Grid size={{ xs: 12 }} key={doc.id}>
+                  <Fade in timeout={doc.isNew ? 800 : 0}>
+                    <Paper
+                      elevation={3}
+                      sx={{
+                        p: 2,
+                        borderRadius: 2,
+                        display: "flex",
+                        flexDirection: "column",
+                        "&:hover": { boxShadow: isViewing ? 3 : 6 },
+                        transition: "box-shadow 0.3s ease-in-out",
+                      }}
+                    >
+                      <Grid container spacing={2} alignItems="flex-start">
+                        {/* Title Field */}
+                        <Grid size={{ xs: 12, sm: 4 }}>
+                          <Box
+                            sx={{
+                              display: "flex",
+                              flexDirection: "column",
+                              height: "100%",
+                            }}
+                          >
+                            <TextField
+                              label="Document Title *"
+                              placeholder="e.g., Project Proposal"
+                              value={doc.name}
+                              disabled={isViewing || doc.uploading}
+                              onChange={(e) =>
+                                handleChange(doc.id, "name", e.target.value)
+                              }
+                              fullWidth
+                              size="small"
+                              error={!!errors.name}
+                              helperText={errors.name || " "}
+                              FormHelperTextProps={{
+                                sx: { minHeight: "22px", lineHeight: "22px" },
+                              }}
+                              sx={{
+                                "& .MuiFormHelperText-root": {
+                                  marginTop: 0.5,
+                                  minHeight: "22px",
+                                },
+                              }}
+                            />
+                          </Box>
+                        </Grid>
+
+                        {/* Description Field */}
+                        <Grid size={{ xs: 12, sm: 5 }}>
+                          <Box
+                            sx={{
+                              display: "flex",
+                              flexDirection: "column",
+                              height: "100%",
+                            }}
+                          >
+                            <TextField
+                              label="Description (Optional)"
+                              placeholder="Brief description of the document"
+                              value={doc.description}
+                              disabled={isViewing || doc.uploading}
+                              onChange={(e) =>
+                                handleChange(
+                                  doc.id,
+                                  "description",
+                                  e.target.value
+                                )
+                              }
+                              fullWidth
+                              multiline
+                              rows={1}
+                              size="small"
+                              error={!!errors.description}
+                              helperText={
+                                errors.description
+                                  ? errors.description
+                                  : `${doc.description.length}/1000`
+                              }
+                              FormHelperTextProps={{
+                                sx: { minHeight: "22px", lineHeight: "22px" },
+                              }}
+                              sx={{
+                                "& .MuiFormHelperText-root": {
+                                  marginTop: 0.5,
+                                  minHeight: "22px",
+                                },
+                              }}
+                            />
+                          </Box>
+                        </Grid>
+
+                        {/* Upload & Delete Buttons */}
+                        <Grid
+                          size={{ xs: 12, sm: 3 }}
+                          sx={{
+                            display: "flex",
+                            justifyContent: "flex-end",
+                            alignItems: "flex-start", // Align to top
+                            gap: 1,
+                            pt: 0.5, // Match TextField label height
+                          }}
+                        >
+                          {!isViewing && (
+                            <>
+                              <Tooltip
+                                title={
+                                  !canUpload
+                                    ? errors.name ||
+                                      "Please enter a valid title to upload the file"
+                                    : "Upload or change file"
+                                }
+                              >
+                                <span>
+                                  <Button
+                                    component="label"
+                                    variant="outlined"
+                                    size="small"
+                                    startIcon={<CloudUploadIcon />}
+                                    disabled={!canUpload}
+                                    sx={{ whiteSpace: "nowrap" }}
+                                  >
+                                    {doc.uploadedFile ? "Change" : "Upload"}
+                                    <input
+                                      type="file"
+                                      hidden
+                                      onChange={(e) =>
+                                        handleFileChange(doc.id, e)
+                                      }
+                                    />
+                                  </Button>
+                                </span>
+                              </Tooltip>
+
+                              <IconButton
+                                onClick={() => handleRemove(doc.id)}
+                                color="error"
+                                disabled={doc.uploading}
+                                size="small"
+                                title="Remove document"
+                              >
+                                <DeleteIcon />
+                              </IconButton>
+                            </>
+                          )}
+                        </Grid>
+
+                        {/* File Preview Row */}
+                        {(doc.file || doc.uploadedFile || doc.uploading) && (
+                          <Grid size={{ xs: 12 }}>
+                            <Box
+                              display="flex"
+                              alignItems="center"
+                              gap={1.5}
+                              pt={2}
+                              mt={1}
+                              sx={{
+                                borderTop: 1,
+                                borderColor: "divider",
+                              }}
+                            >
+                              {getFileIcon(doc.uploadedFile || doc.file?.name)}
+                              <Link
+                                href={filePreviews[doc.id] || "#"}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                underline="hover"
+                                sx={{
+                                  maxWidth: "calc(100% - 180px)",
+                                  whiteSpace: "nowrap",
+                                  overflow: "hidden",
+                                  textOverflow: "ellipsis",
+                                  display: "block",
+                                }}
+                                onClick={(e) =>
+                                  !filePreviews[doc.id] && e.preventDefault()
+                                }
+                              >
+                                {doc.uploading
+                                  ? "Uploading..."
+                                  : (doc.uploadedFile || doc.file?.name || "")
+                                      .replace(
+                                        /_v\d+\.\w+$/,
+                                        (m) => ` (v${m.match(/v(\d+)/)[1]})`
+                                      )
+                                      .replace(/_\d+(?=\.\w+$)/, "")}
+                              </Link>
+
+                              {doc.uploadedAt && (
+                                <Typography
+                                  variant="caption"
+                                  sx={{ ml: "auto" }}
+                                >
+                                  {new Date(doc.uploadedAt).toLocaleString(
+                                    "en-IN",
+                                    {
+                                      dateStyle: "medium",
+                                      timeStyle: "short",
+                                    }
+                                  )}
+                                </Typography>
+                              )}
+                            </Box>
+
+                            {doc.uploading && (
+                              <LinearProgress sx={{ mt: 1, height: 6 }} />
+                            )}
+                          </Grid>
+                        )}
+                      </Grid>
+                    </Paper>
+                  </Fade>
+                </Grid>
+              );
+            })}
+          </Grid>
         </Box>
       ))}
-    </Box>
+
+      {!isViewing && (
+        <Box mt={1}>
+          <Tooltip
+            title={
+              !canAddMore
+                ? "Please complete or remove any incomplete documents before adding more"
+                : "Add another document"
+            }
+          >
+            <span>
+              <Button
+                variant="outlined"
+                onClick={handleAdd}
+                startIcon={<ArticleIcon />}
+                disabled={!canAddMore}
+              >
+                Add More Documents
+              </Button>
+            </span>
+          </Tooltip>
+        </Box>
+      )}
+
+      {/* Drop Dialog */}
+      <Dialog
+        open={dropDialogOpen}
+        onClose={() => setDropDialogOpen(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>Add Details for Uploaded Files</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" mb={2} color="text.secondary">
+            You can add a custom title and description. If left blank, the
+            original filename will be used.
+          </Typography>
+          {droppedFiles.map((file, i) => {
+            const err = dropErrors[i] || {};
+            return (
+              <Box
+                key={i}
+                mb={3}
+                p={2}
+                sx={{ border: "1px solid #eee", borderRadius: 1 }}
+              >
+                <Box display="flex" alignItems="center" mb={1} gap={1}>
+                  {getFileIcon(file.name)}
+                  <Typography variant="subtitle1" fontWeight="medium">
+                    {file.name}
+                  </Typography>
+                  <Typography variant="caption" ml="auto">
+                    {(file.size / 1024 / 1024).toFixed(2)} MB
+                  </Typography>
+                </Box>
+                <TextField
+                  label="Title (Optional)"
+                  placeholder="e.g., Final Report"
+                  value={dropInputs[i]?.title || ""}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setDropInputs((prev) => ({
+                      ...prev,
+                      [i]: { ...prev[i], title: val },
+                    }));
+                    validateDropInput(i);
+                  }}
+                  fullWidth
+                  margin="dense"
+                  size="small"
+                  error={!!err.title}
+                  helperText={err.title}
+                />
+                <TextField
+                  label="Description (Optional)"
+                  placeholder="Brief description..."
+                  value={dropInputs[i]?.description || ""}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setDropInputs((prev) => ({
+                      ...prev,
+                      [i]: { ...prev[i], description: val },
+                    }));
+                    validateDropInput(i);
+                  }}
+                  fullWidth
+                  margin="dense"
+                  multiline
+                  rows={1}
+                  size="small"
+                  error={!!err.description}
+                  helperText={
+                    err.description ||
+                    `${(dropInputs[i]?.description || "").length}/1000`
+                  }
+                />
+              </Box>
+            );
+          })}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDropDialogOpen(false)}>Cancel</Button>
+          <Tooltip
+            title={
+              Object.values(dropErrors).some((e) => e.title || e.description)
+                ? "Please fix the errors above"
+                : ""
+            }
+          >
+            <span>
+              <Button
+                variant="contained"
+                onClick={handleConfirmDroppedFiles}
+                disabled={Object.values(dropErrors).some(
+                  (e) => e.title || e.description
+                )}
+              >
+                Upload Files
+              </Button>
+            </span>
+          </Tooltip>
+        </DialogActions>
+      </Dialog>
+    </FormControl>
   );
 };
 
-export default ProgressTable;
+export default SupportingDocumentsRepeater;
