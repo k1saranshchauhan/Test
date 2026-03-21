@@ -22,18 +22,36 @@ import { oomfFrameworkId } from "@/src/constants/unified/frameworkConstants";
 import DescriptionIcon from "@mui/icons-material/Description";
 import PictureAsPdfIcon from "@mui/icons-material/PictureAsPdf";
 import InsertDriveFileIcon from "@mui/icons-material/InsertDriveFile";
-import { useDispatch, useSelector } from "react-redux";
-import { startLoader, stopLoader } from "@/store/slices/errorSlice";
-import { setError, setSuccess } from "@/store/slices/errorSlice";
+import { useDispatch } from "react-redux";
+import { startLoader, stopLoader, setError, setSuccess } from "@/store/slices/errorSlice";
 
 const DocumentMergePage = () => {
   const [documents, setDocuments] = useState([]);
   const [selectionModel, setSelectionModel] = useState([]);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [loading, setLoading] = useState(true);
+
   const dispatch = useDispatch();
-  // File Server URL (same convention you use elsewhere)
+
   const FILE_SERVER_URL = `${process.env.NEXT_PUBLIC_API_BASE_URL}api/public/download-file/`;
+
+  // ✅ Allowed file types (CONFIGURABLE)
+  const ALLOWED_FILE_TYPES = ["pdf", "doc", "docx"];
+
+  // ✅ File validation helper
+  const validateFiles = (files) => {
+    const invalidFiles = [];
+
+    files.forEach((file) => {
+      const extension = file.name.split(".").pop()?.toLowerCase();
+      if (!ALLOWED_FILE_TYPES.includes(extension)) {
+        invalidFiles.push(file.name);
+      }
+    });
+
+    return invalidFiles;
+  };
+
   const getFileIcon = (fileName) => {
     const extension = fileName?.split(".").pop()?.toLowerCase();
     switch (extension) {
@@ -42,22 +60,20 @@ const DocumentMergePage = () => {
       case "doc":
       case "docx":
         return <DescriptionIcon sx={{ color: "#45254f", mr: 1 }} />;
-      case "ppt":
-      case "pptx":
-        return <SlideshowIcon sx={{ color: "#F57C00", mr: 1 }} />;
       case "txt":
         return <DescriptionIcon sx={{ color: "#388E3C", mr: 1 }} />;
       default:
         return <InsertDriveFileIcon color="primary" sx={{ mr: 1 }} />;
     }
   };
+
   function convertToLocalTime(utcDateString) {
     if (!utcDateString) return "—";
 
     const date = new Date(utcDateString);
 
     const day = String(date.getDate()).padStart(2, "0");
-    const month = String(date.getMonth() + 1).padStart(2, "0"); // Months are 0-based
+    const month = String(date.getMonth() + 1).padStart(2, "0");
     const year = date.getFullYear();
 
     let hours = date.getHours();
@@ -65,7 +81,7 @@ const DocumentMergePage = () => {
     const seconds = String(date.getSeconds()).padStart(2, "0");
 
     const ampm = hours >= 12 ? "PM" : "AM";
-    hours = hours % 12 || 12; // Convert 0 → 12
+    hours = hours % 12 || 12;
     const formattedHours = String(hours).padStart(2, "0");
 
     return `${day}/${month}/${year}, ${formattedHours}:${minutes}:${seconds} ${ampm}`;
@@ -79,20 +95,16 @@ const DocumentMergePage = () => {
     try {
       setLoading(true);
       const res = await apiClient.get(
-        `api/document/get-folder-documents/${oomfFrameworkId}`,
+        `api/document/get-folder-documents/${oomfFrameworkId}`
       );
+
       if (res?.data?.success) {
         const filteredDocs = res.data.result.filter((doc) =>
-          doc.document_name?.toLowerCase().endsWith(".docx"),
+          doc.document_name?.toLowerCase().endsWith(".docx")
         );
-        // setDocuments(filteredDocs);
 
-        // Ensure you don't mutate filteredDocs (avoid side effects)
         const sorted = [...filteredDocs].sort((a, b) => {
-          const ta = new Date(a.uploaded_at).getTime();
-          const tb = new Date(b.uploaded_at).getTime();
-          // Newest first
-          return tb - ta;
+          return new Date(b.uploaded_at) - new Date(a.uploaded_at);
         });
 
         setDocuments(sorted);
@@ -104,26 +116,52 @@ const DocumentMergePage = () => {
     }
   };
 
+  // ✅ UPDATED FUNCTION WITH VALIDATION
   const uploadMultipleFiles = async (files, titles = [], description) => {
+    // 🔍 Validate before upload
+    const invalidFiles = validateFiles(files);
+
+    if (invalidFiles.length > 0) {
+      dispatch(
+        setError(
+          `Invalid file type(s): ${invalidFiles.join(
+            ", "
+          )}. Allowed types: ${ALLOWED_FILE_TYPES.join(", ")}`
+        )
+      );
+      return [];
+    }
+
     const formData = new FormData();
+
     files.forEach((file, idx) => {
       formData.append("files", file);
       formData.append("titles[]", titles[idx] || file.name);
     });
+
     formData.append("reference_type", "oomf");
     formData.append("remarks", description);
-    
+
     try {
       dispatch(startLoader());
+
       const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-      const res = await apiClient.post("api/document/upload-files", formData);
+
+      const res = await apiClient.post(
+        "api/document/upload-files",
+        formData
+      );
+
       dispatch(setSuccess("Document uploaded successfully"));
-      fetchDocuments(); // Refresh the list
+      fetchDocuments();
+
       await delay(500);
-      setIsDialogOpen(false); // Close dialog on success
+      setIsDialogOpen(false);
+
       return res.data.files;
     } catch (err) {
       console.error("Upload failed", err);
+      dispatch(setError("Upload failed. Please try again."));
       return [];
     } finally {
       dispatch(stopLoader());
@@ -133,11 +171,9 @@ const DocumentMergePage = () => {
   const handleMerge = async () => {
     if (selectionModel.length < 2) return;
 
-    // Generate payload based on CURRENT visual order in 'documents' state
     const orderedPayload = documents
       .filter((doc) => selectionModel.includes(doc.document_id))
       .map((doc, index) => ({
-        // Using index + 1 as the order key as requested: { order: documentId }
         [index + 1]: doc.document_id,
       }));
 
@@ -146,6 +182,7 @@ const DocumentMergePage = () => {
         documentIds: selectionModel,
         order: orderedPayload,
       });
+
       alert("Documents merged successfully");
       setSelectionModel([]);
       fetchDocuments();
@@ -157,19 +194,17 @@ const DocumentMergePage = () => {
   const columns = [
     { field: "document_title", headerName: "Title", flex: 1 },
     { field: "document_name", headerName: "File Name", flex: 1.5 },
-
     {
       field: "view_document",
       headerName: "Download Document",
       width: 210,
-      sortable: false,
-      filterable: false,
       renderCell: ({ row }) => {
         const href = row?.download_id
           ? `${FILE_SERVER_URL}${row.download_id}`
           : null;
 
         if (!href) return "—";
+
         return (
           <Tooltip title={row.document_name}>
             <a
@@ -180,7 +215,7 @@ const DocumentMergePage = () => {
                 display: "inline-flex",
                 alignItems: "center",
                 textDecoration: "none",
-                color: "#45145f", // your purple tone (you can theme this)
+                color: "#45145f",
                 fontWeight: 500,
               }}
             >
@@ -195,35 +230,27 @@ const DocumentMergePage = () => {
       field: "uploaded_by",
       headerName: "Uploaded By",
       width: 170,
-      valueGetter: (value, row) => row?.first_name + " " + row?.last_name,
+      valueGetter: (value, row) =>
+        row?.first_name + " " + row?.last_name,
     },
     {
       field: "uploaded_at",
       headerName: "Uploaded At",
       width: 200,
-      valueGetter: (value, row) => convertToLocalTime(row?.uploaded_at),
+      valueGetter: (value, row) =>
+        convertToLocalTime(row?.uploaded_at),
     },
   ];
 
   return (
     <Box p={3}>
-      <Stack
-        direction="row"
-        justifyContent="space-between"
-        alignItems="center"
-        mb={3}
-      >
+      <Stack direction="row" justifyContent="space-between" mb={3}>
         <MainFormHeader title="Merge Documents" />
       </Stack>
+
       <Divider sx={{ my: 1 }} />
 
-      <Box
-        display="flex"
-        justifyContent="right"
-        gap={2}
-        alignItems="center"
-        mb={2}
-      >
+      <Box display="flex" justifyContent="right" gap={2} mb={2}>
         <Tooltip title="Select at least 2 files to merge">
           <span>
             <Button
@@ -237,9 +264,9 @@ const DocumentMergePage = () => {
             </Button>
           </span>
         </Tooltip>
+
         <Button
           variant="contained"
-          color="primary"
           startIcon={<CloudUpload />}
           onClick={() => setIsDialogOpen(true)}
         >
@@ -254,22 +281,19 @@ const DocumentMergePage = () => {
         enableReorder={true}
         checkboxSelection={true}
         onSelectionChange={setSelectionModel}
-        onOrderChange={setDocuments} // Keeps the parent array in sync with UI
+        onOrderChange={setDocuments}
         loading={loading}
       />
 
-      {/* Professional Import Dialog */}
       <DynamicDialog
         open={isDialogOpen}
         onClose={() => setIsDialogOpen(false)}
         title="Add New Documents"
-        icon={<CloudUploadIcon color="#fff" sx={{ mr: 1 }} />}
+        icon={<CloudUploadIcon sx={{ color: "#fff", mr: 1 }} />}
         maxWidth="md"
       >
         <EnhancedSupportingDocumentsRepeater
-          onUploadComplete={() => {}}
           uploadMultipleFiles={uploadMultipleFiles}
-          maxWidth={900}
         />
       </DynamicDialog>
     </Box>
