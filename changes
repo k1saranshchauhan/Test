@@ -4,7 +4,6 @@ import {
   Button,
   Typography,
   IconButton,
-  List,
   TextField,
   Stack,
   Card,
@@ -13,12 +12,13 @@ import {
   Fade,
   LinearProgress,
   Paper,
-  alpha
+  alpha,
+  CircularProgress,
 } from "@mui/material";
-import DeleteIcon from "@mui/icons-material/Delete";
-import UploadFileIcon from "@mui/icons-material/UploadFile";
-import CloudUploadIcon from "@mui/icons-material/CloudUpload";
-import DescriptionIcon from "@mui/icons-material/Description";
+import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
+import FileUploadOutlinedIcon from "@mui/icons-material/FileUploadOutlined";
+import CloudDoneIcon from "@mui/icons-material/CloudDone";
+import InsertDriveFileIcon from "@mui/icons-material/InsertDriveFile";
 
 const MAX_FILE_COUNT = 5;
 const MAX_FILE_SIZE_MB = 10;
@@ -29,19 +29,26 @@ const ProfessionalFileRepeater = ({ onUploadComplete, uploadMultipleFiles }) => 
   const [titles, setTitles] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [isDragging, setIsDragging] = useState(false); // Track drag state
+  const [isDragging, setIsDragging] = useState(false);
+
+  // Helper to clear error and state
+  const resetForm = () => {
+    setSelectedFiles([]);
+    setTitles([]);
+    setError("");
+  };
 
   const validateAndAddFiles = useCallback((files) => {
-    setError("");
+    setError(""); // Clear previous errors on new attempt
     
     if (selectedFiles.length + files.length > MAX_FILE_COUNT) {
-      setError(`Limit exceeded. Max ${MAX_FILE_COUNT} files allowed.`);
+      setError(`Maximum limit of ${MAX_FILE_COUNT} files reached.`);
       return;
     }
 
     const oversizedFiles = files.filter(f => f.size > MAX_FILE_SIZE_BYTES);
     if (oversizedFiles.length > 0) {
-      setError(`Files must be under ${MAX_FILE_SIZE_MB}MB.`);
+      setError(`Some files exceed the ${MAX_FILE_SIZE_MB}MB limit.`);
       return;
     }
 
@@ -52,177 +59,177 @@ const ProfessionalFileRepeater = ({ onUploadComplete, uploadMultipleFiles }) => 
     ]);
   }, [selectedFiles]);
 
-  // --- Drag & Drop Handlers ---
   const handleDrag = (e) => {
     e.preventDefault();
     e.stopPropagation();
-    if (e.type === "dragenter" || e.type === "dragover") {
-      setIsDragging(true);
-    } else if (e.type === "dragleave") {
-      setIsDragging(false);
-    }
+    if (e.type === "dragenter" || e.type === "dragover") setIsDragging(true);
+    else if (e.type === "dragleave") setIsDragging(false);
   };
 
   const handleDrop = (e) => {
     e.preventDefault();
     e.stopPropagation();
     setIsDragging(false);
-
-    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      const files = Array.from(e.dataTransfer.files);
-      validateAndAddFiles(files);
+    if (e.dataTransfer.files?.length > 0) {
+      validateAndAddFiles(Array.from(e.dataTransfer.files));
     }
   };
 
-  const handleFileChange = (e) => {
-    const files = Array.from(e.target.files);
-    validateAndAddFiles(files);
-    e.target.value = ""; 
-  };
-
   const handleRemove = (index) => {
-    setSelectedFiles(prev => prev.filter((_, i) => i !== index));
+    const updatedFiles = selectedFiles.filter((_, i) => i !== index);
+    setSelectedFiles(updatedFiles);
     setTitles(prev => prev.filter((_, i) => i !== index));
+    
+    // Auto-clear error if we are now under the limit
+    if (updatedFiles.length < MAX_FILE_COUNT) {
+      setError("");
+    }
   };
 
   const handleUpload = async () => {
+    if (selectedFiles.length === 0) return;
     setLoading(true);
     try {
       await uploadMultipleFiles(selectedFiles, titles);
       if (onUploadComplete) onUploadComplete();
-      setSelectedFiles([]);
-      setTitles([]);
+      resetForm();
     } catch (err) {
-      setError("Upload failed. Please try again.");
+      setError("Upload failed. Please check your connection.");
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <Card sx={{ maxWidth: 700, mx: "auto", borderRadius: 4, boxShadow: "0 10px 30px rgba(0,0,0,0.08)" }}>
+    <Card sx={{ maxWidth: 800, mx: "auto", borderRadius: 4, border: '1px solid', borderColor: 'divider', boxShadow: '0 4px 20px rgba(0,0,0,0.05)' }}>
       <CardContent sx={{ p: 4 }}>
-        <Stack spacing={3}>
+        
+        {/* Header with Visual Counter */}
+        <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 4 }}>
           <Box>
-            <Typography variant="h5" fontWeight={800} gutterBottom>
-              Document Manager
+            <Typography variant="h5" fontWeight={800} sx={{ letterSpacing: '-0.5px' }}>
+              Upload Documents
             </Typography>
             <Typography variant="body2" color="text.secondary">
-              Upload supporting evidence (Max {MAX_FILE_COUNT} files).
+              Attach supporting files for your application.
             </Typography>
           </Box>
-
-          {/* DRAG & DROP ZONE */}
-          <Paper
-            variant="outlined"
-            onDragEnter={handleDrag}
-            onDragLeave={handleDrag}
-            onDragOver={handleDrag}
-            onDrop={handleDrop}
-            sx={{
-              p: 5,
-              borderRadius: 3,
-              border: "2px dashed",
-              borderColor: isDragging ? "primary.main" : "divider",
-              bgcolor: isDragging ? alpha("#1976d2", 0.05) : "grey.50",
-              textAlign: "center",
-              transition: "all 0.2s ease-in-out",
-              cursor: selectedFiles.length >= MAX_FILE_COUNT ? "not-allowed" : "pointer",
-              position: "relative"
-            }}
-          >
-            <input 
-              type="file" 
-              multiple 
-              hidden 
-              id="file-input"
-              onChange={handleFileChange} 
-              disabled={selectedFiles.length >= MAX_FILE_COUNT}
+          <Box sx={{ position: 'relative', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+            <CircularProgress 
+                variant="determinate" 
+                value={(selectedFiles.length / MAX_FILE_COUNT) * 100} 
+                size={50} 
+                thickness={5}
+                color={selectedFiles.length === MAX_FILE_COUNT ? "success" : "primary"}
             />
-            <label htmlFor="file-input" style={{ cursor: 'inherit', width: '100%', display: 'block' }}>
-              <UploadFileIcon sx={{ fontSize: 48, color: isDragging ? "primary.main" : "text.disabled", mb: 2 }} />
-              <Typography variant="h6" fontWeight={600} color={isDragging ? "primary.main" : "text.primary"}>
-                {isDragging ? "Drop files here" : "Drag & drop or click to upload"}
-              </Typography>
-              <Typography variant="caption" color="text.secondary">
-                Limit: {MAX_FILE_SIZE_MB}MB per file
-              </Typography>
-            </label>
-          </Paper>
+            <Typography variant="caption" component="div" sx={{ position: 'absolute', fontWeight: 700 }}>
+              {selectedFiles.length}/{MAX_FILE_COUNT}
+            </Typography>
+          </Box>
+        </Stack>
 
-          {error && (
-            <Fade in={!!error}>
-              <Alert severity="error" variant="outlined" sx={{ borderRadius: 2 }}>
-                {error}
-              </Alert>
-            </Fade>
-          )}
+        {/* Improved Drag & Drop Zone */}
+        <Paper
+          onDragEnter={handleDrag}
+          onDragLeave={handleDrag}
+          onDragOver={handleDrag}
+          onDrop={handleDrop}
+          elevation={0}
+          sx={{
+            p: 6,
+            borderRadius: 3,
+            border: "2px dashed",
+            transition: "all 0.2s ease",
+            cursor: selectedFiles.length >= MAX_FILE_COUNT ? "not-allowed" : "pointer",
+            borderColor: isDragging ? "primary.main" : "grey.300",
+            bgcolor: isDragging ? alpha("#1976d2", 0.04) : "grey.50",
+            "&:hover": { bgcolor: selectedFiles.length < MAX_FILE_COUNT ? "grey.100" : "grey.50" }
+          }}
+          component="label"
+        >
+          <input type="file" multiple hidden onChange={(e) => validateAndAddFiles(Array.from(e.target.files))} disabled={selectedFiles.length >= MAX_FILE_COUNT} />
+          <Stack spacing={1} alignItems="center">
+            <FileUploadOutlinedIcon sx={{ fontSize: 40, color: isDragging ? "primary.main" : "text.secondary" }} />
+            <Typography variant="subtitle1" fontWeight={700}>
+                {selectedFiles.length >= MAX_FILE_COUNT ? "File Limit Reached" : "Click or drag files here"}
+            </Typography>
+            <Typography variant="caption" color="text.secondary">
+              PDF, JPG, PNG up to {MAX_FILE_SIZE_MB}MB
+            </Typography>
+          </Stack>
+        </Paper>
 
-          {/* FILE LIST */}
-          <List disablePadding>
-            {selectedFiles.map((file, index) => (
-              <Paper
-                key={index}
-                elevation={0}
-                sx={{ 
-                  mb: 2, p: 2, borderRadius: 2, 
-                  bgcolor: "background.paper", 
-                  border: "1px solid",
-                  borderColor: "divider",
-                  display: "flex", gap: 2, alignItems: "center" 
-                }}
-              >
-                <Box sx={{ bgcolor: "primary.lighter", p: 1, borderRadius: 1.5, display: "flex" }}>
-                  <DescriptionIcon color="primary" />
+        {/* Validation Error */}
+        <Fade in={!!error}>
+          <Alert severity="error" variant="filled" sx={{ mt: 2, borderRadius: 2, fontWeight: 500 }}>
+            {error}
+          </Alert>
+        </Fade>
+
+        {/* Document List */}
+        <Stack spacing={2} sx={{ mt: 4 }}>
+          {selectedFiles.map((file, index) => (
+            <Paper 
+                key={index} 
+                variant="outlined" 
+                sx={{ p: 2, borderRadius: 2, bgcolor: 'background.paper', "&:hover": { boxShadow: '0 2px 8px rgba(0,0,0,0.05)' } }}
+            >
+              <Stack direction="row" spacing={2} alignItems="flex-start">
+                <Box sx={{ p: 1, borderRadius: 1.5, bgcolor: alpha("#1976d2", 0.1), color: "primary.main", display: 'flex' }}>
+                  <InsertDriveFileIcon />
                 </Box>
-                
-                <Box flex={1} minWidth={0}>
-                  <Typography variant="body2" fontWeight={700} noWrap>
-                    {file.name}
-                  </Typography>
-                  <Typography variant="caption" color="text.secondary">
+                <Box flex={1}>
+                  <Stack direction="row" justifyContent="space-between" alignItems="center">
+                    <Typography variant="body2" fontWeight={700} noWrap sx={{ maxWidth: '80%' }}>
+                      {file.name}
+                    </Typography>
+                    <IconButton onClick={() => handleRemove(index)} size="small" sx={{ color: 'text.disabled', "&:hover": { color: 'error.main' } }}>
+                      <DeleteOutlineIcon fontSize="small" />
+                    </IconButton>
+                  </Stack>
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
                     {(file.size / (1024 * 1024)).toFixed(2)} MB
                   </Typography>
                   <TextField
                     fullWidth
                     size="small"
-                    placeholder="Document Label"
+                    variant="filled"
+                    label="Document Title"
                     value={titles[index] || ""}
                     onChange={(e) => {
                       const newTitles = [...titles];
                       newTitles[index] = e.target.value;
                       setTitles(newTitles);
                     }}
-                    sx={{ mt: 1, "& .MuiInputBase-input": { py: 0.5 } }}
+                    sx={{ "& .MuiInputBase-root": { bgcolor: 'white' } }}
                   />
                 </Box>
+              </Stack>
+            </Paper>
+          ))}
+        </Stack>
 
-                <IconButton onClick={() => handleRemove(index)} size="small" color="error">
-                  <DeleteIcon fontSize="small" />
-                </IconButton>
-              </Paper>
-            ))}
-          </List>
-
-          {selectedFiles.length > 0 && (
-            <Stack direction="row" spacing={2} justifyContent="flex-end" sx={{ pt: 2 }}>
-              <Button variant="text" color="inherit" onClick={() => {setSelectedFiles([]); setTitles([]);}}>
-                Clear
+        {/* Action Footer */}
+        {selectedFiles.length > 0 && (
+          <Box sx={{ mt: 4, pt: 3, borderTop: '1px solid', borderColor: 'divider' }}>
+            <Stack direction="row" spacing={2} justifyContent="flex-end">
+              <Button color="inherit" onClick={resetForm} disabled={loading} sx={{ fontWeight: 600 }}>
+                Discard All
               </Button>
               <Button
                 variant="contained"
-                startIcon={<CloudUploadIcon />}
                 onClick={handleUpload}
                 disabled={loading}
-                sx={{ borderRadius: 2, px: 4, fontWeight: 700 }}
+                startIcon={loading ? <CircularProgress size={20} color="inherit" /> : <CloudDoneIcon />}
+                sx={{ px: 4, py: 1, borderRadius: 2, fontWeight: 700, textTransform: 'none' }}
               >
-                {loading ? "Processing..." : "Upload Selection"}
+                {loading ? "Uploading..." : "Finish Upload"}
               </Button>
             </Stack>
-          )}
-        </Stack>
+          </Box>
+        )}
       </CardContent>
-      {loading && <LinearProgress />}
+      {loading && <LinearProgress sx={{ position: 'absolute', bottom: 0, left: 0, right: 0 }} />}
     </Card>
   );
 };
