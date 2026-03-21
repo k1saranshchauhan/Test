@@ -1,237 +1,91 @@
-import React, { useState, useCallback } from "react";
+import React from "react";
 import {
-  Box,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
   Button,
-  Typography,
   IconButton,
-  TextField,
-  Stack,
-  Card,
-  CardContent,
-  Alert,
-  Fade,
-  LinearProgress,
-  Paper,
-  alpha,
-  CircularProgress,
+  Typography,
+  Box,
+  Slide,
+  useTheme,
+  useMediaQuery,
 } from "@mui/material";
-import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
-import FileUploadOutlinedIcon from "@mui/icons-material/FileUploadOutlined";
-import CloudDoneIcon from "@mui/icons-material/CloudDone";
-import InsertDriveFileIcon from "@mui/icons-material/InsertDriveFile";
+import CloseIcon from "@mui/icons-material/Close";
 
-const MAX_FILE_COUNT = 5;
-const MAX_FILE_SIZE_MB = 10;
-const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
+// Smooth transition from the bottom
+const Transition = React.forwardRef(function Transition(props, ref) {
+  return <Slide direction="up" ref={ref} {...props} />;
+});
 
-const ProfessionalFileRepeater = ({ onUploadComplete, uploadMultipleFiles }) => {
-  const [selectedFiles, setSelectedFiles] = useState([]);
-  const [titles, setTitles] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [isDragging, setIsDragging] = useState(false);
-
-  // Helper to clear error and state
-  const resetForm = () => {
-    setSelectedFiles([]);
-    setTitles([]);
-    setError("");
-  };
-
-  const validateAndAddFiles = useCallback((files) => {
-    setError(""); // Clear previous errors on new attempt
-    
-    if (selectedFiles.length + files.length > MAX_FILE_COUNT) {
-      setError(`Maximum limit of ${MAX_FILE_COUNT} files reached.`);
-      return;
-    }
-
-    const oversizedFiles = files.filter(f => f.size > MAX_FILE_SIZE_BYTES);
-    if (oversizedFiles.length > 0) {
-      setError(`Some files exceed the ${MAX_FILE_SIZE_MB}MB limit.`);
-      return;
-    }
-
-    setSelectedFiles(prev => [...prev, ...files]);
-    setTitles(prev => [
-      ...prev,
-      ...files.map((f) => f.name.replace(/\.[^/.]+$/, ""))
-    ]);
-  }, [selectedFiles]);
-
-  const handleDrag = (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (e.type === "dragenter" || e.type === "dragover") setIsDragging(true);
-    else if (e.type === "dragleave") setIsDragging(false);
-  };
-
-  const handleDrop = (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragging(false);
-    if (e.dataTransfer.files?.length > 0) {
-      validateAndAddFiles(Array.from(e.dataTransfer.files));
-    }
-  };
-
-  const handleRemove = (index) => {
-    const updatedFiles = selectedFiles.filter((_, i) => i !== index);
-    setSelectedFiles(updatedFiles);
-    setTitles(prev => prev.filter((_, i) => i !== index));
-    
-    // Auto-clear error if we are now under the limit
-    if (updatedFiles.length < MAX_FILE_COUNT) {
-      setError("");
-    }
-  };
-
-  const handleUpload = async () => {
-    if (selectedFiles.length === 0) return;
-    setLoading(true);
-    try {
-      await uploadMultipleFiles(selectedFiles, titles);
-      if (onUploadComplete) onUploadComplete();
-      resetForm();
-    } catch (err) {
-      setError("Upload failed. Please check your connection.");
-    } finally {
-      setLoading(false);
-    }
-  };
+const DynamicDialog = ({
+  open,
+  onClose,
+  title,
+  subtitle,
+  children,
+  actions,
+  maxWidth = "sm",
+  fullWidth = true,
+  showCloseIcon = true,
+}) => {
+  const theme = useTheme();
+  const fullScreen = useMediaQuery(theme.breakpoints.down("sm"));
 
   return (
-    <Card sx={{ maxWidth: 800, mx: "auto", borderRadius: 4, border: '1px solid', borderColor: 'divider', boxShadow: '0 4px 20px rgba(0,0,0,0.05)' }}>
-      <CardContent sx={{ p: 4 }}>
-        
-        {/* Header with Visual Counter */}
-        <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 4 }}>
-          <Box>
-            <Typography variant="h5" fontWeight={800} sx={{ letterSpacing: '-0.5px' }}>
-              Upload Documents
-            </Typography>
-            <Typography variant="body2" color="text.secondary">
-              Attach supporting files for your application.
-            </Typography>
-          </Box>
-          <Box sx={{ position: 'relative', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
-            <CircularProgress 
-                variant="determinate" 
-                value={(selectedFiles.length / MAX_FILE_COUNT) * 100} 
-                size={50} 
-                thickness={5}
-                color={selectedFiles.length === MAX_FILE_COUNT ? "success" : "primary"}
-            />
-            <Typography variant="caption" component="div" sx={{ position: 'absolute', fontWeight: 700 }}>
-              {selectedFiles.length}/{MAX_FILE_COUNT}
-            </Typography>
-          </Box>
-        </Stack>
-
-        {/* Improved Drag & Drop Zone */}
-        <Paper
-          onDragEnter={handleDrag}
-          onDragLeave={handleDrag}
-          onDragOver={handleDrag}
-          onDrop={handleDrop}
-          elevation={0}
-          sx={{
-            p: 6,
-            borderRadius: 3,
-            border: "2px dashed",
-            transition: "all 0.2s ease",
-            cursor: selectedFiles.length >= MAX_FILE_COUNT ? "not-allowed" : "pointer",
-            borderColor: isDragging ? "primary.main" : "grey.300",
-            bgcolor: isDragging ? alpha("#1976d2", 0.04) : "grey.50",
-            "&:hover": { bgcolor: selectedFiles.length < MAX_FILE_COUNT ? "grey.100" : "grey.50" }
-          }}
-          component="label"
-        >
-          <input type="file" multiple hidden onChange={(e) => validateAndAddFiles(Array.from(e.target.files))} disabled={selectedFiles.length >= MAX_FILE_COUNT} />
-          <Stack spacing={1} alignItems="center">
-            <FileUploadOutlinedIcon sx={{ fontSize: 40, color: isDragging ? "primary.main" : "text.secondary" }} />
-            <Typography variant="subtitle1" fontWeight={700}>
-                {selectedFiles.length >= MAX_FILE_COUNT ? "File Limit Reached" : "Click or drag files here"}
-            </Typography>
+    <Dialog
+      open={open}
+      onClose={onClose}
+      TransitionComponent={Transition}
+      maxWidth={maxWidth}
+      fullWidth={fullWidth}
+      fullScreen={fullScreen} // Auto-mobile responsive
+      PaperProps={{
+        sx: {
+          borderRadius: fullScreen ? 0 : 3,
+          padding: 1,
+        },
+      }}
+    >
+      {/* Header Section */}
+      <DialogTitle sx={{ m: 0, p: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <Box>
+          <Typography variant="h6" fontWeight={800} component="div">
+            {title}
+          </Typography>
+          {subtitle && (
             <Typography variant="caption" color="text.secondary">
-              PDF, JPG, PNG up to {MAX_FILE_SIZE_MB}MB
+              {subtitle}
             </Typography>
-          </Stack>
-        </Paper>
+          )}
+        </Box>
+        {showCloseIcon ? (
+          <IconButton
+            aria-label="close"
+            onClick={onClose}
+            sx={{
+              color: (theme) => theme.palette.grey[500],
+            }}
+          >
+            <CloseIcon />
+          </IconButton>
+        ) : null}
+      </DialogTitle>
 
-        {/* Validation Error */}
-        <Fade in={!!error}>
-          <Alert severity="error" variant="filled" sx={{ mt: 2, borderRadius: 2, fontWeight: 500 }}>
-            {error}
-          </Alert>
-        </Fade>
+      {/* Content Section */}
+      <DialogContent dividers sx={{ borderBottom: 'none', py: 3 }}>
+        {children}
+      </DialogContent>
 
-        {/* Document List */}
-        <Stack spacing={2} sx={{ mt: 4 }}>
-          {selectedFiles.map((file, index) => (
-            <Paper 
-                key={index} 
-                variant="outlined" 
-                sx={{ p: 2, borderRadius: 2, bgcolor: 'background.paper', "&:hover": { boxShadow: '0 2px 8px rgba(0,0,0,0.05)' } }}
-            >
-              <Stack direction="row" spacing={2} alignItems="flex-start">
-                <Box sx={{ p: 1, borderRadius: 1.5, bgcolor: alpha("#1976d2", 0.1), color: "primary.main", display: 'flex' }}>
-                  <InsertDriveFileIcon />
-                </Box>
-                <Box flex={1}>
-                  <Stack direction="row" justifyContent="space-between" alignItems="center">
-                    <Typography variant="body2" fontWeight={700} noWrap sx={{ maxWidth: '80%' }}>
-                      {file.name}
-                    </Typography>
-                    <IconButton onClick={() => handleRemove(index)} size="small" sx={{ color: 'text.disabled', "&:hover": { color: 'error.main' } }}>
-                      <DeleteOutlineIcon fontSize="small" />
-                    </IconButton>
-                  </Stack>
-                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
-                    {(file.size / (1024 * 1024)).toFixed(2)} MB
-                  </Typography>
-                  <TextField
-                    fullWidth
-                    size="small"
-                    variant="filled"
-                    label="Document Title"
-                    value={titles[index] || ""}
-                    onChange={(e) => {
-                      const newTitles = [...titles];
-                      newTitles[index] = e.target.value;
-                      setTitles(newTitles);
-                    }}
-                    sx={{ "& .MuiInputBase-root": { bgcolor: 'white' } }}
-                  />
-                </Box>
-              </Stack>
-            </Paper>
-          ))}
-        </Stack>
-
-        {/* Action Footer */}
-        {selectedFiles.length > 0 && (
-          <Box sx={{ mt: 4, pt: 3, borderTop: '1px solid', borderColor: 'divider' }}>
-            <Stack direction="row" spacing={2} justifyContent="flex-end">
-              <Button color="inherit" onClick={resetForm} disabled={loading} sx={{ fontWeight: 600 }}>
-                Discard All
-              </Button>
-              <Button
-                variant="contained"
-                onClick={handleUpload}
-                disabled={loading}
-                startIcon={loading ? <CircularProgress size={20} color="inherit" /> : <CloudDoneIcon />}
-                sx={{ px: 4, py: 1, borderRadius: 2, fontWeight: 700, textTransform: 'none' }}
-              >
-                {loading ? "Uploading..." : "Finish Upload"}
-              </Button>
-            </Stack>
-          </Box>
-        )}
-      </CardContent>
-      {loading && <LinearProgress sx={{ position: 'absolute', bottom: 0, left: 0, right: 0 }} />}
-    </Card>
+      {/* Footer Section (Optional) */}
+      {actions && (
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          {actions}
+        </DialogActions>
+      )}
+    </Dialog>
   );
 };
 
-export default ProfessionalFileRepeater;
+export default DynamicDialog;
