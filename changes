@@ -1,1 +1,189 @@
 
+"use client";
+
+import React, { useState, useEffect, useMemo } from "react";
+import {
+  Box,
+  TextField,
+  Paper,
+  InputAdornment,
+  IconButton,
+  Typography,
+  Stack,
+} from "@mui/material";
+import { DataGrid, GridToolbarContainer, GridToolbarExport, GridRow } from "@mui/x-data-grid";
+import { Search, Clear, DragIndicator, Sort } from "@mui/icons-material";
+import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
+
+// --- Smooth Draggable Row ---
+const DraggableRow = ({ id, index, style, ...props }) => {
+  if (id === undefined) return <GridRow {...props} />;
+
+  return (
+    <Draggable draggableId={String(id)} index={index}>
+      {(provided, snapshot) => {
+        const combinedStyle = {
+          ...style,
+          ...provided.draggableProps.style,
+          transition: snapshot.isDragging ? "all 0.2s ease" : "all 0.2s ease",
+          boxShadow: snapshot.isDragging ? "0 4px 12px rgba(0,0,0,0.1)" : "none",
+          backgroundColor: snapshot.isDragging ? "#f0f0f0" : "inherit",
+          cursor: "grab",
+          borderRadius: 2,
+        };
+
+        return (
+          <div
+            ref={provided.innerRef}
+            {...provided.draggableProps}
+            {...provided.dragHandleProps}
+            style={combinedStyle}
+          >
+            <GridRow {...props} />
+          </div>
+        );
+      }}
+    </Draggable>
+  );
+};
+
+const AdvancedDataGrid = ({
+  data = [],
+  columns = [],
+  rowIdField = "id",
+  enableReorder = true,
+  searchPlaceholder = "Search and reorder...",
+  onSelectionChange,
+  checkboxSelection = true,
+  height = 500,
+}) => {
+  const [searchText, setSearchText] = useState("");
+  const [rows, setRows] = useState(data);
+
+  useEffect(() => {
+    setRows(data);
+  }, [data]);
+
+  // --- Filter rows ---
+  const filteredRows = useMemo(() => {
+    const term = searchText.toLowerCase().trim();
+    if (!term) return rows;
+    return rows.filter((row) =>
+      Object.values(row).some(
+        (val) => val !== null && String(val).toLowerCase().includes(term)
+      )
+    );
+  }, [rows, searchText]);
+
+  // --- Drag End ---
+  const onDragEnd = (result) => {
+    if (!result.destination) return;
+
+    const newItems = Array.from(filteredRows);
+    const [moved] = newItems.splice(result.source.index, 1);
+    newItems.splice(result.destination.index, 0, moved);
+
+    const newRows = [...rows];
+    newItems.forEach((item, idx) => {
+      const originalIndex = newRows.findIndex((r) => r[rowIdField] === item[rowIdField]);
+      newRows.splice(originalIndex, 1);
+      newRows.splice(idx, 0, item);
+    });
+
+    setRows(newRows);
+  };
+
+  // --- Drag Handle Column ---
+  const finalColumns = useMemo(() => {
+    if (!enableReorder) return columns;
+
+    return [
+      {
+        field: "drag_handle",
+        headerName: "",
+        width: 50,
+        sortable: false,
+        filterable: false,
+        disableColumnMenu: true,
+        renderCell: () => <DragIndicator sx={{ color: "action.disabled" }} />,
+      },
+      ...columns,
+    ];
+  }, [columns, enableReorder]);
+
+  return (
+    <Paper elevation={2} sx={{ borderRadius: 2, overflow: "hidden", border: "1px solid #eee" }}>
+      {/* Header / Search */}
+      <Box sx={{ p: 2, bgcolor: "white" }}>
+        <Stack direction="row" justifyContent="space-between" alignItems="center">
+          <Typography
+            variant="subtitle1"
+            fontWeight="bold"
+            sx={{ display: "flex", alignItems: "center", gap: 1 }}
+          >
+            <Sort fontSize="small" /> Data Explorer
+          </Typography>
+
+          <TextField
+            size="small"
+            placeholder={searchPlaceholder}
+            value={searchText}
+            onChange={(e) => setSearchText(e.target.value)}
+            sx={{ width: 300 }}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <Search fontSize="small" />
+                </InputAdornment>
+              ),
+              endAdornment: searchText && (
+                <IconButton size="small" onClick={() => setSearchText("")}>
+                  <Clear fontSize="small" />
+                </IconButton>
+              ),
+            }}
+          />
+        </Stack>
+      </Box>
+
+      {/* Drag & Drop */}
+      <DragDropContext onDragEnd={onDragEnd}>
+        <Droppable droppableId="grid-droppable">
+          {(provided) => (
+            <Box
+              ref={provided.innerRef}
+              {...provided.droppableProps}
+              sx={{ height, width: "100%" }}
+            >
+              <DataGrid
+                rows={filteredRows}
+                columns={finalColumns}
+                getRowId={(row) => row[rowIdField]}
+                checkboxSelection={checkboxSelection}
+                onRowSelectionModelChange={(ids) => onSelectionChange?.(ids)}
+                disableRowSelectionOnClick
+                disableVirtualization={true} // required for drag
+                slots={{
+                  row: enableReorder ? DraggableRow : GridRow,
+                  toolbar: () => (
+                    <GridToolbarContainer sx={{ p: 1, borderBottom: "1px solid #eee" }}>
+                      <GridToolbarExport />
+                    </GridToolbarContainer>
+                  ),
+                }}
+                sx={{
+                  border: "none",
+                  "& .MuiDataGrid-row:hover": { bgcolor: "#f9f9f9" },
+                  "& .MuiDataGrid-columnHeaders": { bgcolor: "#fafafa", borderBottom: "2px solid #eee" },
+                }}
+              />
+              {provided.placeholder}
+            </Box>
+          )}
+        </Droppable>
+      </DragDropContext>
+    </Paper>
+  );
+};
+
+export default AdvancedDataGrid;
