@@ -1,183 +1,3 @@
-// "use client";
-
-// import React, { useState, useEffect, useMemo, useCallback } from "react";
-// import {
-//   Box,
-//   TextField,
-//   Paper,
-//   InputAdornment,
-//   IconButton,
-//   Typography,
-//   Stack,
-//   Divider,
-//   Card,
-//   CardContent,
-// } from "@mui/material";
-// import { DataGrid, GridToolbarContainer, GridToolbarExport } from "@mui/x-data-grid";
-// import { Search, Clear, DragIndicator, Storage } from "@mui/icons-material";
-// import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
-
-// /**
-//  * 1. Define Toolbar outside to prevent re-render loops
-//  */
-// const CustomToolbar = () => (
-//   <GridToolbarContainer sx={{ p: 1, borderBottom: "1px solid", borderColor: "divider" }}>
-//     <GridToolbarExport />
-//   </GridToolbarContainer>
-// );
-
-// const AdvancedDataGrid = ({
-//   data = [],
-//   columns = [],
-//   rowIdField = "id",
-//   enableReorder = true,
-//   searchPlaceholder = "Search records...",
-//   onSelectionChange,
-//   checkboxSelection = true,
-// }) => {
-//   const [searchText, setSearchText] = useState("");
-//   const [gridRows, setGridRows] = useState([]);
-
-//   // Sync rows whenever the prop data changes
-//   useEffect(() => {
-//     if (data) {
-//       setGridRows(data);
-//     }
-//   }, [data]);
-
-//   // 2. High-Performance Search Logic
-//   const filteredRows = useMemo(() => {
-//     const term = searchText.toLowerCase().trim();
-//     if (!term) return gridRows;
-
-//     return gridRows.filter((row) =>
-//       Object.values(row).some(
-//         (val) => val !== null && val !== undefined && String(val).toLowerCase().includes(term)
-//       )
-//     );
-//   }, [gridRows, searchText]);
-
-//   // 3. Drag and Drop Handler
-//   const onDragEnd = useCallback((result) => {
-//     if (!result.destination) return;
-
-//     const reordered = Array.from(gridRows);
-//     const [movedItem] = reordered.splice(result.source.index, 1);
-//     reordered.splice(result.destination.index, 0, movedItem);
-
-//     setGridRows(reordered);
-//   }, [gridRows]);
-
-//   // 4. Column Definitions (adding Drag Handle)
-//   const finalColumns = useMemo(() => {
-//     const baseColumns = columns.map((col) => ({
-//       ...col,
-//       flex: col.flex || 1,
-//       minWidth: col.width || 120,
-//     }));
-
-//     if (enableReorder) {
-//       return [
-//         {
-//           field: "drag_handle",
-//           headerName: "",
-//           width: 50,
-//           sortable: false,
-//           filterable: false,
-//           disableColumnMenu: true,
-//           renderCell: () => (
-//             <Box sx={{ display: "flex", alignItems: "center", height: "100%" }}>
-//               <DragIndicator sx={{ color: "action.disabled", cursor: "grab" }} />
-//             </Box>
-//           ),
-//         },
-//         ...baseColumns,
-//       ];
-//     }
-//     return baseColumns;
-//   }, [columns, enableReorder]);
-
-//   return (
-//     <Card variant="outlined" sx={{ borderRadius: 2, boxShadow: "0 2px 10px rgba(0,0,0,0.05)" }}>
-//       <CardContent sx={{ p: 0, "&:last-child": { pb: 0 } }}>
-//         <Stack spacing={0}>
-//           {/* Header Section styled like your reference code */}
-//           <Box sx={{ p: 2, bgcolor: "background.paper" }}>
-//             <Stack direction={{ xs: "column", sm: "row" }} spacing={2} alignItems="center">
-//               <Stack direction="row" spacing={1} alignItems="center" sx={{ flexGrow: 1 }}>
-//                 <Storage color="primary" />
-//                 <Typography variant="h6" fontWeight="600">
-//                   Data Management
-//                 </Typography>
-//               </Stack>
-
-//               <TextField
-//                 size="small"
-//                 variant="outlined"
-//                 placeholder={searchPlaceholder}
-//                 value={searchText}
-//                 onChange={(e) => setSearchText(e.target.value)}
-//                 sx={{ width: { xs: "100%", sm: 300 }, bgcolor: "white" }}
-//                 InputProps={{
-//                   startAdornment: (
-//                     <InputAdornment position="start">
-//                       <Search fontSize="small" color="action" />
-//                     </InputAdornment>
-//                   ),
-//                   endAdornment: searchText && (
-//                     <IconButton size="small" onClick={() => setSearchText("")}>
-//                       <Clear fontSize="small" />
-//                     </IconButton>
-//                   ),
-//                 }}
-//               />
-//             </Stack>
-//           </Box>
-
-//           <Divider />
-
-//           {/* Grid Section */}
-//           <Box sx={{ height: 500, width: "100%" }}>
-//             <DragDropContext onDragEnd={onDragEnd}>
-//               <Droppable droppableId="datagrid-droppable">
-//                 {(provided) => (
-//                   <div {...provided.droppableProps} ref={provided.innerRef} style={{ height: "100%" }}>
-//                     <DataGrid
-//                       rows={filteredRows}
-//                       columns={finalColumns}
-//                       getRowId={(row) => row[rowIdField]}
-//                       checkboxSelection={checkboxSelection}
-//                       onRowSelectionModelChange={(ids) => onSelectionChange?.(ids)}
-//                       disableRowSelectionOnClick
-//                       slots={{ toolbar: CustomToolbar }}
-//                       sx={{
-//                         border: "none",
-//                         "& .MuiDataGrid-columnHeaders": {
-//                           bgcolor: "grey.50",
-//                           color: "text.primary",
-//                           fontWeight: "bold",
-//                         },
-//                         "& .MuiDataGrid-cell:focus": {
-//                           outline: "none",
-//                         },
-//                         "& .MuiDataGrid-row:hover": {
-//                           bgcolor: "action.hover",
-//                         },
-//                       }}
-//                     />
-//                     {provided.placeholder}
-//                   </div>
-//                 )}
-//               </Droppable>
-//             </DragDropContext>
-//           </Box>
-//         </Stack>
-//       </CardContent>
-//     </Card>
-//   );
-// };
-
-// export default AdvancedDataGrid;
 "use client";
 
 import React, { useState, useEffect, useMemo } from "react";
@@ -190,9 +10,33 @@ import {
   Typography,
   Stack,
 } from "@mui/material";
-import { DataGrid, GridToolbarContainer, GridToolbarExport } from "@mui/x-data-grid";
+import { DataGrid, GridToolbarContainer, GridToolbarExport, GridRow } from "@mui/x-data-grid";
 import { Search, Clear, DragIndicator, Sort } from "@mui/icons-material";
 import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
+
+// --- Custom Row Wrapper ---
+const DraggableRow = (props) => {
+  const { id, index } = props.rowNode; // DataGrid provides row info here
+  
+  return (
+    <Draggable draggableId={String(id)} index={props.index}>
+      {(provided, snapshot) => (
+        <GridRow
+          {...props}
+          ref={provided.innerRef}
+          {...provided.draggableProps}
+          {...provided.dragHandleProps} // Attach handle here or to a specific cell
+          style={{
+            ...props.style,
+            ...provided.draggableProps.style,
+            backgroundColor: snapshot.isDragging ? "#f5f5f5" : "transparent",
+            cursor: "grab",
+          }}
+        />
+      )}
+    </Draggable>
+  );
+};
 
 const AdvancedDataGrid = ({
   data = [],
@@ -210,7 +54,6 @@ const AdvancedDataGrid = ({
     setRows(data);
   }, [data]);
 
-  // 1. Better Search Engine (Handles nested data & dates)
   const filteredRows = useMemo(() => {
     const term = searchText.toLowerCase().trim();
     if (!term) return rows;
@@ -221,7 +64,6 @@ const AdvancedDataGrid = ({
     );
   }, [rows, searchText]);
 
-  // 2. Drag & Drop Logic
   const onDragEnd = (result) => {
     if (!result.destination) return;
     const items = Array.from(rows);
@@ -230,7 +72,6 @@ const AdvancedDataGrid = ({
     setRows(items);
   };
 
-  // 3. Columns with Drag Handle
   const finalColumns = useMemo(() => {
     const dragCol = {
       field: "drag_handle",
@@ -238,39 +79,14 @@ const AdvancedDataGrid = ({
       width: 50,
       sortable: false,
       renderCell: () => (
-        <DragIndicator sx={{ color: "action.disabled", cursor: "grab" }} />
+        <DragIndicator sx={{ color: "action.disabled" }} />
       ),
     };
     return enableReorder ? [dragCol, ...columns] : columns;
   }, [columns, enableReorder]);
 
-  // 4. Custom Draggable Row Component
-  const DraggableRow = (props) => {
-    const { row, index } = props;
-    return (
-      <Draggable draggableId={String(row[rowIdField])} index={index}>
-        {(provided, snapshot) => (
-          <div
-            ref={provided.innerRef}
-            {...provided.draggableProps}
-            {...provided.dragHandleProps}
-            style={{
-              ...provided.draggableProps.style,
-              backgroundColor: snapshot.isDragging ? "#f5f5f5" : "transparent",
-              display: "contents", // Keeps DataGrid layout intact
-            }}
-          >
-            {/* The actual DataGrid Row is rendered by the parent via the 'slots' prop */}
-            {props.children}
-          </div>
-        )}
-      </Draggable>
-    );
-  };
-
   return (
     <Paper elevation={2} sx={{ borderRadius: 2, overflow: "hidden", border: "1px solid #eee" }}>
-      {/* Header Area */}
       <Box sx={{ p: 2, bgcolor: "white" }}>
         <Stack direction="row" justifyContent="space-between" alignItems="center">
           <Typography variant="subtitle1" fontWeight="bold" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -292,7 +108,6 @@ const AdvancedDataGrid = ({
         </Stack>
       </Box>
 
-      {/* Drag Context wrapping the Grid */}
       <DragDropContext onDragEnd={onDragEnd}>
         <Droppable droppableId="grid-droppable">
           {(provided) => (
@@ -304,8 +119,8 @@ const AdvancedDataGrid = ({
                 checkboxSelection={checkboxSelection}
                 onRowSelectionModelChange={(ids) => onSelectionChange?.(ids)}
                 disableRowSelectionOnClick
-                hideFooterSelectedRowCount={false}
                 slots={{
+                  row: enableReorder ? DraggableRow : GridRow, // Inject custom row here
                   toolbar: () => (
                     <GridToolbarContainer sx={{ p: 1, borderBottom: '1px solid #eee' }}>
                       <GridToolbarExport />
