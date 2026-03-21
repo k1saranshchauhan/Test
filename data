@@ -31,7 +31,6 @@ const ProgressTable = ({ data }) => {
   const reportData = data.data;
   const years = Object.keys(reportData).sort();
 
-  // Unified Hierarchy Logic from Old Code + New Data Structure
   const hierarchy = useMemo(() => {
     const tree = {};
     years.forEach((year) => {
@@ -50,7 +49,6 @@ const ProgressTable = ({ data }) => {
           };
         }
 
-        // Financial Data from Old Code
         tree[minName][deptName][schemeName].financialInfo[year] = {
           be: schemeEntry.financialOutlay || 0,
           ae: schemeEntry.actualExpenditure || 0,
@@ -66,6 +64,7 @@ const ProgressTable = ({ data }) => {
                   statement: section.name,
                   indicatorName: ind.indicator.name,
                   unit: ind.unit?.name || "nos.",
+                  period: ind.period?.name || "Duration",
                   frequency: ind.frequency?.name || "Yearly",
                   yearlyValues: {},
                 };
@@ -90,7 +89,7 @@ const ProgressTable = ({ data }) => {
   };
 
   return (
-    <Box sx={{ p: 0, backgroundColor: "#fdfdfd" }}>
+    <Box sx={{ p: 2, backgroundColor: "#fdfdfd" }}>
       {Object.entries(hierarchy).map(([minName, departments], minIdx) => (
         <Box key={minName} sx={{ mb: 6 }}>
           <Typography variant="h4" sx={{ color: "#1a237e", fontWeight: "bold", mb: 2, fontSize: "22px" }}>
@@ -110,7 +109,6 @@ const ProgressTable = ({ data }) => {
                 const subKeys = getSubKeys(frequency);
                 const showTotalCol = !isYearly;
 
-                // colSpan: (subKeys + TotalCol) * 3 metrics
                 const yearColSpan = (subKeys.length + (showTotalCol ? 1 : 0)) * 3;
 
                 return (
@@ -120,17 +118,22 @@ const ProgressTable = ({ data }) => {
                     </Typography>
 
                     <TableContainer component={Paper} sx={{ boxShadow: "0px 4px 20px rgba(0,0,0,0.1)", borderRadius: "8px" }}>
-                      <Table size="small" sx={{ border: "1px solid #ccc" }}>
+                      <Table size="small" sx={{ border: "1px solid #ccc", minWidth: 1400 }}>
                         <TableHead>
                           <TableRow sx={{ backgroundColor: "#45154F" }}>
+                            {/* Restored Columns Headers */}
+                            <TableCell rowSpan={3} sx={{ color: "#fff", fontWeight: "bold", border: "1px solid #632a6d", textAlign: "center" }}>Indicator Type</TableCell>
+                            <TableCell rowSpan={3} sx={{ color: "#fff", fontWeight: "bold", border: "1px solid #632a6d", textAlign: "center" }}>Indicator Statement</TableCell>
                             <TableCell rowSpan={3} sx={{ color: "#fff", fontWeight: "bold", border: "1px solid #632a6d", textAlign: "center" }}>Indicator</TableCell>
                             <TableCell rowSpan={3} sx={{ color: "#fff", fontWeight: "bold", border: "1px solid #632a6d", textAlign: "center" }}>Unit</TableCell>
+                            <TableCell rowSpan={3} sx={{ color: "#fff", fontWeight: "bold", border: "1px solid #632a6d", textAlign: "center" }}>Period Attribute</TableCell>
+                            
                             {years.map((year) => (
                               <TableCell key={year} colSpan={yearColSpan} align="center" sx={{ color: "#fff", fontWeight: "bold", border: "1px solid #632a6d" }}>
                                 {year}-{parseInt(year) + 1}
                               </TableCell>
                             ))}
-                            <TableCell colSpan={2} rowSpan={2} align="center" sx={{ color: "#fff", fontWeight: "bold", border: "1px solid #632a6d", backgroundColor: "#2e0e35" }}>Cumulative (All Years)</TableCell>
+                            <TableCell colSpan={2} rowSpan={2} align="center" sx={{ color: "#fff", fontWeight: "bold", border: "1px solid #632a6d", backgroundColor: "#2e0e35" }}>Cumulative</TableCell>
                           </TableRow>
 
                           <TableRow sx={{ backgroundColor: "#45154F" }}>
@@ -148,7 +151,7 @@ const ProgressTable = ({ data }) => {
                               <React.Fragment key={`s-${year}`}>
                                 {["T", "P", "A"].map((type) => (
                                   <React.Fragment key={type}>
-                                    {subKeys.map((sk) => <TableCell key={sk} align="center" sx={{ color: "#fff", border: "1px solid #632a6d", fontSize: "0.6rem" }}>{isYearly ? "Value" : sk}</TableCell>)}
+                                    {subKeys.map((sk) => <TableCell key={sk} align="center" sx={{ color: "#fff", border: "1px solid #632a6d", fontSize: "0.6rem" }}>{isYearly ? "Yearly" : sk}</TableCell>)}
                                     {showTotalCol && <TableCell align="center" sx={{ color: "#fff", border: "1px solid #632a6d", fontWeight: "bold", fontSize: "0.6rem" }}>{type === "A" ? "Total %" : "Total"}</TableCell>}
                                   </React.Fragment>
                                 ))}
@@ -161,19 +164,22 @@ const ProgressTable = ({ data }) => {
 
                         <TableBody>
                           {Object.values(schemeContent.indicatorRows)
-                            .sort((a, b) => (a.type === "Outcome" ? -1 : 1)) // Sort Logic from Old Code
+                            .sort((a, b) => (a.type === "Outcome" ? -1 : 1))
                             .map((row, rIdx) => {
                               let grandTarget = 0;
                               let grandProgress = 0;
 
                               return (
                                 <TableRow key={rIdx} sx={{ "&:nth-of-type(even)": { backgroundColor: "#f9f9f9" } }}>
+                                  {/* Restored Body Cells */}
+                                  <TableCell sx={{ border: "1px solid #ddd" }}>{row.type}</TableCell>
+                                  <TableCell sx={{ border: "1px solid #ddd", fontSize: "0.8rem" }}>{row.statement}</TableCell>
                                   <TableCell sx={{ border: "1px solid #ddd" }}>{row.indicatorName}</TableCell>
                                   <TableCell sx={{ border: "1px solid #ddd", textAlign: "center" }}>{row.unit}</TableCell>
+                                  <TableCell sx={{ border: "1px solid #ddd", textAlign: "center" }}>{row.period}</TableCell>
                                   
                                   {years.map((year) => {
                                     const val = row.yearlyValues[year] || {};
-                                    
                                     const getSum = (obj) => {
                                       if (isYearly) return Number(obj) || 0;
                                       return subKeys.reduce((acc, key) => acc + (Number(obj?.[key]) || 0), 0);
@@ -207,7 +213,6 @@ const ProgressTable = ({ data }) => {
                                     );
                                   })}
                                   
-                                  {/* Cumulative Totals from Old Code */}
                                   <TableCell align="right" sx={{ border: "1px solid #ddd", fontWeight: "bold", backgroundColor: "#f0f4ff" }}>{formatDecimal(grandTarget)}</TableCell>
                                   <TableCell align="right" sx={{ border: "1px solid #ddd", fontWeight: "bold", backgroundColor: "#f0f4ff" }}>{formatDecimal(grandProgress)}</TableCell>
                                 </TableRow>
