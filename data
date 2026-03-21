@@ -1,127 +1,164 @@
+"use client";
+
 import React, { useEffect, useState } from "react";
 import {
   Box,
-  Button,
-  Typography,
-  Tooltip,
-  Card,
-  CardContent,
+  TextField,
+  Paper,
 } from "@mui/material";
-import apiClient from "@/utils/apiClient";
-import EnhancedSupportingDocumentsRepeater from "@/src/components/superadmin/EnhancedSupportingDocumentsRepeater";
-import AdvancedDataGrid from "@/src/components/superadmin/AdvancedDataGrid";
+import { DataGrid, GridToolbar } from "@mui/x-data-grid";
+import { DndContext, closestCenter, PointerSensor, useSensor, useSensors } from "@dnd-kit/core";
+import { arrayMove, SortableContext, verticalListSortingStrategy, useSortable } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import dayjs from "dayjs";
 
-const DocumentMergePage = () => {
-  const [documents, setDocuments] = useState([]);
-  const [selectionModel, setSelectionModel] = useState([]);
-
-  const [uploadState, setUploadState] = useState({ uploadedFiles: [] });
-
-  useEffect(() => {
-    fetchDocuments();
-  }, []);
-
-  const fetchDocuments = async () => {
-    try {
-      const res = await apiClient.get("api/document/get-folder-documents/3");
-      if (res?.data?.success) {
-        const filteredDocs = res.data.result.filter((doc) =>
-          doc.document_name?.toLowerCase().endsWith(".docx")
-        );
-        setDocuments(filteredDocs);
-      }
-    } catch (err) {
-      console.error(err);
-    }
+/**
+ * SortableRow wraps a row for DnD
+ */
+const SortableRow = ({ id, children }) => {
+  const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id });
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    marginBottom: 4,
   };
-
-  const uploadMultipleFiles = async (files, titles = [], description) => {
-    const formData = new FormData();
-    files.forEach((file, idx) => {
-      formData.append("files", file);
-      formData.append("titles[]", titles[idx] || file.name);
-    });
-    formData.append("reference_type", "document");
-    formData.append("remarks", description);
-
-    try {
-      const res = await apiClient.post("api/document/upload-files", formData);
-      return res.data.files;
-    } catch (err) {
-      console.error("Upload failed", err);
-      return [];
-    }
-  };
-
-  const handleMerge = async () => {
-    if (selectionModel.length < 2) return;
-    try {
-      await apiClient.post("api/merge-document", { documentIds: selectionModel });
-      alert("Documents merged successfully");
-      setSelectionModel([]);
-      fetchDocuments();
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  const columns = [
-    { field: "document_title", headerName: "Title", flex: 1 },
-    { field: "document_name", headerName: "File Name", flex: 1.5 },
-    { field: "uploaded_by", headerName: "Uploaded By", flex: 1 },
-    { field: "uploaded_at", headerName: "Uploaded At", flex: 1 },
-  ];
-
   return (
-    <Box p={3}>
-      <Typography variant="h5" fontWeight="bold" mb={2}>
-        Document Merge
-      </Typography>
-
-      <Card sx={{ mb: 3 }}>
-        <CardContent>
-          <Typography variant="h6" mb={2}>
-            Upload Documents
-          </Typography>
-
-          <EnhancedSupportingDocumentsRepeater
-            onUploadComplete={(uploadedFiles) =>
-              setUploadState({ uploadedFiles })
-            }
-            uploadMultipleFiles={uploadMultipleFiles}
-          />
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardContent>
-          <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
-            <Typography variant="h6">Available DOCX Documents</Typography>
-            <Tooltip title="Select at least 2 documents to merge">
-              <span>
-                <Button
-                  variant="contained"
-                  disabled={selectionModel.length < 2}
-                  onClick={handleMerge}
-                >
-                  Merge Documents
-                </Button>
-              </span>
-            </Tooltip>
-          </Box>
-
-          <AdvancedDataGrid
-            data={documents}
-            columns={columns}
-            rowIdField="document_id"
-            enableReorder={true}
-            checkboxSelection={true}
-            onSelectionChange={setSelectionModel}
-          />
-        </CardContent>
-      </Card>
-    </Box>
+    <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
+      {children}
+    </div>
   );
 };
 
-export default DocumentMergePage;
+const AdvancedDataGrid = ({
+  data = [],
+  columns = [],
+  rowIdField = "id",
+  enableReorder = false,
+  searchPlaceholder = "Search...",
+  onSelectionChange,
+  checkboxSelection = false,
+}) => {
+  const [searchText, setSearchText] = useState("");
+  const [filteredData, setFilteredData] = useState(data);
+  const [gridData, setGridData] = useState(data);
+  const [selectionModel, setSelectionModel] = useState([]);
+
+  useEffect(() => {
+    setGridData(data);
+    setFilteredData(data);
+  }, [data]);
+
+  // 🔍 Filtering logic
+  useEffect(() => {
+    const trimmedSearch = (searchText || "").trim().toLowerCase();
+    if (!trimmedSearch) {
+      setFilteredData(gridData);
+      return;
+    }
+
+    const ignoredKeys = ["id", "uuid", "raw"];
+    const searchObject = (obj) => {
+      if (!obj || typeof obj !== "object") return false;
+      const shallowMatch = Object.entries(obj).some(([key, val]) => {
+        if (ignoredKeys.includes(key.toLowerCase()) || val == null) return false;
+
+        if (key === "is_active" && typeof val === "boolean") {
+          const statusText = val ? "active" : "inactive";
+          return statusText.startsWith(trimmedSearch);
+        }
+
+        if (typeof val === "string" && /^\d{4}-\d{2}-\d{2}T/.test(val)) {
+          const formattedDate = dayjs(val).format("DD-MMM-YYYY").toLowerCase();
+          return formattedDate.includes(trimmedSearch);
+        }
+
+        if (typeof val === "string" || typeof val === "number") {
+          return val.toString().toLowerCase().includes(trimmedSearch);
+        }
+
+        return false;
+      });
+
+      if (shallowMatch) return true;
+
+      return Object.entries(obj).some(([key, val]) => {
+        if (ignoredKeys.includes(key.toLowerCase()) || val == null) return false;
+        if (typeof val === "object") {
+          if (Array.isArray(val)) return val.some((item) => searchObject(item));
+          else return searchObject(val);
+        }
+        return false;
+      });
+    };
+
+    const filtered = gridData.filter((item) => searchObject(item));
+    setFilteredData(filtered);
+  }, [searchText, gridData]);
+
+  // DnD sensors
+  const sensors = useSensors(useSensor(PointerSensor));
+
+  const handleDragEnd = (event) => {
+    const { active, over } = event;
+    if (active.id !== over.id) {
+      const oldIndex = filteredData.findIndex((row) => row[rowIdField] === active.id);
+      const newIndex = filteredData.findIndex((row) => row[rowIdField] === over.id);
+      const newData = arrayMove(filteredData, oldIndex, newIndex);
+      setFilteredData(newData);
+      setGridData(newData);
+    }
+  };
+
+  // Selection callback
+  useEffect(() => {
+    if (onSelectionChange) onSelectionChange(selectionModel);
+  }, [selectionModel]);
+
+  return (
+    <Paper elevation={0}>
+      <Box mb={1}>
+        <TextField
+          size="small"
+          fullWidth
+          placeholder={searchPlaceholder}
+          value={searchText}
+          onChange={(e) => setSearchText(e.target.value)}
+        />
+      </Box>
+
+      {enableReorder ? (
+        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+          <SortableContext items={filteredData.map((r) => r[rowIdField])} strategy={verticalListSortingStrategy}>
+            {filteredData.map((row) => (
+              <SortableRow key={row[rowIdField]} id={row[rowIdField]}>
+                <DataGrid
+                  autoHeight
+                  rows={[row]}
+                  columns={columns}
+                  getRowId={(r) => r[rowIdField]}
+                  checkboxSelection={checkboxSelection}
+                  onRowSelectionModelChange={(ids) => setSelectionModel(ids)}
+                  rowSelectionModel={selectionModel}
+                  hideFooter
+                />
+              </SortableRow>
+            ))}
+          </SortableContext>
+        </DndContext>
+      ) : (
+        <DataGrid
+          autoHeight
+          rows={filteredData}
+          columns={columns}
+          getRowId={(r) => r[rowIdField]}
+          checkboxSelection={checkboxSelection}
+          onRowSelectionModelChange={(ids) => setSelectionModel(ids)}
+          rowSelectionModel={selectionModel}
+          components={{ Toolbar: GridToolbar }}
+        />
+      )}
+    </Paper>
+  );
+};
+
+export default AdvancedDataGrid;
