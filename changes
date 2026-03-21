@@ -1,91 +1,207 @@
-import React from "react";
+"use client";
+
+import React, { useState, useMemo } from "react";
 import {
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  Button,
+  Box,
+  TextField,
+  Paper,
+  InputAdornment,
   IconButton,
   Typography,
-  Box,
-  Slide,
-  useTheme,
-  useMediaQuery,
+  Chip,
+  Stack,
+  Divider,
 } from "@mui/material";
-import CloseIcon from "@mui/icons-material/Close";
+import {
+  DataGrid,
+  GridToolbarContainer,
+  GridToolbarExport,
+  GridToolbarColumnsButton,
+} from "@mui/x-data-grid";
+import {
+  Search,
+  Clear,
+  KeyboardArrowUp,
+  KeyboardArrowDown,
+  FilterList,
+} from "@mui/icons-material";
 
-// Smooth transition from the bottom
-const Transition = React.forwardRef(function Transition(props, ref) {
-  return <Slide direction="up" ref={ref} {...props} />;
-});
-
-const DynamicDialog = ({
-  open,
-  onClose,
-  title,
-  subtitle,
-  children,
-  actions,
-  maxWidth = "sm",
-  fullWidth = true,
-  showCloseIcon = true,
+const AdvancedDataGrid = ({
+  data = [],
+  columns = [],
+  rowIdField = "id",
+  enableReorder = false,
+  searchPlaceholder = "Search records...",
+  onSelectionChange,
+  checkboxSelection = true,
 }) => {
-  const theme = useTheme();
-  const fullScreen = useMediaQuery(theme.breakpoints.down("sm"));
+  const [searchText, setSearchText] = useState("");
+  const [tableData, setTableData] = useState(data);
+
+  // Update internal state if props change
+  React.useEffect(() => {
+    setTableData(data);
+  }, [data]);
+
+  // 1. High-Performance Search Logic
+  const filteredRows = useMemo(() => {
+    const term = searchText.toLowerCase().trim();
+    if (!term) return tableData;
+
+    return tableData.filter((row) => {
+      return Object.values(row).some((val) => {
+        if (val === null || val === undefined) return false;
+        // Handles nested objects, strings, and numbers
+        return JSON.stringify(val).toLowerCase().includes(term);
+      });
+    });
+  }, [tableData, searchText]);
+
+  // 2. Manual Reordering Logic (Stable alternative to DnD)
+  const handleMove = (index, direction) => {
+    const newData = [...tableData];
+    const targetIndex = direction === "up" ? index - 1 : index + 1;
+    if (targetIndex < 0 || targetIndex >= newData.length) return;
+
+    [newData[index], newData[targetIndex]] = [newData[targetIndex], newData[index]];
+    setTableData(newData);
+  };
+
+  // 3. Enhance Columns with Reorder Buttons (if enabled)
+  const finalColumns = useMemo(() => {
+    const baseCols = columns.map((col) => ({
+      ...col,
+      flex: col.flex || 1,
+      minWidth: col.width || 150,
+      renderCell: (params) => {
+        // Auto-format booleans into nice Chips
+        if (typeof params.value === "boolean") {
+          return (
+            <Chip
+              label={params.value ? "Active" : "Inactive"}
+              color={params.value ? "success" : "default"}
+              size="small"
+              variant="outlined"
+            />
+          );
+        }
+        return params.value;
+      },
+    }));
+
+    if (enableReorder) {
+      return [
+        {
+          field: "reorder_actions",
+          headerName: "Order",
+          width: 100,
+          sortable: false,
+          renderCell: (params) => {
+            const index = tableData.findIndex((r) => r[rowIdField] === params.id);
+            return (
+              <Stack direction="row">
+                <IconButton 
+                  size="small" 
+                  disabled={index === 0} 
+                  onClick={() => handleMove(index, "up")}
+                >
+                  <KeyboardArrowUp fontSize="small" />
+                </IconButton>
+                <IconButton 
+                  size="small" 
+                  disabled={index === tableData.length - 1} 
+                  onClick={() => handleMove(index, "down")}
+                >
+                  <KeyboardArrowDown fontSize="small" />
+                </IconButton>
+              </Stack>
+            );
+          },
+        },
+        ...baseCols,
+      ];
+    }
+    return baseCols;
+  }, [columns, enableReorder, tableData]);
 
   return (
-    <Dialog
-      open={open}
-      onClose={onClose}
-      TransitionComponent={Transition}
-      maxWidth={maxWidth}
-      fullWidth={fullWidth}
-      fullScreen={fullScreen} // Auto-mobile responsive
-      PaperProps={{
-        sx: {
-          borderRadius: fullScreen ? 0 : 3,
-          padding: 1,
-        },
+    <Paper
+      elevation={3}
+      sx={{
+        borderRadius: 3,
+        overflow: "hidden",
+        border: "1px solid",
+        borderColor: "divider",
+        transition: "box-shadow 0.3s ease",
+        "&:hover": { boxShadow: 6 },
       }}
     >
-      {/* Header Section */}
-      <DialogTitle sx={{ m: 0, p: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Box>
-          <Typography variant="h6" fontWeight={800} component="div">
-            {title}
-          </Typography>
-          {subtitle && (
-            <Typography variant="caption" color="text.secondary">
-              {subtitle}
-            </Typography>
-          )}
-        </Box>
-        {showCloseIcon ? (
-          <IconButton
-            aria-label="close"
-            onClick={onClose}
-            sx={{
-              color: (theme) => theme.palette.grey[500],
+      {/* Search & Header Section */}
+      <Box sx={{ p: 2, bgcolor: "background.paper" }}>
+        <Stack direction="row" spacing={2} alignItems="center" mb={0}>
+          {/* <Typography variant="h6" fontWeight="700" sx={{ flexGrow: 1, color: "primary.main" }}>
+            Data Management
+          </Typography> */}
+          <TextField
+            size="small"
+            placeholder={searchPlaceholder}
+            value={searchText}
+            onChange={(e) => setSearchText(e.target.value)}
+            sx={{ width: 300 }}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <Search color="action" />
+                </InputAdornment>
+              ),
+              endAdornment: searchText && (
+                <IconButton size="small" onClick={() => setSearchText("")}>
+                  <Clear fontSize="small" />
+                </IconButton>
+              ),
             }}
-          >
-            <CloseIcon />
-          </IconButton>
-        ) : null}
-      </DialogTitle>
+          />
+        </Stack>
+        <Divider />
+      </Box>
 
-      {/* Content Section */}
-      <DialogContent dividers sx={{ borderBottom: 'none', py: 3 }}>
-        {children}
-      </DialogContent>
-
-      {/* Footer Section (Optional) */}
-      {actions && (
-        <DialogActions sx={{ px: 3, pb: 2 }}>
-          {actions}
-        </DialogActions>
-      )}
-    </Dialog>
+      {/* Grid Section */}
+      <Box sx={{ height: 600, width: "100%", px: 1 }}>
+        <DataGrid
+          rows={filteredRows}
+          columns={finalColumns}
+          getRowId={(row) => row[rowIdField]}
+          checkboxSelection={checkboxSelection}
+          onRowSelectionModelChange={(ids) => onSelectionChange?.(ids)}
+          disableRowSelectionOnClick
+          slots={{
+            toolbar: () => (
+              <GridToolbarContainer sx={{ p: 1 }}>
+                {/* <GridToolbarColumnsButton /> */}
+                {/* <GridToolbarExport /> */}
+                <Box sx={{ flexGrow: 1 }} />
+                {/* <Chip icon={<FilterList />} label={`${filteredRows.length} Records`} variant="outlined" /> */}
+              </GridToolbarContainer>
+            ),
+          }}
+          sx={{
+            border: "none",
+            "& .MuiDataGrid-columnHeader": {
+              bgcolor: "grey.50",
+              fontWeight: "bold",
+            },
+            "& .MuiDataGrid-row:hover": {
+              bgcolor: "primary.lighter", // Custom hover color (requires theme customization or use hex)
+              cursor: "pointer",
+            },
+            "& .MuiDataGrid-cell": {
+              borderColor: "grey.100",
+            },
+          }}
+        />
+      </Box>
+    </Paper>
   );
 };
 
-export default DynamicDialog;
+export default AdvancedDataGrid;
