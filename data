@@ -1,167 +1,223 @@
-"use client";
-
-import React, { useState, useMemo } from "react";
+import React, { useEffect, useState } from "react";
+import { DataGrid } from "@mui/x-data-grid";
+import { CustomAutoCompleteWithoutFormik } from "../../superadmin/CustomAutoCompleteWithoutFormik";
 import {
-  Box,
-  TextField,
-  Paper,
-  InputAdornment,
-  IconButton,
-  Typography,
-  Tooltip,
-} from "@mui/material";
-import { 
-  DataGrid, 
-  GridToolbarContainer, 
-  GridToolbarExport, 
-  GridToolbarColumnsButton,
-  GridToolbarFilterButton 
-} from "@mui/x-data-grid";
-import { Search, Clear, Reorder, Inventory } from "@mui/icons-material";
+  filterByFramework,
+} from "@/utils/niti/filterByFramework";
+import { oomfFrameworkId } from "@/src/constants/unified/frameworkConstants";
 
-/**
- * Custom Toolbar for a cleaner look
- */
-const CustomToolbar = () => (
-  <GridToolbarContainer sx={{ p: 1, gap: 1 }}>
-    <GridToolbarColumnsButton />
-    <GridToolbarFilterButton />
-    <GridToolbarExport />
-  </GridToolbarContainer>
-);
-
-const AdvancedDataGrid = ({
-  data = [],
-  columns = [],
-  rowIdField = "id",
-  enableReorder = false,
-  searchPlaceholder = "Search records...",
-  onSelectionChange,
-  checkboxSelection = false,
+const SchemeAcrossMd = ({
+  financialYearSchemeList,
+  selectedYearSchemeAcrossMd,
+  setSelectedYearSchemeAcrossMd,
+  schemeAcrossMd,
+  ministryList,
+  setMinistryList,
+  selectedMinistrySchemeAcrossMd,
+  setSelectedMinistrySchemeAcrossMd,
+  departmentListAcrossMd,
+  setDepartmentListAcrossMd,
+  selectedDepartmentAcrossMd,
+  setSelectedDepartmentAcrossMd,
 }) => {
-  const [searchText, setSearchText] = useState("");
-  const [selectionModel, setSelectionModel] = useState([]);
+  const [rows, setRows] = useState([]);
+  const [columns, setColumns] = useState([]);
 
-  // 1. Optimized Search Logic
-  const filteredRows = useMemo(() => {
-    const term = searchText.toLowerCase().trim();
-    if (!term) return data;
+  // Transform API data
+  const transformSchemeData = (data) => {
+    const result = [];
+    const allYearsSet = new Set();
 
-    return data.filter((row) => {
-      return Object.values(row).some((value) => {
-        if (value === null || value === undefined) return false;
-        return String(value).toLowerCase().includes(term);
+    data.forEach((ministryEntry) => {
+      const ministryName =
+        ministryEntry.ministry?.name?.trim() || "Unknown Ministry";
+
+      (ministryEntry.departments || []).forEach((dept) => {
+        const departmentName =
+          dept.department?.name?.trim() || "Unknown Department";
+
+        const row = {
+          id: `${ministryName}-${departmentName}`, // ✅ stable id
+          "Ministry Name": ministryName,
+          "Department Name": departmentName,
+        };
+
+        const yearsData = dept.yearsData || {};
+
+        Object.entries(yearsData).forEach(([year, yearInfo]) => {
+          row[year] = yearInfo?.totalSchemes ?? 0;
+          allYearsSet.add(year);
+        });
+
+        result.push(row);
       });
     });
-  }, [data, searchText]);
 
-  // 2. Add a Drag Handle Column if reordering is enabled
-  const finalColumns = useMemo(() => {
-    if (!enableReorder) return columns;
-    return [
-      {
-        field: "reorder",
-        headerName: "",
-        width: 50,
-        sortable: false,
-        filterable: false,
-        disableColumnMenu: true,
-        renderCell: () => (
-          <Tooltip title="Drag to reorder (Feature requires backend sequence)">
-            <Reorder sx={{ cursor: "grab", color: "action.active", mt: 1.5 }} />
-          </Tooltip>
-        ),
-      },
-      ...columns,
-    ];
-  }, [columns, enableReorder]);
+    const allYears = Array.from(allYearsSet).sort((a, b) => {
+      const numA = parseInt(a.split("-")[0]) || 0;
+      const numB = parseInt(b.split("-")[0]) || 0;
+      return numA - numB;
+    });
 
-  // 3. Custom Empty State UI
-  const NoRowsOverlay = () => (
-    <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
-      <Inventory sx={{ fontSize: 40, color: 'divider', mb: 1 }} />
-      <Typography variant="body2" color="text.secondary">No records found</Typography>
-    </Box>
-  );
+    result.forEach((row) => {
+      allYears.forEach((year) => {
+        if (!(year in row)) row[year] = "-";
+      });
+    });
+
+    return { rows: result, years: allYears };
+  };
+
+  // Auto-select logic
+  useEffect(() => {
+    const filteredMinistries =
+      filterByFramework(ministryList, oomfFrameworkId) || [];
+
+    if (
+      filteredMinistries?.length === 1 &&
+      selectedMinistrySchemeAcrossMd?.length === 0
+    ) {
+      setSelectedMinistrySchemeAcrossMd([filteredMinistries[0]?.id]);
+      setSelectedDepartmentAcrossMd([]);
+    }
+
+    const filteredDepartments =
+      filterByFramework(departmentListAcrossMd, oomfFrameworkId) || [];
+
+    if (
+      filteredDepartments?.length === 1 &&
+      selectedDepartmentAcrossMd?.length === 0
+    ) {
+      setSelectedDepartmentAcrossMd([filteredDepartments[0]?.id]);
+    }
+  }, [
+    ministryList,
+    departmentListAcrossMd,
+    selectedMinistrySchemeAcrossMd,
+    selectedDepartmentAcrossMd,
+  ]);
+
+  useEffect(() => {
+    if (schemeAcrossMd && schemeAcrossMd.length > 0) {
+      const { rows: transformedData, years: sortedYears } =
+        transformSchemeData(schemeAcrossMd);
+
+      // ✅ Add stable S.No (after transform)
+      const rowsWithIndex = transformedData.map((item, index) => ({
+        ...item,
+        "S.No": index + 1,
+      }));
+
+      const dynamicColumns = [
+        {
+          field: "S.No",
+          headerName: "S.No",
+          flex: 0.6,
+          headerAlign: "center",
+          align: "center",
+          sortable: false, // ✅ prevent reorder confusion
+        },
+        {
+          field: "Ministry Name",
+          headerName: "Ministry Name",
+          flex: 1.5,
+        },
+        {
+          field: "Department Name",
+          headerName: "Department Name",
+          flex: 1.5,
+        },
+        ...sortedYears.map((year) => ({
+          field: year,
+          headerName: year,
+          flex: 1,
+          headerAlign: "center",
+          align: "center",
+        })),
+      ];
+
+      setColumns(dynamicColumns);
+      setRows(rowsWithIndex);
+    } else {
+      setColumns([]);
+      setRows([]);
+    }
+  }, [
+    selectedMinistrySchemeAcrossMd,
+    selectedDepartmentAcrossMd,
+    selectedYearSchemeAcrossMd,
+    schemeAcrossMd,
+  ]);
 
   return (
-    <Paper 
-      elevation={0} 
-      variant="outlined" 
-      sx={{ 
-        width: "100%", 
-        borderRadius: 2,
-        overflow: "hidden",
-        border: "1px solid",
-        borderColor: "divider"
-      }}
-    >
-      {/* Search Header */}
-      <Box sx={{ p: 2, borderBottom: "1px solid", borderColor: "divider", bgcolor: "grey.50" }}>
-        <TextField
-          size="small"
-          fullWidth
-          variant="outlined"
-          placeholder={searchPlaceholder}
-          value={searchText}
-          onChange={(e) => setSearchText(e.target.value)}
-          InputProps={{
-            startAdornment: (
-              <InputAdornment position="start">
-                <Search fontSize="small" color="action" />
-              </InputAdornment>
-            ),
-            endAdornment: searchText && (
-              <InputAdornment position="end">
-                <IconButton size="small" onClick={() => setSearchText("")}>
-                  <Clear fontSize="small" />
-                </IconButton>
-              </InputAdornment>
-            ),
-          }}
-          sx={{ bgcolor: "white" }}
-        />
-      </Box>
+    <div>
+      <div
+        className="col-md-12 mb-4"
+        style={{
+          border: "1px solid lightgray",
+          borderRadius: "6px",
+          padding: "20px",
+          backgroundColor: "#fff",
+        }}
+      >
+        <div className="row">
+          <div className="col-md-12">
+            <h5 className="card-title text-dark mt-2 fw-bold">
+              Total Number of Scheme across all M/D
+            </h5>
+          </div>
 
-      {/* Main Grid */}
-      <Box sx={{ height: 500, width: "100%" }}>
-        <DataGrid
-          rows={filteredRows}
-          columns={finalColumns}
-          getRowId={(row) => row[rowIdField]}
-          checkboxSelection={checkboxSelection}
-          onRowSelectionModelChange={(newSelection) => {
-            setSelectionModel(newSelection);
-            if (onSelectionChange) onSelectionChange(newSelection);
-          }}
-          rowSelectionModel={selectionModel}
-          disableRowSelectionOnClick
-          pageSizeOptions={[5, 10, 25, 50]}
-          initialState={{
-            pagination: { paginationModel: { pageSize: 10 } },
-          }}
-          slots={{
-            toolbar: CustomToolbar,
-            noRowsOverlay: NoRowsOverlay,
-          }}
-          sx={{
-            border: "none",
-            "& .MuiDataGrid-columnHeaders": {
-              bgcolor: "grey.50",
-              color: "text.primary",
-              fontWeight: "bold",
-            },
-            "& .MuiDataGrid-cell:focus": {
-              outline: "none",
-            },
-            "& .MuiDataGrid-row:hover": {
-              bgcolor: "action.hover",
-            },
-          }}
-        />
-      </Box>
-    </Paper>
+          <div className="row px-0 mx-0 my-3">
+            {/* Year Filter */}
+            <div className="col-md-6">
+              <CustomAutoCompleteWithoutFormik
+                label="Financial Year"
+                multiple
+                selectAll
+                options={financialYearSchemeList || []}
+                getOptionLabel={(option) => option?.name || "Unknown"}
+                value={
+                  financialYearSchemeList?.filter((item) =>
+                    (selectedYearSchemeAcrossMd || []).includes(item.id)
+                  ) || []
+                }
+                onChange={(event, newValue) => {
+                  setSelectedYearSchemeAcrossMd(
+                    newValue.map((item) => item.id)
+                  );
+                }}
+                isOptionEqualToValue={(option, value) =>
+                  option.id === value.id
+                }
+                renderOption={(props, option) => (
+                  <li {...props} key={option.id}>
+                    {option.name}
+                  </li>
+                )}
+                fullWidth
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* DataGrid */}
+        <div style={{ height: 400, width: "100%", marginTop: "15px" }}>
+          <DataGrid
+            rows={rows}
+            columns={columns}
+            pageSize={5}
+            rowsPerPageOptions={[5, 10, 20]}
+            disableColumnFilter
+            disableSelectionOnClick
+            localeText={{
+              columnMenuSortAsc: "Sort as A to Z",
+              columnMenuSortDesc: "Sort as Z to A",
+            }}
+          />
+        </div>
+      </div>
+    </div>
   );
 };
 
-export default AdvancedDataGrid;
+export default SchemeAcrossMd;
