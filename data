@@ -1,9 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { DataGrid } from "@mui/x-data-grid";
 import { CustomAutoCompleteWithoutFormik } from "../../superadmin/CustomAutoCompleteWithoutFormik";
-import {
-  filterByFramework,
-} from "@/utils/niti/filterByFramework";
+import { filterByFramework } from "@/utils/niti/filterByFramework";
 import { oomfFrameworkId } from "@/src/constants/unified/frameworkConstants";
 
 const SchemeAcrossMd = ({
@@ -23,7 +21,7 @@ const SchemeAcrossMd = ({
   const [rows, setRows] = useState([]);
   const [columns, setColumns] = useState([]);
 
-  // Transform API data
+  // ✅ Transform API data
   const transformSchemeData = (data) => {
     const result = [];
     const allYearsSet = new Set();
@@ -31,13 +29,18 @@ const SchemeAcrossMd = ({
     data.forEach((ministryEntry) => {
       const ministryName =
         ministryEntry.ministry?.name?.trim() || "Unknown Ministry";
+      const ministryId = ministryEntry.ministry?.id || "M";
 
       (ministryEntry.departments || []).forEach((dept) => {
         const departmentName =
           dept.department?.name?.trim() || "Unknown Department";
+        const departmentId = dept.department?.id || "D";
+
+        // ✅ UNIQUE & STABLE ID (CRITICAL FIX)
+        const uniqueId = `${ministryId}-${departmentId}-${result.length}`;
 
         const row = {
-          id: `${ministryName}-${departmentName}`, // ✅ stable id
+          id: uniqueId,
           "Ministry Name": ministryName,
           "Department Name": departmentName,
         };
@@ -53,12 +56,14 @@ const SchemeAcrossMd = ({
       });
     });
 
+    // ✅ Sort years
     const allYears = Array.from(allYearsSet).sort((a, b) => {
       const numA = parseInt(a.split("-")[0]) || 0;
       const numB = parseInt(b.split("-")[0]) || 0;
       return numA - numB;
     });
 
+    // ✅ Fill missing years
     result.forEach((row) => {
       allYears.forEach((year) => {
         if (!(year in row)) row[year] = "-";
@@ -68,14 +73,14 @@ const SchemeAcrossMd = ({
     return { rows: result, years: allYears };
   };
 
-  // Auto-select logic
+  // ✅ Auto-select logic
   useEffect(() => {
     const filteredMinistries =
       filterByFramework(ministryList, oomfFrameworkId) || [];
 
     if (
-      filteredMinistries?.length === 1 &&
-      selectedMinistrySchemeAcrossMd?.length === 0
+      filteredMinistries.length === 1 &&
+      selectedMinistrySchemeAcrossMd.length === 0
     ) {
       setSelectedMinistrySchemeAcrossMd([filteredMinistries[0]?.id]);
       setSelectedDepartmentAcrossMd([]);
@@ -85,8 +90,8 @@ const SchemeAcrossMd = ({
       filterByFramework(departmentListAcrossMd, oomfFrameworkId) || [];
 
     if (
-      filteredDepartments?.length === 1 &&
-      selectedDepartmentAcrossMd?.length === 0
+      filteredDepartments.length === 1 &&
+      selectedDepartmentAcrossMd.length === 0
     ) {
       setSelectedDepartmentAcrossMd([filteredDepartments[0]?.id]);
     }
@@ -97,12 +102,13 @@ const SchemeAcrossMd = ({
     selectedDepartmentAcrossMd,
   ]);
 
+  // ✅ Build rows & columns
   useEffect(() => {
     if (schemeAcrossMd && schemeAcrossMd.length > 0) {
       const { rows: transformedData, years: sortedYears } =
         transformSchemeData(schemeAcrossMd);
 
-      // ✅ Add stable S.No (after transform)
+      // ✅ Stable S.No (NOT used as ID)
       const rowsWithIndex = transformedData.map((item, index) => ({
         ...item,
         "S.No": index + 1,
@@ -113,9 +119,9 @@ const SchemeAcrossMd = ({
           field: "S.No",
           headerName: "S.No",
           flex: 0.6,
-          headerAlign: "center",
           align: "center",
-          sortable: false, // ✅ prevent reorder confusion
+          headerAlign: "center",
+          sortable: false, // prevents confusion
         },
         {
           field: "Ministry Name",
@@ -131,22 +137,22 @@ const SchemeAcrossMd = ({
           field: year,
           headerName: year,
           flex: 1,
-          headerAlign: "center",
           align: "center",
+          headerAlign: "center",
         })),
       ];
 
-      setColumns(dynamicColumns);
       setRows(rowsWithIndex);
+      setColumns(dynamicColumns);
     } else {
-      setColumns([]);
       setRows([]);
+      setColumns([]);
     }
   }, [
+    schemeAcrossMd,
     selectedMinistrySchemeAcrossMd,
     selectedDepartmentAcrossMd,
     selectedYearSchemeAcrossMd,
-    schemeAcrossMd,
   ]);
 
   return (
@@ -200,7 +206,7 @@ const SchemeAcrossMd = ({
           </div>
         </div>
 
-        {/* DataGrid */}
+        {/* ✅ DataGrid */}
         <div style={{ height: 400, width: "100%", marginTop: "15px" }}>
           <DataGrid
             rows={rows}
