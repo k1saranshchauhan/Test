@@ -1,411 +1,296 @@
-"use client";
-import React, { useState, useCallback } from "react";
+import React, { useEffect, useState } from "react";
+import { DataGrid } from "@mui/x-data-grid";
+import { CustomAutoCompleteWithoutFormik } from "../../superadmin/CustomAutoCompleteWithoutFormik";
 import {
-  Box,
-  Button,
-  Typography,
-  IconButton,
-  TextField,
-  Stack,
-  Card,
-  CardContent,
-  Alert,
-  Fade,
-  LinearProgress,
-  Paper,
-  alpha,
-  CircularProgress,
-} from "@mui/material";
-import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
-import FileUploadOutlinedIcon from "@mui/icons-material/FileUploadOutlined";
-import CloudDoneIcon from "@mui/icons-material/CloudDone";
-import InsertDriveFileIcon from "@mui/icons-material/InsertDriveFile";
+  filterByFramework,
+  filterSchemesByFramework,
+} from "@/utils/niti/filterByFramework";
+import { oomfFrameworkId } from "@/src/constants/unified/frameworkConstants";
 
-const MAX_FILE_COUNT = 5;
-const MAX_FILE_SIZE_MB = 100;
-const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
-
-// ✅ Allowed file types
-const ALLOWED_FILE_TYPES = [
-  "application/pdf",
-  "application/msword",
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-];
-
-// For UI message
-const ALLOWED_EXTENSIONS = ["PDF", "DOC", "DOCX"];
-
-const ProfessionalFileRepeater = ({
-  onUploadComplete,
-  uploadMultipleFiles,
-  maxWidth,
+const SchemeAcrossMd = ({
+  financialYearSchemeList,
+  selectedYearSchemeAcrossMd,
+  setSelectedYearSchemeAcrossMd,
+  schemeAcrossMd,
+  ministryList,
+  setMinistryList,
+  selectedMinistrySchemeAcrossMd,
+  setSelectedMinistrySchemeAcrossMd,
+  departmentListAcrossMd,
+  setDepartmentListAcrossMd,
+  selectedDepartmentAcrossMd,
+  setSelectedDepartmentAcrossMd,
 }) => {
-  const [selectedFiles, setSelectedFiles] = useState([]);
-  const [titles, setTitles] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [isDragging, setIsDragging] = useState(false);
+  const [rows, setRows] = useState([]);
+  const [columns, setColumns] = useState([]);
 
-  const resetForm = () => {
-    setSelectedFiles([]);
-    setTitles([]);
-    setError("");
+  // Transform API data for DataGrid (Ministry → Department → Years)
+  const transformSchemeData = (data) => {
+    const result = [];
+    const allYearsSet = new Set();
+
+    data.forEach((ministryEntry) => {
+      const ministryName =
+        ministryEntry.ministry?.name?.trim() || "Unknown Ministry";
+
+      (ministryEntry.departments || []).forEach((dept) => {
+        const departmentName =
+          dept.department?.name?.trim() || "Unknown Department";
+        const row = {
+          "Ministry Name": ministryName,
+          "Department Name": departmentName,
+        };
+
+        const yearsData = dept.yearsData || {};
+        Object.entries(yearsData).forEach(([year, yearInfo]) => {
+          row[year] = yearInfo?.totalSchemes ?? 0;
+          allYearsSet.add(year);
+        });
+
+        result.push(row);
+      });
+    });
+
+    // Sort years like 2021-2022 → ascending order
+    const allYears = Array.from(allYearsSet).sort((a, b) => {
+      const numA = parseInt(a.split("-")[0]) || 0;
+      const numB = parseInt(b.split("-")[0]) || 0;
+      return numA - numB;
+    });
+
+    // Ensure every row has all year columns
+    result.forEach((row) => {
+      allYears.forEach((year) => {
+        if (!(year in row)) row[year] = "-";
+      });
+    });
+
+    return { rows: result, years: allYears };
   };
 
-  const validateAndAddFiles = useCallback(
-    (files) => {
-      setError("");
+  // Auto-select Ministry + Department when only 1 option exists
+useEffect(() => {
+  // ---- Auto-select Ministry ----
+  const filteredMinistries = filterByFramework(ministryList, oomfFrameworkId) || [];
+  if (
+    filteredMinistries?.length === 1 &&
+    selectedMinistrySchemeAcrossMd?.length === 0
+  ) {
+    const onlyMinistryId = filteredMinistries[0]?.id;
+    setSelectedMinistrySchemeAcrossMd([onlyMinistryId]);
 
-      if (selectedFiles.length + files.length > MAX_FILE_COUNT) {
-        setError(`Maximum limit of ${MAX_FILE_COUNT} files reached.`);
-        return;
-      }
+    // reset department selection
+    setSelectedDepartmentAcrossMd([]);
+  }
 
-      // ✅ Size validation
-      const oversizedFiles = files.filter(
-        (f) => f.size > MAX_FILE_SIZE_BYTES
-      );
-      if (oversizedFiles.length > 0) {
-        setError(`Some files exceed the ${MAX_FILE_SIZE_MB}MB limit.`);
-        return;
-      }
+  // ---- Auto-select Department ----
+  const filteredDepartments =
+    filterByFramework(departmentListAcrossMd, oomfFrameworkId) || [];
 
-      // ✅ Type validation
-      const invalidFiles = files.filter(
-        (file) => !ALLOWED_FILE_TYPES.includes(file.type)
-      );
-      if (invalidFiles.length > 0) {
-        setError(
-          `Only ${ALLOWED_EXTENSIONS.join(", ")} files are allowed.`
-        );
-        return;
-      }
+  if (
+    filteredDepartments?.length === 1 &&
+    selectedDepartmentAcrossMd?.length === 0
+  ) {
+    const onlyDepartmentId = filteredDepartments[0]?.id;
+    setSelectedDepartmentAcrossMd([onlyDepartmentId]);
+  }
+}, [
+  ministryList,
+  departmentListAcrossMd,
+  selectedMinistrySchemeAcrossMd,
+  selectedDepartmentAcrossMd,
+]);
 
-      setSelectedFiles((prev) => [...prev, ...files]);
-      setTitles((prev) => [
-        ...prev,
-        ...files.map((f) => f.name.replace(/\.[^/.]+$/, "")),
-      ]);
-    },
-    [selectedFiles]
-  );
 
-  const handleDrag = (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (e.type === "dragenter" || e.type === "dragover")
-      setIsDragging(true);
-    else if (e.type === "dragleave") setIsDragging(false);
-  };
+  useEffect(() => {
+    if (schemeAcrossMd && schemeAcrossMd.length > 0) {
+      const { rows: transformedData, years: sortedYears } =
+        transformSchemeData(schemeAcrossMd);
 
-  const handleDrop = (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragging(false);
-    if (e.dataTransfer.files?.length > 0) {
-      validateAndAddFiles(Array.from(e.dataTransfer.files));
+      // Add S.No
+      const rowsWithIndex = transformedData.map((item, index) => ({
+        id: index + 1,
+        "S.No": index + 1,
+        ...item,
+      }));
+
+      // Columns: S.No → Ministry → Department → Years
+      const dynamicColumns = [
+        {
+          field: "S.No",
+          headerName: "S.No",
+          flex: 0.6,
+          headerAlign: "center",
+          align: "center",
+        },
+        {
+          field: "Ministry Name",
+          headerName: "Ministry Name",
+          flex: 1.5,
+          headerAlign: "left",
+          align: "left",
+        },
+        {
+          field: "Department Name",
+          headerName: "Department Name",
+          flex: 1.5,
+          headerAlign: "left",
+          align: "left",
+        },
+        ...sortedYears.map((year) => ({
+          field: year,
+          headerName: year,
+          flex: 1,
+          headerAlign: "center",
+          align: "center",
+        })),
+      ];
+
+      setColumns(dynamicColumns);
+      setRows(rowsWithIndex);
+    } else {
+      setColumns([]);
+      setRows([]);
     }
-  };
-
-  const handleRemove = (index) => {
-    const updatedFiles = selectedFiles.filter((_, i) => i !== index);
-    setSelectedFiles(updatedFiles);
-    setTitles((prev) => prev.filter((_, i) => i !== index));
-
-    if (updatedFiles.length < MAX_FILE_COUNT) {
-      setError("");
-    }
-  };
-
-  const handleUpload = async () => {
-    if (selectedFiles.length === 0) return;
-    setLoading(true);
-    try {
-      await uploadMultipleFiles(selectedFiles, titles);
-      if (onUploadComplete) onUploadComplete();
-      resetForm();
-    } catch (err) {
-      setError("Upload failed. Please check your connection.");
-    } finally {
-      setLoading(false);
-    }
-  };
+  }, [
+    selectedMinistrySchemeAcrossMd,
+    selectedDepartmentAcrossMd,
+    selectedYearSchemeAcrossMd,
+    schemeAcrossMd,
+  ]);
 
   return (
-    <Card
-      sx={{
-        maxWidth: maxWidth,
-        mx: "auto",
-        borderRadius: 4,
-        border: "1px solid",
-        borderColor: "divider",
-        boxShadow: "0 4px 20px rgba(0,0,0,0.05)",
-        position: "relative",
-      }}
-    >
-      <CardContent sx={{ p: 3 }}>
-        {/* Header */}
-        <Stack
-          direction="row"
-          justifyContent="space-between"
-          alignItems="center"
-          sx={{ mb: 4 }}
-        >
-          <Box>
-            <Typography
-              variant="h6"
-              color="primary"
-              fontWeight={800}
-              sx={{ letterSpacing: "-0.5px" }}
-            >
-              Upload Documents
-            </Typography>
-          </Box>
-
-          <Box
-            sx={{
-              position: "relative",
-              display: "inline-flex",
-              alignItems: "center",
-              justifyContent: "center",
-            }}
-          >
-            <CircularProgress
-              variant="determinate"
-              value={(selectedFiles.length / MAX_FILE_COUNT) * 100}
-              size={50}
-              thickness={5}
-              color={
-                selectedFiles.length === MAX_FILE_COUNT
-                  ? "success"
-                  : "primary"
-              }
-            />
-            <Typography
-              variant="caption"
-              sx={{ position: "absolute", fontWeight: 700 }}
-            >
-              {selectedFiles.length}/{MAX_FILE_COUNT}
-            </Typography>
-          </Box>
-        </Stack>
-
-        {/* Drag & Drop */}
-        <Paper
-          onDragEnter={handleDrag}
-          onDragLeave={handleDrag}
-          onDragOver={handleDrag}
-          onDrop={handleDrop}
-          elevation={0}
-          component="label"
-          sx={{
-            p: 6,
-            width: "100%",
-            borderRadius: 3,
-            border: "2px dashed",
-            transition: "all 0.2s ease",
-            cursor:
-              selectedFiles.length >= MAX_FILE_COUNT
-                ? "not-allowed"
-                : "pointer",
-            borderColor: isDragging ? "primary.main" : "grey.300",
-            bgcolor: isDragging
-              ? alpha("#1976d2", 0.04)
-              : "grey.50",
-            "&:hover": {
-              bgcolor:
-                selectedFiles.length < MAX_FILE_COUNT
-                  ? "grey.100"
-                  : "grey.50",
-            },
-          }}
-        >
-          <input
-            type="file"
-            multiple
-            hidden
-            accept=".pdf,.doc,.docx"
-            onChange={(e) =>
-              validateAndAddFiles(Array.from(e.target.files))
-            }
-            disabled={selectedFiles.length >= MAX_FILE_COUNT}
-          />
-
-          <Stack spacing={1} alignItems="center">
-            <FileUploadOutlinedIcon
-              sx={{
-                fontSize: 40,
-                color: isDragging
-                  ? "primary.main"
-                  : "text.secondary",
-              }}
-            />
-            <Typography variant="subtitle1" fontWeight={700}>
-              {selectedFiles.length >= MAX_FILE_COUNT
-                ? "File Limit Reached"
-                : "Click or drag files here"}
-            </Typography>
-            <Typography variant="caption" color="text.secondary">
-              Only PDF/DOC/DOCX files up to {MAX_FILE_SIZE_MB}MB
-            </Typography>
-          </Stack>
-        </Paper>
-
-        {/* Error */}
-        <Fade in={!!error}>
-          <Alert
-            severity="error"
-            variant="filled"
-            sx={{ mt: 2, borderRadius: 2, fontWeight: 500 }}
-          >
-            {error}
-          </Alert>
-        </Fade>
-
-        {/* File List */}
-        <Stack spacing={2} sx={{ mt: 4 }}>
-          {selectedFiles.map((file, index) => (
-            <Paper
-              key={index}
-              variant="outlined"
-              sx={{
-                p: 2,
-                borderRadius: 2,
-                bgcolor: "background.paper",
-                "&:hover": {
-                  boxShadow: "0 2px 8px rgba(0,0,0,0.05)",
-                },
-              }}
-            >
-              <Stack direction="row" spacing={2} alignItems="flex-start">
-                <Box
-                  sx={{
-                    p: 1,
-                    borderRadius: 1.5,
-                    bgcolor: alpha("#1976d2", 0.1),
-                    color: "primary.main",
-                    display: "flex",
-                  }}
-                >
-                  <InsertDriveFileIcon />
-                </Box>
-
-                <Box flex={1}>
-                  <Stack
-                    direction="row"
-                    justifyContent="space-between"
-                    alignItems="center"
-                  >
-                    <Typography
-                      variant="body2"
-                      fontWeight={700}
-                      noWrap
-                      sx={{ maxWidth: "80%" }}
-                    >
-                      {file.name}
-                    </Typography>
-
-                    <IconButton
-                      onClick={() => handleRemove(index)}
-                      size="small"
-                      sx={{
-                        color: "text.disabled",
-                        "&:hover": { color: "error.main" },
-                      }}
-                    >
-                      <DeleteOutlineIcon fontSize="small" />
-                    </IconButton>
-                  </Stack>
-
-                  <Typography
-                    variant="caption"
-                    color="text.secondary"
-                    sx={{ display: "block", mb: 1.5 }}
-                  >
-                    {(file.size / (1024 * 1024)).toFixed(2)} MB
-                  </Typography>
-
-                  <TextField
-                    fullWidth
-                    size="small"
-                    variant="filled"
-                    label="Document Title"
-                    value={titles[index] || ""}
-                    onChange={(e) => {
-                      const newTitles = [...titles];
-                      newTitles[index] = e.target.value;
-                      setTitles(newTitles);
-                    }}
-                    sx={{
-                      "& .MuiInputBase-root": {
-                        bgcolor: "white",
-                      },
-                    }}
-                  />
-                </Box>
-              </Stack>
-            </Paper>
-          ))}
-        </Stack>
-
-        {/* Footer */}
-        {selectedFiles.length > 0 && (
-          <Box
-            sx={{
-              mt: 4,
-              pt: 3,
-              borderTop: "1px solid",
-              borderColor: "divider",
-            }}
-          >
-            <Stack direction="row" spacing={2} justifyContent="flex-end">
-              <Button
-                color="inherit"
-                onClick={resetForm}
-                disabled={loading}
-                sx={{ fontWeight: 600 }}
-              >
-                Discard All
-              </Button>
-
-              <Button
-                variant="contained"
-                onClick={handleUpload}
-                disabled={loading}
-                startIcon={
-                  loading ? (
-                    <CircularProgress size={20} color="inherit" />
-                  ) : (
-                    <CloudDoneIcon />
-                  )
+    <div >
+      <div
+        className="col-md-12 mb-4"
+        style={{
+          border: "1px solid lightgray",
+          borderRadius: "6px",
+          padding: "20px",
+          backgroundColor:"#fff",
+        }}
+      >
+        <div className="row">
+          <div className="col-md-12">
+            <h5 className="card-title text-dark mt-2 fw-bold">
+              Total Number of Scheme across all M/D
+            </h5>
+          </div>
+          <div className="row px-0 mx-0 my-3">
+      
+            {/* <div className="col-md-4">
+              <CustomAutoCompleteWithoutFormik
+                label="Ministry"
+                multiple
+                selectAll
+                options={filterByFramework(ministryList, oomfFrameworkId) || []}
+                getOptionLabel={(option) => option?.name || "Unknown"}
+                value={
+                  ministryList?.filter((item) =>
+                    (selectedMinistrySchemeAcrossMd || []).includes(item.id)
+                  ) || []
                 }
-                sx={{
-                  px: 4,
-                  py: 1,
-                  borderRadius: 2,
-                  fontWeight: 700,
-                  textTransform: "none",
+                onChange={(event, newValue) => {
+                  setSelectedMinistrySchemeAcrossMd(
+                    newValue.map((item) => item.id)
+                  );
+                  setSelectedDepartmentAcrossMd([]);
+                  setDepartmentListAcrossMd([]);
                 }}
-              >
-                {loading ? "Uploading..." : "Finish Upload"}
-              </Button>
-            </Stack>
-          </Box>
-        )}
-      </CardContent>
+                isOptionEqualToValue={(option, value) => option.id === value.id}
+                renderOption={(props, option) => (
+                  <li {...props} key={option.id}>
+                    {option.name}
+                  </li>
+                )}
+                fullWidth
+              />
+            </div>
+            <div className="col-md-4">
+              <CustomAutoCompleteWithoutFormik
+                label="Department"
+                multiple
+                selectAll
+                options={
+                  filterByFramework(departmentListAcrossMd, oomfFrameworkId) || []
+                }
+                getOptionLabel={(option) => option?.name || "Unknown Part"}
+                value={
+                  departmentListAcrossMd?.filter((item) =>
+                    (selectedDepartmentAcrossMd || []).includes(item.id)
+                  ) || []
+                }
+                onChange={(event, newValue) =>
+                  setSelectedDepartmentAcrossMd(newValue.map((item) => item.id))
+                }
+                isOptionEqualToValue={(option, value) => option.id === value.id}
+                renderOption={(props, option) => (
+                  <li {...props} key={option.id}>
+                    {option.name}
+                  </li>
+                )}
+                fullWidth
+              />
+            </div> */}
 
-      {loading && (
-        <LinearProgress
-          sx={{
-            position: "absolute",
-            bottom: 0,
-            left: 0,
-            right: 0,
+            {/* Year Filter */}
+            <div className="col-md-6">
+              <CustomAutoCompleteWithoutFormik
+                label="Financial Year"
+                multiple
+                selectAll
+                options={financialYearSchemeList || []}
+                getOptionLabel={(option) => option?.name || "Unknown"}
+                value={
+                  financialYearSchemeList?.filter((item) =>
+                    (selectedYearSchemeAcrossMd || []).includes(item.id)
+                  ) || []
+                }
+                onChange={(event, newValue) => {
+                  setSelectedYearSchemeAcrossMd(
+                    newValue.map((item) => item.id)
+                  );
+                }}
+                isOptionEqualToValue={(option, value) => option.id === value.id}
+                renderOption={(props, option) => (
+                  <li {...props} key={option.id}>
+                    {option.name}
+                  </li>
+                )}
+                fullWidth
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* DataGrid */}
+        <div
+          style={{
+            height: 400,
+            width: "100%",
+            marginTop: "15px",
+            padding: "0px",
           }}
-        />
-      )}
-    </Card>
+        >
+          <DataGrid
+            rows={rows}
+            columns={columns}
+            pageSize={5}
+            rowsPerPageOptions={[5, 10, 20]}
+            getRowId={(row) =>
+              `${row["Ministry Name"]}-${row["Department Name"]}`
+            }
+            localeText={{
+              columnMenuSortAsc: "Sort as A to Z",
+              columnMenuSortDesc: "Sort as Z to A",
+            }}
+            disableColumnFilter
+          />
+        </div>
+      </div>
+    </div>
   );
 };
 
-export default ProfessionalFileRepeater;
+export default SchemeAcrossMd;
+
