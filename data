@@ -1,229 +1,304 @@
+"use client";
+
 import React, { useEffect, useState } from "react";
-import { DataGrid } from "@mui/x-data-grid";
-import { CustomAutoCompleteWithoutFormik } from "../../superadmin/CustomAutoCompleteWithoutFormik";
-import { filterByFramework } from "@/utils/niti/filterByFramework";
+import {
+  Box,
+  Button,
+  Typography,
+  Tooltip,
+  Card,
+  CardContent,
+  Stack,
+  Divider,
+} from "@mui/material";
+import { CloudUpload, MergeType } from "@mui/icons-material";
+import apiClient from "@/utils/apiClient";
+import EnhancedSupportingDocumentsRepeater from "./EnhancedSupportingDocRepeater";
+import AdvancedDataGrid from "./AdvancedDataGrid";
+import DynamicDialog from "./DynamicDialog";
+import MainFormHeader from "@/src/components/DashboardUI/MainFormHeader";
+import CloudUploadIcon from "@mui/icons-material/CloudUpload";
 import { oomfFrameworkId } from "@/src/constants/unified/frameworkConstants";
+import DescriptionIcon from "@mui/icons-material/Description";
+import PictureAsPdfIcon from "@mui/icons-material/PictureAsPdf";
+import InsertDriveFileIcon from "@mui/icons-material/InsertDriveFile";
+import { useDispatch, useSelector } from "react-redux";
+import { startLoader, stopLoader } from "@/store/slices/errorSlice";
+import { setError, setSuccess } from "@/store/slices/errorSlice";
 
-const SchemeAcrossMd = ({
-  financialYearSchemeList,
-  selectedYearSchemeAcrossMd,
-  setSelectedYearSchemeAcrossMd,
-  schemeAcrossMd,
-  ministryList,
-  setMinistryList,
-  selectedMinistrySchemeAcrossMd,
-  setSelectedMinistrySchemeAcrossMd,
-  departmentListAcrossMd,
-  setDepartmentListAcrossMd,
-  selectedDepartmentAcrossMd,
-  setSelectedDepartmentAcrossMd,
-}) => {
-  const [rows, setRows] = useState([]);
-  const [columns, setColumns] = useState([]);
+const DocumentMergePage = () => {
+  const [documents, setDocuments] = useState([]);
+  const [selectionModel, setSelectionModel] = useState([]);
+  const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const dispatch = useDispatch();
+  // File Server URL (same convention you use elsewhere)
+  const FILE_SERVER_URL = `${process.env.NEXT_PUBLIC_API_BASE_URL}api/public/download-file/`;
+  const getFileIcon = (fileName) => {
+    const extension = fileName?.split(".").pop()?.toLowerCase();
+    switch (extension) {
+      case "pdf":
+        return <PictureAsPdfIcon sx={{ color: "#D32F2F", mr: 1 }} />;
+      case "doc":
+      case "docx":
+        return <DescriptionIcon sx={{ color: "#45254f", mr: 1 }} />;
+      case "ppt":
+      case "pptx":
+        return <SlideshowIcon sx={{ color: "#F57C00", mr: 1 }} />;
+      case "txt":
+        return <DescriptionIcon sx={{ color: "#388E3C", mr: 1 }} />;
+      default:
+        return <InsertDriveFileIcon color="primary" sx={{ mr: 1 }} />;
+    }
+  };
+  function convertToLocalTime(utcDateString) {
+    if (!utcDateString) return "—";
 
-  // ✅ Transform API data
-  const transformSchemeData = (data) => {
-    const result = [];
-    const allYearsSet = new Set();
+    const date = new Date(utcDateString);
 
-    data.forEach((ministryEntry) => {
-      const ministryName =
-        ministryEntry.ministry?.name?.trim() || "Unknown Ministry";
-      const ministryId = ministryEntry.ministry?.id || "M";
+    const day = String(date.getDate()).padStart(2, "0");
+    const month = String(date.getMonth() + 1).padStart(2, "0"); // Months are 0-based
+    const year = date.getFullYear();
 
-      (ministryEntry.departments || []).forEach((dept) => {
-        const departmentName =
-          dept.department?.name?.trim() || "Unknown Department";
-        const departmentId = dept.department?.id || "D";
+    let hours = date.getHours();
+    const minutes = String(date.getMinutes()).padStart(2, "0");
+    const seconds = String(date.getSeconds()).padStart(2, "0");
 
-        // ✅ UNIQUE & STABLE ID (CRITICAL FIX)
-        const uniqueId = `${ministryId}-${departmentId}-${result.length}`;
+    const ampm = hours >= 12 ? "PM" : "AM";
+    hours = hours % 12 || 12; // Convert 0 → 12
+    const formattedHours = String(hours).padStart(2, "0");
 
-        const row = {
-          id: uniqueId,
-          "Ministry Name": ministryName,
-          "Department Name": departmentName,
-        };
+    return `${day}/${month}/${year}, ${formattedHours}:${minutes}:${seconds} ${ampm}`;
+  }
 
-        const yearsData = dept.yearsData || {};
+  useEffect(() => {
+    fetchDocuments();
+  }, []);
 
-        Object.entries(yearsData).forEach(([year, yearInfo]) => {
-          row[year] = yearInfo?.totalSchemes ?? 0;
-          allYearsSet.add(year);
+  const fetchDocuments = async () => {
+    try {
+      setLoading(true);
+      const res = await apiClient.get(
+        `api/document/get-folder-documents/${oomfFrameworkId}`,
+      );
+      if (res?.data?.success) {
+        const filteredDocs = res.data.result.filter((doc) =>
+          doc.document_name?.toLowerCase().endsWith(".docx"),
+        );
+        // setDocuments(filteredDocs);
+
+        // Ensure you don't mutate filteredDocs (avoid side effects)
+        const sorted = [...filteredDocs].sort((a, b) => {
+          const ta = new Date(a.uploaded_at).getTime();
+          const tb = new Date(b.uploaded_at).getTime();
+          // Newest first
+          return tb - ta;
         });
 
-        result.push(row);
-      });
-    });
-
-    // ✅ Sort years
-    const allYears = Array.from(allYearsSet).sort((a, b) => {
-      const numA = parseInt(a.split("-")[0]) || 0;
-      const numB = parseInt(b.split("-")[0]) || 0;
-      return numA - numB;
-    });
-
-    // ✅ Fill missing years
-    result.forEach((row) => {
-      allYears.forEach((year) => {
-        if (!(year in row)) row[year] = "-";
-      });
-    });
-
-    return { rows: result, years: allYears };
+        setDocuments(sorted);
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  // ✅ Auto-select logic
-  useEffect(() => {
-    const filteredMinistries =
-      filterByFramework(ministryList, oomfFrameworkId) || [];
+  const uploadMultipleFiles = async (files, titles = [], description) => {
+    const formData = new FormData();
+    files.forEach((file, idx) => {
+      formData.append("files", file);
+      formData.append("titles[]", titles[idx] || file.name);
+    });
+    formData.append("reference_type", "oomf");
+    formData.append("remarks", description);
+    
+    try {
+      dispatch(startLoader());
+      const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+      const res = await apiClient.post("api/document/upload-files", formData);
+      dispatch(setSuccess("Document uploaded successfully"));
+      fetchDocuments(); // Refresh the list
+      await delay(500);
+      setIsDialogOpen(false); // Close dialog on success
+      return res.data.files;
+    } catch (err) {
+      console.error("Upload failed", err);
+      return [];
+    } finally {
+      dispatch(stopLoader());
+    }
+  };
 
-    if (
-      filteredMinistries.length === 1 &&
-      selectedMinistrySchemeAcrossMd.length === 0
-    ) {
-      setSelectedMinistrySchemeAcrossMd([filteredMinistries[0]?.id]);
-      setSelectedDepartmentAcrossMd([]);
+const handleMerge = async () => {
+  if (selectionModel.length < 2) return;
+
+  const orderedPayload = documents
+    .filter((doc) => selectionModel.includes(doc.document_id))
+    .map((doc, index) => ({
+      [index + 1]: doc.document_id,
+    }));
+
+  try {
+    const response = await apiClient.post(
+      "/api/document/download-merged-documents",
+      { documentIds: orderedPayload?.map(obj => Object.values(obj)[0]) },
+      { responseType: "blob", headers: { "Content-Type": "application/json" } }
+    );
+
+    const blob = new Blob([response.data], { type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+
+    let filename = "merged_documents.docx";
+    const contentDisposition = response.headers["content-disposition"];
+    if (contentDisposition) {
+      const filenameStarMatch = contentDisposition.match(/filename\*\s*=\s*UTF-8''(.+?)(?:;|$)/i);
+      if (filenameStarMatch && filenameStarMatch[1]) {
+        filename = decodeURIComponent(filenameStarMatch[1]);
+      } else {
+        const filenameMatch = contentDisposition.match(/filename="?([^";]+)"?/i);
+        if (filenameMatch && filenameMatch[1]) filename = filenameMatch[1];
+      }
+      filename = filename.replace(/_+$/, "");
     }
 
-    const filteredDepartments =
-      filterByFramework(departmentListAcrossMd, oomfFrameworkId) || [];
+    link.setAttribute("download", filename);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(url);
 
-    if (
-      filteredDepartments.length === 1 &&
-      selectedDepartmentAcrossMd.length === 0
-    ) {
-      setSelectedDepartmentAcrossMd([filteredDepartments[0]?.id]);
-    }
-  }, [
-    ministryList,
-    departmentListAcrossMd,
-    selectedMinistrySchemeAcrossMd,
-    selectedDepartmentAcrossMd,
-  ]);
+    dispatch(setSuccess("Documents merged and downloaded successfully"));
+    setSelectionModel([]);
+    fetchDocuments();
+  } catch (err) {
+    console.error(err);
+    dispatch(setError(err.response?.data?.message || "Failed to merge/download documents"));
+  }
+};
 
-  // ✅ Build rows & columns
-  useEffect(() => {
-    if (schemeAcrossMd && schemeAcrossMd.length > 0) {
-      const { rows: transformedData, years: sortedYears } =
-        transformSchemeData(schemeAcrossMd);
+  const columns = [
+    { field: "document_title", headerName: "Title", flex: 1 },
+    { field: "document_name", headerName: "File Name", flex: 1.5 },
 
-      // ✅ Stable S.No (NOT used as ID)
-      const rowsWithIndex = transformedData.map((item, index) => ({
-        ...item,
-        "S.No": index + 1,
-      }));
+    {
+      field: "view_document",
+      headerName: "Download Document",
+      width: 210,
+      sortable: false,
+      filterable: false,
+      renderCell: ({ row }) => {
+        const href = row?.download_id
+          ? `${FILE_SERVER_URL}${row.download_id}`
+          : null;
 
-      const dynamicColumns = [
-        {
-          field: "S.No",
-          headerName: "S.No",
-          flex: 0.6,
-          align: "center",
-          headerAlign: "center",
-          sortable: false, // prevents confusion
-        },
-        {
-          field: "Ministry Name",
-          headerName: "Ministry Name",
-          flex: 1.5,
-        },
-        {
-          field: "Department Name",
-          headerName: "Department Name",
-          flex: 1.5,
-        },
-        ...sortedYears.map((year) => ({
-          field: year,
-          headerName: year,
-          flex: 1,
-          align: "center",
-          headerAlign: "center",
-        })),
-      ];
-
-      setRows(rowsWithIndex);
-      setColumns(dynamicColumns);
-    } else {
-      setRows([]);
-      setColumns([]);
-    }
-  }, [
-    schemeAcrossMd,
-    selectedMinistrySchemeAcrossMd,
-    selectedDepartmentAcrossMd,
-    selectedYearSchemeAcrossMd,
-  ]);
+        if (!href) return "—";
+        return (
+          <Tooltip title={row.document_name}>
+            <a
+              href={href}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                textDecoration: "none",
+                color: "#45145f", // your purple tone (you can theme this)
+                fontWeight: 500,
+              }}
+            >
+              {getFileIcon(row.document_name)}
+              <span>Download to View</span>
+            </a>
+          </Tooltip>
+        );
+      },
+    },
+    {
+      field: "uploaded_by",
+      headerName: "Uploaded By",
+      width: 170,
+      valueGetter: (value, row) => row?.first_name + " " + row?.last_name,
+    },
+    {
+      field: "uploaded_at",
+      headerName: "Uploaded At",
+      width: 200,
+      valueGetter: (value, row) => convertToLocalTime(row?.uploaded_at),
+    },
+  ];
 
   return (
-    <div>
-      <div
-        className="col-md-12 mb-4"
-        style={{
-          border: "1px solid lightgray",
-          borderRadius: "6px",
-          padding: "20px",
-          backgroundColor: "#fff",
-        }}
+    <Box p={3}>
+      <Stack
+        direction="row"
+        justifyContent="space-between"
+        alignItems="center"
+        mb={3}
       >
-        <div className="row">
-          <div className="col-md-12">
-            <h5 className="card-title text-dark mt-2 fw-bold">
-              Total Number of Scheme across all M/D
-            </h5>
-          </div>
+        <MainFormHeader title="Merge Documents" />
+      </Stack>
+      <Divider sx={{ my: 1 }} />
 
-          <div className="row px-0 mx-0 my-3">
-            {/* Year Filter */}
-            <div className="col-md-6">
-              <CustomAutoCompleteWithoutFormik
-                label="Financial Year"
-                multiple
-                selectAll
-                options={financialYearSchemeList || []}
-                getOptionLabel={(option) => option?.name || "Unknown"}
-                value={
-                  financialYearSchemeList?.filter((item) =>
-                    (selectedYearSchemeAcrossMd || []).includes(item.id)
-                  ) || []
-                }
-                onChange={(event, newValue) => {
-                  setSelectedYearSchemeAcrossMd(
-                    newValue.map((item) => item.id)
-                  );
-                }}
-                isOptionEqualToValue={(option, value) =>
-                  option.id === value.id
-                }
-                renderOption={(props, option) => (
-                  <li {...props} key={option.id}>
-                    {option.name}
-                  </li>
-                )}
-                fullWidth
-              />
-            </div>
-          </div>
-        </div>
+      <Box
+        display="flex"
+        justifyContent="right"
+        gap={2}
+        alignItems="center"
+        mb={2}
+      >
+        <Tooltip title="Select at least 2 files to merge">
+          <span>
+            <Button
+              variant="contained"
+              color="success"
+              startIcon={<MergeType />}
+              disabled={selectionModel.length < 2}
+              onClick={handleMerge}
+            >
+              Merge Selected
+            </Button>
+          </span>
+        </Tooltip>
+        <Button
+          variant="contained"
+          color="primary"
+          startIcon={<CloudUpload />}
+          onClick={() => setIsDialogOpen(true)}
+        >
+          Add New Document
+        </Button>
+      </Box>
 
-        {/* ✅ DataGrid */}
-        <div style={{ height: 400, width: "100%", marginTop: "15px" }}>
-          <DataGrid
-            rows={rows}
-            columns={columns}
-            pageSize={5}
-            rowsPerPageOptions={[5, 10, 20]}
-            disableColumnFilter
-            disableSelectionOnClick
-            localeText={{
-              columnMenuSortAsc: "Sort as A to Z",
-              columnMenuSortDesc: "Sort as Z to A",
-            }}
-          />
-        </div>
-      </div>
-    </div>
+      <AdvancedDataGrid
+        data={documents}
+        columns={columns}
+        rowIdField="document_id"
+        enableReorder={true}
+        checkboxSelection={true}
+        onSelectionChange={setSelectionModel}
+        onOrderChange={setDocuments} // Keeps the parent array in sync with UI
+        loading={loading}
+      />
+
+      {/* Professional Import Dialog */}
+      <DynamicDialog
+        open={isDialogOpen}
+        onClose={() => setIsDialogOpen(false)}
+        title="Add New Documents"
+        icon={<CloudUploadIcon color="#fff" sx={{ mr: 1 }} />}
+        maxWidth="md"
+      >
+        <EnhancedSupportingDocumentsRepeater
+          onUploadComplete={() => {}}
+          uploadMultipleFiles={uploadMultipleFiles}
+          maxWidth={900}
+        />
+      </DynamicDialog>
+    </Box>
   );
 };
 
-export default SchemeAcrossMd;
+export default DocumentMergePage;
