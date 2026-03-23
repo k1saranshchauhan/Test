@@ -8,92 +8,122 @@ import {
   TableRow,
   Paper,
   Typography,
+  Box,
+  styled,
 } from "@mui/material";
 
+// Styled components for a more professional look
+const StyledHeaderCell = styled(TableCell)(({ theme }) => ({
+  backgroundColor: theme.palette.primary.main,
+  color: theme.palette.common.white,
+  fontWeight: "bold",
+  borderRight: `1px solid ${theme.palette.primary.dark}`,
+  '&:last-child': { borderRight: 0 },
+}));
+
+const SubHeaderCell = styled(TableCell)(({ theme }) => ({
+  backgroundColor: theme.palette.primary.light,
+  color: theme.palette.common.white,
+  fontWeight: 600,
+  fontSize: '0.85rem',
+  borderRight: `1px solid ${theme.palette.primary.main}`,
+  '&:last-child': { borderRight: 0 },
+}));
+
 const TableComponent = ({ data }) => {
+  if (!data || data.length === 0) return <Typography>No Data Available</Typography>;
+
   return (
-    <TableContainer component={Paper} elevation={3} sx={{ maxHeight: 600 }}>
-      <Table stickyHeader>
+    <TableContainer component={Paper} elevation={4} sx={{ borderRadius: 2, overflow: 'hidden' }}>
+      <Table stickyHeader aria-label="compliance table">
         <TableHead>
           <TableRow>
-            <TableCell rowSpan={2}><b>Ministry Name</b></TableCell>
-            <TableCell rowSpan={2}><b>Department Name</b></TableCell>
-            <TableCell rowSpan={2}><b>Scheme Name</b></TableCell>
-            <TableCell align="center" colSpan={2}><b>Output</b></TableCell>
-            <TableCell align="center" colSpan={2}><b>Outcome</b></TableCell>
+            <StyledHeaderCell rowSpan={2}>Ministry</StyledHeaderCell>
+            <StyledHeaderCell rowSpan={2}>Department</StyledHeaderCell>
+            <StyledHeaderCell rowSpan={2}>Scheme</StyledHeaderCell>
+            <StyledHeaderCell align="center" colSpan={2}>Output</StyledHeaderCell>
+            <StyledHeaderCell align="center" colSpan={2}>Outcome</StyledHeaderCell>
           </TableRow>
           <TableRow>
-            <TableCell align="center"><b>Total</b></TableCell>
-            <TableCell align="center"><b>Compliance (%)</b></TableCell>
-            <TableCell align="center"><b>Total</b></TableCell>
-            <TableCell align="center"><b>Compliance (%)</b></TableCell>
+            <SubHeaderCell align="center">Total</SubHeaderCell>
+            <SubHeaderCell align="center">Compliance</SubHeaderCell>
+            <SubHeaderCell align="center">Total</SubHeaderCell>
+            <SubHeaderCell align="center">Compliance</SubHeaderCell>
           </TableRow>
         </TableHead>
 
         <TableBody>
-          {data.map((ministry, mIndex) => {
-            let ministryRowSpan = 0;
+          {data.map((ministry, mIdx) => {
+            // Calculate total rows for this ministry
+            const ministryRowSpan = ministry.departments.reduce((acc, dept) => 
+              acc + dept.schemes.reduce((sAcc, s) => sAcc + Object.keys(s.years).length, 0), 0
+            );
 
-            ministry.departments.forEach((dept) => {
-              dept.schemes.forEach((scheme) => {
-                ministryRowSpan += Object.keys(scheme.years).length;
-              });
-            });
+            return ministry.departments.map((dept, dIdx) => {
+              const deptRowSpan = dept.schemes.reduce((acc, s) => acc + Object.keys(s.years).length, 0);
 
-            return ministry.departments.map((dept, dIndex) => {
-              let deptRowSpan = 0;
-
-              dept.schemes.forEach((scheme) => {
-                deptRowSpan += Object.keys(scheme.years).length;
-              });
-
-              return dept.schemes.map((scheme, sIndex) => {
+              return dept.schemes.map((scheme, sIdx) => {
                 const years = Object.keys(scheme.years);
 
-                return years.map((year, yIndex) => {
+                return years.map((year, yIdx) => {
                   const yearData = scheme.years[year].overall;
+                  const isFirstOfMinistry = dIdx === 0 && sIdx === 0 && yIdx === 0;
+                  const isFirstOfDept = sIdx === 0 && yIdx === 0;
+                  const isFirstOfScheme = yIdx === 0;
 
                   return (
-                    <TableRow hover key={`${mIndex}-${dIndex}-${sIndex}-${yIndex}`}>
-                      {/* Ministry */}
-                      {dIndex === 0 && sIndex === 0 && yIndex === 0 && (
-                        <TableCell rowSpan={ministryRowSpan}>
-                          <Typography fontWeight={600}>
+                    <TableRow key={`${mIdx}-${dIdx}-${sIdx}-${yIdx}`} hover>
+                      {/* Ministry Column */}
+                      {isFirstOfMinistry && (
+                        <TableCell 
+                          rowSpan={ministryRowSpan} 
+                          sx={{ verticalAlign: 'top', bgcolor: 'grey.50', borderRight: '1px solid #e0e0e0' }}
+                        >
+                          <Typography variant="subtitle2" color="primary.main" fontWeight={700}>
                             {ministry.name}
                           </Typography>
                         </TableCell>
                       )}
 
-                      {/* Department */}
-                      {sIndex === 0 && yIndex === 0 && (
-                        <TableCell rowSpan={deptRowSpan}>
-                          <Typography fontWeight={500}>
+                      {/* Department Column */}
+                      {isFirstOfDept && (
+                        <TableCell 
+                          rowSpan={deptRowSpan} 
+                          sx={{ verticalAlign: 'top', borderRight: '1px solid #f0f0f0' }}
+                        >
+                          <Typography variant="body2" fontWeight={600} color="text.secondary">
                             {dept.name}
                           </Typography>
                         </TableCell>
                       )}
 
-                      {/* Scheme */}
-                      {yIndex === 0 && (
-                        <TableCell rowSpan={years.length}>
-                          {scheme.name}
+                      {/* Scheme Column */}
+                      {isFirstOfScheme && (
+                        <TableCell rowSpan={years.length} sx={{ minWidth: 150 }}>
+                          <Typography variant="body2">{scheme.name}</Typography>
+                          <Typography variant="caption" color="text.disabled">ID: {scheme.id || 'N/A'}</Typography>
                         </TableCell>
                       )}
 
-                      {/* Output */}
+                      {/* Metrics Columns */}
+                      <TableCell align="center">{yearData.output.total}</TableCell>
                       <TableCell align="center">
-                        {yearData.output.total}
+                         <Box sx={{ 
+                           fontWeight: 'bold', 
+                           color: yearData.output.compliance > 75 ? 'success.main' : 'warning.main' 
+                         }}>
+                           {yearData.output.compliance}%
+                         </Box>
                       </TableCell>
+                      
+                      <TableCell align="center">{yearData.outcome.total}</TableCell>
                       <TableCell align="center">
-                        {yearData.output.compliance}%
-                      </TableCell>
-
-                      {/* Outcome */}
-                      <TableCell align="center">
-                        {yearData.outcome.total}
-                      </TableCell>
-                      <TableCell align="center">
-                        {yearData.outcome.compliance}%
+                         <Box sx={{ 
+                           fontWeight: 'bold', 
+                           color: yearData.outcome.compliance > 75 ? 'success.main' : 'warning.main' 
+                         }}>
+                           {yearData.outcome.compliance}%
+                         </Box>
                       </TableCell>
                     </TableRow>
                   );
