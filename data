@@ -1,138 +1,114 @@
-import React from "react";
-import {
-  Box,
-  Typography,
-  Paper,
-  TableContainer,
-  Table,
-  TableHead,
-  TableRow,
-  TableCell,
-  TableBody,
-} from "@mui/material";
+import React from 'react';
 
-const SchemeReportTable = ({ data }) => {
-  // Helper to determine the sub-headers based on frequency
-  const getSubKeys = (frequency) => {
-    if (frequency === "quarterly") return ["Q1", "Q2", "Q3", "Q4"];
-    if (frequency === "half-yearly") return ["H1", "H2"];
-    return ["Value"]; // For yearly
-  };
-
+const ReportComponent = ({ data }) => {
   if (!data || !data.data) return null;
 
   return (
-    <Box sx={{ p: 3, backgroundColor: "#fdfdfd" }}>
+    <div className="p-4 bg-gray-100 min-h-screen">
       {data.data.map((ministry, mIdx) => (
-        <Box key={mIdx} sx={{ mb: 6 }}>
-          {/* Ministry Name */}
-          <Typography variant="h5" sx={{ color: "#1a237e", fontWeight: "bold", mb: 2 }}>
-            {ministry.name}
-          </Typography>
+        <div key={mIdx} className="mb-8 border border-gray-300 rounded shadow-sm bg-white">
+          {/* Ministry Header */}
+          <div className="bg-gray-50 p-3 border-b border-gray-300 flex justify-between items-center">
+            <h1 className="text-lg font-bold text-gray-700 uppercase">{ministry.name}</h1>
+            <span className="text-gray-500">−</span>
+          </div>
 
-          {ministry.departments.map((dept, dIdx) => (
-            <Box key={dIdx} sx={{ ml: 2, mb: 4 }}>
-              {/* Department Name */}
-              <Typography variant="h6" sx={{ color: "black", fontWeight: "600", mb: 2 }}>
-                {dept.name}
-              </Typography>
+          <div className="p-4">
+            {ministry.departments.map((dept, dIdx) => (
+              <div key={dIdx} className="mb-6">
+                {/* Department Name */}
+                <h2 className="text-xl font-bold text-blue-900 mb-4 uppercase tracking-tight">
+                  {dept.name}
+                </h2>
 
-              {dept.schemes.map((scheme, sIdx) => {
-                const subKeys = getSubKeys(scheme.frequency);
-                const isYearly = scheme.frequency === "yearly";
-                
-                return (
-                  <Box key={sIdx} sx={{ ml: 2, mb: 6 }}>
-                    {/* Scheme Name */}
-                    <Typography variant="subtitle1" sx={{ color: "#45154F", fontWeight: "bold", mb: 2 }}>
-                      {sIdx + 1}. {scheme.name}
-                    </Typography>
+                {dept.schemes.map((scheme, sIdx) => {
+                  const isYearly = scheme.frequency === 'yearly';
 
-                    <TableContainer component={Paper} sx={{ boxShadow: "0px 4px 20px rgba(0,0,0,0.05)", borderRadius: "8px" }}>
-                      <Table size="small" sx={{ border: "1px solid #ccc" }}>
-                        <TableHead>
-                          {/* Main Header */}
-                          <TableRow sx={{ backgroundColor: "#45154F" }}>
-                            <TableCell rowSpan={2} sx={{ color: "#fff", fontWeight: "bold", border: "1px solid #632a6d", textAlign: "center" }}>
-                              Financial Year
-                            </TableCell>
-                            {!isYearly && (
-                              <TableCell rowSpan={2} sx={{ color: "#fff", fontWeight: "bold", border: "1px solid #632a6d", textAlign: "center" }}>
-                                {scheme.frequency === "half-yearly" ? "Half Year" : "Quarter"}
-                              </TableCell>
-                            )}
-                            <th colSpan={2} style={{ color: "#fff", border: "1px solid #632a6d", textAlign: "center", padding: "8px", fontSize: "0.875rem" }}>
-                              Output Indicators
-                            </th>
-                            <th colSpan={2} style={{ color: "#fff", border: "1px solid #632a6d", textAlign: "center", padding: "8px", fontSize: "0.875rem" }}>
-                              Outcome Indicators
-                            </th>
-                          </TableRow>
-
-                          {/* Sub Header */}
-                          <TableRow sx={{ backgroundColor: "#45154F" }}>
-                            <TableCell align="center" sx={{ color: "#fff", border: "1px solid #632a6d" }}>Total</TableCell>
-                            <TableCell align="center" sx={{ color: "#fff", border: "1px solid #632a6d" }}>Compliance (%)</TableCell>
-                            <TableCell align="center" sx={{ color: "#fff", border: "1px solid #632a6d" }}>Total</TableCell>
-                            <TableCell align="center" sx={{ color: "#fff", border: "1px solid #632a6d" }}>Compliance (%)</TableCell>
-                          </TableRow>
-                        </TableHead>
-
-                        <TableBody>
-                          {Object.entries(scheme.years).map(([year, yearData]) => (
-                            <React.Fragment key={year}>
-                              {yearData.rows.map((row, rIdx) => (
-                                <TableRow key={rIdx}>
-                                  {/* Year Column: Spans all rows + overall row */}
-                                  {rIdx === 0 && (
-                                    <TableCell 
-                                      rowSpan={isYearly ? 1 : yearData.rows.length + 1} 
-                                      sx={{ border: "1px solid #ddd", textAlign: "center", fontWeight: "500" }}
-                                    >
-                                      {year}
-                                    </TableCell>
-                                  )}
-                                  
-                                  {/* Frequency Label (H1, Q1, etc.) - Hidden if Yearly */}
-                                  {!isYearly && (
-                                    <TableCell sx={{ border: "1px solid #ddd", textAlign: "center" }}>
-                                      {row.label.split(' ')[0]}
-                                    </TableCell>
-                                  )}
-
-                                  <TableCell align="center" sx={{ border: "1px solid #ddd" }}>{row.output.total}</TableCell>
-                                  <TableCell align="center" sx={{ border: "1px solid #ddd" }}>{row.output.compliance}</TableCell>
-                                  <TableCell align="center" sx={{ border: "1px solid #ddd" }}>{row.outcome.total}</TableCell>
-                                  <TableCell align="center" sx={{ border: "1px solid #ddd" }}>{row.outcome.compliance}</TableCell>
-                                </TableRow>
-                              ))}
-
-                              {/* Overall Row: Only for non-yearly formats */}
+                  return (
+                    <div key={sIdx} className="mb-8">
+                      {/* Scheme Name */}
+                      <h3 className="text-md font-bold text-blue-800 mb-2">
+                        {sIdx + 1}. {scheme.name}
+                      </h3>
+                      
+                      {/* Dynamic Table */}
+                      <div className="overflow-x-auto">
+                        <table className="min-w-full border-collapse border border-gray-300">
+                          <thead className="bg-[#45154F] text-white">
+                            <tr>
+                              <th rowSpan="2" className="border border-[#632a6d] p-2 text-sm font-semibold">Financial Year</th>
+                              {/* Conditional Frequency Column */}
                               {!isYearly && (
-                                <TableRow sx={{ backgroundColor: "#f9f9f9", fontWeight: "bold" }}>
-                                  <TableCell sx={{ border: "1px solid #ddd", textAlign: "center", fontStyle: "italic" }}>
-                                    Overall
-                                  </TableCell>
-                                  <TableCell align="center" sx={{ border: "1px solid #ddd", fontWeight: "bold" }}>{yearData.overall.output.total}</TableCell>
-                                  <TableCell align="center" sx={{ border: "1px solid #ddd", fontWeight: "bold" }}>{yearData.overall.output.compliance}</TableCell>
-                                  <TableCell align="center" sx={{ border: "1px solid #ddd", fontWeight: "bold" }}>{yearData.overall.outcome.total}</TableCell>
-                                  <TableCell align="center" sx={{ border: "1px solid #ddd", fontWeight: "bold" }}>{yearData.overall.outcome.compliance}</TableCell>
-                                </TableRow>
+                                <th rowSpan="2" className="border border-[#632a6d] p-2 text-sm font-semibold capitalize">
+                                  {scheme.frequency === 'half-yearly' ? 'Half Year' : 'Quarter'}
+                                </th>
                               )}
-                            </React.Fragment>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </TableContainer>
-                  </Box>
-                );
-              })}
-            </Box>
-          ))}
-        </Box>
+                              <th colSpan="2" className="border border-[#632a6d] p-2 text-sm font-semibold text-center">Output Indicators</th>
+                              <th colSpan="2" className="border border-[#632a6d] p-2 text-sm font-semibold text-center">Outcome Indicators</th>
+                            </tr>
+                            <tr>
+                              <th className="border border-[#632a6d] p-2 text-xs font-semibold">Total</th>
+                              <th className="border border-[#632a6d] p-2 text-xs font-semibold">Compliance (%)</th>
+                              <th className="border border-[#632a6d] p-2 text-xs font-semibold">Total</th>
+                              <th className="border border-[#632a6d] p-2 text-xs font-semibold">Compliance (%)</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {Object.entries(scheme.years).map(([year, yearData]) => (
+                              <React.Fragment key={year}>
+                                {yearData.rows.map((row, rIdx) => (
+                                  <tr key={rIdx} className="text-center hover:bg-gray-50">
+                                    {/* Year RowSpan Fix: 
+                                        If yearly, span 1. 
+                                        If freq based, span (rows + 1) to account for 'Overall' row */}
+                                    {rIdx === 0 && (
+                                      <td 
+                                        rowSpan={isYearly ? yearData.rows.length : yearData.rows.length + 1} 
+                                        className="border border-gray-300 p-2 text-sm text-gray-800 font-medium"
+                                      >
+                                        {year}
+                                      </td>
+                                    )}
+
+                                    {/* Hide Frequency label cell if yearly */}
+                                    {!isYearly && (
+                                      <td className="border border-gray-300 p-2 text-sm text-gray-600">
+                                        {row.label.split(' ')[0]}
+                                      </td>
+                                    )}
+
+                                    <td className="border border-gray-300 p-2 text-sm">{row.output.total}</td>
+                                    <td className="border border-gray-300 p-2 text-sm">{row.output.compliance}</td>
+                                    <td className="border border-gray-300 p-2 text-sm">{row.outcome.total}</td>
+                                    <td className="border border-gray-300 p-2 text-sm">{row.outcome.compliance}</td>
+                                  </tr>
+                                ))}
+
+                                {/* Only show 'Overall' row for Half-Yearly or Quarterly */}
+                                {!isYearly && (
+                                  <tr className="text-center font-bold bg-gray-50">
+                                    <td className="border border-gray-300 p-2 text-sm italic text-gray-700">Overall</td>
+                                    <td className="border border-gray-300 p-2 text-sm">{yearData.overall.output.total}</td>
+                                    <td className="border border-gray-300 p-2 text-sm">{yearData.overall.output.compliance}</td>
+                                    <td className="border border-gray-300 p-2 text-sm">{yearData.overall.outcome.total}</td>
+                                    <td className="border border-gray-300 p-2 text-sm">{yearData.overall.outcome.compliance}</td>
+                                  </tr>
+                                )}
+                              </React.Fragment>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ))}
+          </div>
+        </div>
       ))}
-    </Box>
+    </div>
   );
 };
 
-export default SchemeReportTable;
+export default ReportComponent;
