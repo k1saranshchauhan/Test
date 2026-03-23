@@ -12,128 +12,137 @@ import {
   styled,
 } from "@mui/material";
 
-// Styled components for a more professional look
+// Deep purple theme for a professional "Government/Report" look
+const THEME_COLOR = "#45154F";
+const BORDER_COLOR = "#632a6d";
+
 const StyledHeaderCell = styled(TableCell)(({ theme }) => ({
-  backgroundColor: theme.palette.primary.main,
+  backgroundColor: THEME_COLOR,
   color: theme.palette.common.white,
   fontWeight: "bold",
-  borderRight: `1px solid ${theme.palette.primary.dark}`,
-  '&:last-child': { borderRight: 0 },
+  textAlign: "center",
+  border: `1px solid ${BORDER_COLOR}`,
+  fontSize: "0.875rem",
 }));
 
-const SubHeaderCell = styled(TableCell)(({ theme }) => ({
-  backgroundColor: theme.palette.primary.light,
-  color: theme.palette.common.white,
-  fontWeight: 600,
-  fontSize: '0.85rem',
-  borderRight: `1px solid ${theme.palette.primary.main}`,
-  '&:last-child': { borderRight: 0 },
-}));
+const getComplianceColor = (value) => {
+  const num = parseFloat(value);
+  if (isNaN(num)) return "transparent";
+  if (num >= 80) return "#e8f5e9"; // Very soft green
+  if (num >= 50) return "#fff9c4"; // Soft yellow
+  return "#fce4ec"; // Soft red
+};
 
 const TableComponent = ({ data }) => {
-  if (!data || data.length === 0) return <Typography>No Data Available</Typography>;
+  if (!data) return null;
 
   return (
-    <TableContainer component={Paper} elevation={4} sx={{ borderRadius: 2, overflow: 'hidden' }}>
-      <Table stickyHeader aria-label="compliance table">
-        <TableHead>
-          <TableRow>
-            <StyledHeaderCell rowSpan={2}>Ministry</StyledHeaderCell>
-            <StyledHeaderCell rowSpan={2}>Department</StyledHeaderCell>
-            <StyledHeaderCell rowSpan={2}>Scheme</StyledHeaderCell>
-            <StyledHeaderCell align="center" colSpan={2}>Output</StyledHeaderCell>
-            <StyledHeaderCell align="center" colSpan={2}>Outcome</StyledHeaderCell>
-          </TableRow>
-          <TableRow>
-            <SubHeaderCell align="center">Total</SubHeaderCell>
-            <SubHeaderCell align="center">Compliance</SubHeaderCell>
-            <SubHeaderCell align="center">Total</SubHeaderCell>
-            <SubHeaderCell align="center">Compliance</SubHeaderCell>
-          </TableRow>
-        </TableHead>
+    <Box sx={{ p: 3, backgroundColor: "#fafafa", minHeight: "100vh" }}>
+      {data.map((ministry, mIdx) => {
+        // Calculate RowSpans
+        const ministryRowSpan = ministry.departments.reduce((acc, dept) =>
+          acc + dept.schemes.reduce((sAcc, s) => sAcc + Object.keys(s.years).length, 0), 0
+        );
 
-        <TableBody>
-          {data.map((ministry, mIdx) => {
-            // Calculate total rows for this ministry
-            const ministryRowSpan = ministry.departments.reduce((acc, dept) => 
-              acc + dept.schemes.reduce((sAcc, s) => sAcc + Object.keys(s.years).length, 0), 0
-            );
+        return (
+          <Box key={mIdx} sx={{ mb: 8 }}>
+            {/* Ministry Heading */}
+            <Typography variant="h5" sx={{ color: "#1a237e", fontWeight: "bold", mb: 2 }}>
+              {mIdx + 1}. {ministry.name}
+            </Typography>
 
-            return ministry.departments.map((dept, dIdx) => {
-              const deptRowSpan = dept.schemes.reduce((acc, s) => acc + Object.keys(s.years).length, 0);
+            <TableContainer 
+              component={Paper} 
+              sx={{ boxShadow: "0px 10px 30px rgba(0,0,0,0.08)", borderRadius: "12px", overflow: "hidden" }}
+            >
+              <Table stickyHeader size="small">
+                <TableHead>
+                  <TableRow>
+                    <StyledHeaderCell rowSpan={2}>Department</StyledHeaderCell>
+                    <StyledHeaderCell rowSpan={2}>Scheme Name</StyledHeaderCell>
+                    <StyledHeaderCell rowSpan={2}>FY</StyledHeaderCell>
+                    <StyledHeaderCell colSpan={2}>Output Indicators</StyledHeaderCell>
+                    <StyledHeaderCell colSpan={2}>Outcome Indicators</StyledHeaderCell>
+                  </TableRow>
+                  <TableRow>
+                    <StyledHeaderCell sx={{ top: '37px' }}>Total</StyledHeaderCell>
+                    <StyledHeaderCell sx={{ top: '37px' }}>Compliance (%)</StyledHeaderCell>
+                    <StyledHeaderCell sx={{ top: '37px' }}>Total</StyledHeaderCell>
+                    <StyledHeaderCell sx={{ top: '37px' }}>Compliance (%)</StyledHeaderCell>
+                  </TableRow>
+                </TableHead>
 
-              return dept.schemes.map((scheme, sIdx) => {
-                const years = Object.keys(scheme.years);
+                <TableBody>
+                  {ministry.departments.map((dept, dIdx) => {
+                    const deptRowSpan = dept.schemes.reduce((acc, s) => acc + Object.keys(s.years).length, 0);
 
-                return years.map((year, yIdx) => {
-                  const yearData = scheme.years[year].overall;
-                  const isFirstOfMinistry = dIdx === 0 && sIdx === 0 && yIdx === 0;
-                  const isFirstOfDept = sIdx === 0 && yIdx === 0;
-                  const isFirstOfScheme = yIdx === 0;
+                    return dept.schemes.map((scheme, sIdx) => {
+                      const years = Object.keys(scheme.years);
 
-                  return (
-                    <TableRow key={`${mIdx}-${dIdx}-${sIdx}-${yIdx}`} hover>
-                      {/* Ministry Column */}
-                      {isFirstOfMinistry && (
-                        <TableCell 
-                          rowSpan={ministryRowSpan} 
-                          sx={{ verticalAlign: 'top', bgcolor: 'grey.50', borderRight: '1px solid #e0e0e0' }}
-                        >
-                          <Typography variant="subtitle2" color="primary.main" fontWeight={700}>
-                            {ministry.name}
-                          </Typography>
-                        </TableCell>
-                      )}
+                      return years.map((year, yIdx) => {
+                        const yearData = scheme.years[year].overall;
+                        const isFirstDept = sIdx === 0 && yIdx === 0;
+                        const isFirstScheme = yIdx === 0;
 
-                      {/* Department Column */}
-                      {isFirstOfDept && (
-                        <TableCell 
-                          rowSpan={deptRowSpan} 
-                          sx={{ verticalAlign: 'top', borderRight: '1px solid #f0f0f0' }}
-                        >
-                          <Typography variant="body2" fontWeight={600} color="text.secondary">
-                            {dept.name}
-                          </Typography>
-                        </TableCell>
-                      )}
+                        return (
+                          <TableRow key={`${mIdx}-${dIdx}-${sIdx}-${yIdx}`} hover>
+                            {/* Department Column - Merged */}
+                            {isFirstDept && (
+                              <TableCell 
+                                rowSpan={deptRowSpan} 
+                                sx={{ verticalAlign: 'top', fontWeight: 600, bgcolor: '#fcfcfc', borderRight: '1px solid #eee' }}
+                              >
+                                {mIdx + 1}.{dIdx + 1} {dept.name}
+                              </TableCell>
+                            )}
 
-                      {/* Scheme Column */}
-                      {isFirstOfScheme && (
-                        <TableCell rowSpan={years.length} sx={{ minWidth: 150 }}>
-                          <Typography variant="body2">{scheme.name}</Typography>
-                          <Typography variant="caption" color="text.disabled">ID: {scheme.id || 'N/A'}</Typography>
-                        </TableCell>
-                      )}
+                            {/* Scheme Column - Merged */}
+                            {isFirstScheme && (
+                              <TableCell rowSpan={years.length} sx={{ fontWeight: 500, borderRight: '1px solid #eee' }}>
+                                {scheme.name}
+                              </TableCell>
+                            )}
 
-                      {/* Metrics Columns */}
-                      <TableCell align="center">{yearData.output.total}</TableCell>
-                      <TableCell align="center">
-                         <Box sx={{ 
-                           fontWeight: 'bold', 
-                           color: yearData.output.compliance > 75 ? 'success.main' : 'warning.main' 
-                         }}>
-                           {yearData.output.compliance}%
-                         </Box>
-                      </TableCell>
-                      
-                      <TableCell align="center">{yearData.outcome.total}</TableCell>
-                      <TableCell align="center">
-                         <Box sx={{ 
-                           fontWeight: 'bold', 
-                           color: yearData.outcome.compliance > 75 ? 'success.main' : 'warning.main' 
-                         }}>
-                           {yearData.outcome.compliance}%
-                         </Box>
-                      </TableCell>
-                    </TableRow>
-                  );
-                });
-              });
-            });
-          })}
-        </TableBody>
-      </Table>
-    </TableContainer>
+                            {/* Year Column */}
+                            <TableCell align="center" sx={{ fontWeight: 'bold', color: '#666' }}>
+                              {year}
+                            </TableCell>
+
+                            {/* Output Metrics */}
+                            <TableCell align="center">{yearData.output.total}</TableCell>
+                            <TableCell 
+                              align="center" 
+                              sx={{ 
+                                fontWeight: 'bold', 
+                                backgroundColor: getComplianceColor(yearData.output.compliance) 
+                              }}
+                            >
+                              {yearData.output.compliance}%
+                            </TableCell>
+
+                            {/* Outcome Metrics */}
+                            <TableCell align="center">{yearData.outcome.total}</TableCell>
+                            <TableCell 
+                              align="center" 
+                              sx={{ 
+                                fontWeight: 'bold', 
+                                backgroundColor: getComplianceColor(yearData.outcome.compliance) 
+                              }}
+                            >
+                              {yearData.outcome.compliance}%
+                            </TableCell>
+                          </TableRow>
+                        );
+                      });
+                    });
+                  })}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          </Box>
+        );
+      })}
+    </Box>
   );
 };
 
