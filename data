@@ -1,104 +1,80 @@
 import React from "react";
-import {
-  Box,
-  Typography,
-  Paper,
-  TableContainer,
-  Table,
-  TableHead,
-  TableRow,
-  TableCell,
-  TableBody,
-} from "@mui/material";
 
-const YearlyFlatReport = ({ data, selectedIndicatorType = "All" }) => {
-  const getComplianceColor = (value) => {
-    const num = parseFloat(value);
-    if (isNaN(num)) return "transparent";
-    if (num >= 80) return "#90ee90"; // light green
-    if (num >= 50) return "#fff9c4"; // light yellow
-    return "#f8bbd0"; // light red/pink
-  };
-
-  const showOutput = selectedIndicatorType === "All" || selectedIndicatorType === "output";
-  const showOutcome = selectedIndicatorType === "All" || selectedIndicatorType === "outcome";
-
+const TableComponent = ({ data }) => {
   return (
-    <Box sx={{ p: 2, backgroundColor: "#fdfdfd" }}>
-      <TableContainer component={Paper} sx={{ boxShadow: "0px 4px 20px rgba(0,0,0,0.1)" }}>
-        <Table size="small">
-          <TableHead>
-            <TableRow sx={{ backgroundColor: "#45154F" }}>
-              <TableCell sx={{ color: "#fff", fontWeight: "bold", border: "1px solid #632a6d" }}>
-                Ministry Name
-              </TableCell>
-              <TableCell sx={{ color: "#fff", fontWeight: "bold", border: "1px solid #632a6d" }}>
-                Department Name
-              </TableCell>
-              <TableCell sx={{ color: "#fff", fontWeight: "bold", border: "1px solid #632a6d" }}>
-                Scheme Name
-              </TableCell>
-              {showOutput && (
-                <>
-                  <TableCell sx={{ color: "#fff", fontWeight: "bold", border: "1px solid #632a6d" }}>
-                    Output Total
-                  </TableCell>
-                  <TableCell sx={{ color: "#fff", fontWeight: "bold", border: "1px solid #632a6d" }}>
-                    Output Compliance (%)
-                  </TableCell>
-                </>
-              )}
-              {showOutcome && (
-                <>
-                  <TableCell sx={{ color: "#fff", fontWeight: "bold", border: "1px solid #632a6d" }}>
-                    Outcome Total
-                  </TableCell>
-                  <TableCell sx={{ color: "#fff", fontWeight: "bold", border: "1px solid #632a6d" }}>
-                    Outcome Compliance (%)
-                  </TableCell>
-                </>
-              )}
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {data.map((ministry) =>
-              ministry.departments.map((dept) =>
-                dept.schemes
-                  .filter((scheme) => scheme.frequency === "yearly") // Only yearly schemes
-                  .map((scheme) =>
-                    Object.entries(scheme.years).map(([year, yearData]) =>
-                      yearData.rows.map((row, rIdx) => (
-                        <TableRow key={`${ministry.name}-${dept.name}-${scheme.name}-${year}`}>
-                          <TableCell>{ministry.name}</TableCell>
-                          <TableCell>{dept.name}</TableCell>
-                          <TableCell>{scheme.name}</TableCell>
-                          {showOutput && (
-                            <>
-                              <TableCell>{row.output.total}</TableCell>
-                              <TableCell sx={{ backgroundColor: getComplianceColor(row.output.compliance) }}>
-                                {row.output.compliance}
-                              </TableCell>
-                            </>
-                          )}
-                          {showOutcome && (
-                            <>
-                              <TableCell>{row.outcome.total}</TableCell>
-                              <TableCell sx={{ backgroundColor: getComplianceColor(row.outcome.compliance) }}>
-                                {row.outcome.compliance}
-                              </TableCell>
-                            </>
-                          )}
-                        </TableRow>
-                      )),
-                    ),
-                  ),
-              ),
-            )}
-          </TableBody>
-        </Table>
-      </TableContainer>
-    </Box>
+    <table border="1" cellPadding="10" style={{ borderCollapse: "collapse", width: "100%" }}>
+      <thead>
+        <tr>
+          <th rowSpan="2">Ministry Name</th>
+          <th rowSpan="2">Department Name</th>
+          <th rowSpan="2">Scheme Name</th>
+          <th colSpan="2">Output</th>
+          <th colSpan="2">Outcome</th>
+        </tr>
+        <tr>
+          <th>Total</th>
+          <th>Compliance (%)</th>
+          <th>Total</th>
+          <th>Compliance (%)</th>
+        </tr>
+      </thead>
+
+      <tbody>
+        {data.map((ministry, mIndex) => {
+          let ministryRowSpan = 0;
+
+          ministry.departments.forEach((dept) => {
+            dept.schemes.forEach((scheme) => {
+              ministryRowSpan += Object.keys(scheme.years).length;
+            });
+          });
+
+          return ministry.departments.map((dept, dIndex) => {
+            let deptRowSpan = 0;
+
+            dept.schemes.forEach((scheme) => {
+              deptRowSpan += Object.keys(scheme.years).length;
+            });
+
+            return dept.schemes.map((scheme, sIndex) => {
+              const years = Object.keys(scheme.years);
+
+              return years.map((year, yIndex) => {
+                const yearData = scheme.years[year].overall;
+
+                return (
+                  <tr key={`${mIndex}-${dIndex}-${sIndex}-${yIndex}`}>
+                    {/* Ministry */}
+                    {dIndex === 0 && sIndex === 0 && yIndex === 0 && (
+                      <td rowSpan={ministryRowSpan}>{ministry.name}</td>
+                    )}
+
+                    {/* Department */}
+                    {sIndex === 0 && yIndex === 0 && (
+                      <td rowSpan={deptRowSpan}>{dept.name}</td>
+                    )}
+
+                    {/* Scheme */}
+                    {yIndex === 0 && (
+                      <td rowSpan={years.length}>{scheme.name}</td>
+                    )}
+
+                    {/* Output */}
+                    <td>{yearData.output.total}</td>
+                    <td>{yearData.output.compliance}</td>
+
+                    {/* Outcome */}
+                    <td>{yearData.outcome.total}</td>
+                    <td>{yearData.outcome.compliance}</td>
+                  </tr>
+                );
+              });
+            });
+          });
+        })}
+      </tbody>
+    </table>
   );
 };
 
-export default YearlyFlatReport;
+export default TableComponent;
