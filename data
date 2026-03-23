@@ -1,79 +1,109 @@
 import React from "react";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  Paper,
+  Typography,
+} from "@mui/material";
 
 const TableComponent = ({ data }) => {
   return (
-    <table border="1" cellPadding="10" style={{ borderCollapse: "collapse", width: "100%" }}>
-      <thead>
-        <tr>
-          <th rowSpan="2">Ministry Name</th>
-          <th rowSpan="2">Department Name</th>
-          <th rowSpan="2">Scheme Name</th>
-          <th colSpan="2">Output</th>
-          <th colSpan="2">Outcome</th>
-        </tr>
-        <tr>
-          <th>Total</th>
-          <th>Compliance (%)</th>
-          <th>Total</th>
-          <th>Compliance (%)</th>
-        </tr>
-      </thead>
+    <TableContainer component={Paper} elevation={3} sx={{ maxHeight: 600 }}>
+      <Table stickyHeader>
+        <TableHead>
+          <TableRow>
+            <TableCell rowSpan={2}><b>Ministry Name</b></TableCell>
+            <TableCell rowSpan={2}><b>Department Name</b></TableCell>
+            <TableCell rowSpan={2}><b>Scheme Name</b></TableCell>
+            <TableCell align="center" colSpan={2}><b>Output</b></TableCell>
+            <TableCell align="center" colSpan={2}><b>Outcome</b></TableCell>
+          </TableRow>
+          <TableRow>
+            <TableCell align="center"><b>Total</b></TableCell>
+            <TableCell align="center"><b>Compliance (%)</b></TableCell>
+            <TableCell align="center"><b>Total</b></TableCell>
+            <TableCell align="center"><b>Compliance (%)</b></TableCell>
+          </TableRow>
+        </TableHead>
 
-      <tbody>
-        {data.map((ministry, mIndex) => {
-          let ministryRowSpan = 0;
+        <TableBody>
+          {data.map((ministry, mIndex) => {
+            let ministryRowSpan = 0;
 
-          ministry.departments.forEach((dept) => {
-            dept.schemes.forEach((scheme) => {
-              ministryRowSpan += Object.keys(scheme.years).length;
-            });
-          });
-
-          return ministry.departments.map((dept, dIndex) => {
-            let deptRowSpan = 0;
-
-            dept.schemes.forEach((scheme) => {
-              deptRowSpan += Object.keys(scheme.years).length;
-            });
-
-            return dept.schemes.map((scheme, sIndex) => {
-              const years = Object.keys(scheme.years);
-
-              return years.map((year, yIndex) => {
-                const yearData = scheme.years[year].overall;
-
-                return (
-                  <tr key={`${mIndex}-${dIndex}-${sIndex}-${yIndex}`}>
-                    {/* Ministry */}
-                    {dIndex === 0 && sIndex === 0 && yIndex === 0 && (
-                      <td rowSpan={ministryRowSpan}>{ministry.name}</td>
-                    )}
-
-                    {/* Department */}
-                    {sIndex === 0 && yIndex === 0 && (
-                      <td rowSpan={deptRowSpan}>{dept.name}</td>
-                    )}
-
-                    {/* Scheme */}
-                    {yIndex === 0 && (
-                      <td rowSpan={years.length}>{scheme.name}</td>
-                    )}
-
-                    {/* Output */}
-                    <td>{yearData.output.total}</td>
-                    <td>{yearData.output.compliance}</td>
-
-                    {/* Outcome */}
-                    <td>{yearData.outcome.total}</td>
-                    <td>{yearData.outcome.compliance}</td>
-                  </tr>
-                );
+            ministry.departments.forEach((dept) => {
+              dept.schemes.forEach((scheme) => {
+                ministryRowSpan += Object.keys(scheme.years).length;
               });
             });
-          });
-        })}
-      </tbody>
-    </table>
+
+            return ministry.departments.map((dept, dIndex) => {
+              let deptRowSpan = 0;
+
+              dept.schemes.forEach((scheme) => {
+                deptRowSpan += Object.keys(scheme.years).length;
+              });
+
+              return dept.schemes.map((scheme, sIndex) => {
+                const years = Object.keys(scheme.years);
+
+                return years.map((year, yIndex) => {
+                  const yearData = scheme.years[year].overall;
+
+                  return (
+                    <TableRow hover key={`${mIndex}-${dIndex}-${sIndex}-${yIndex}`}>
+                      {/* Ministry */}
+                      {dIndex === 0 && sIndex === 0 && yIndex === 0 && (
+                        <TableCell rowSpan={ministryRowSpan}>
+                          <Typography fontWeight={600}>
+                            {ministry.name}
+                          </Typography>
+                        </TableCell>
+                      )}
+
+                      {/* Department */}
+                      {sIndex === 0 && yIndex === 0 && (
+                        <TableCell rowSpan={deptRowSpan}>
+                          <Typography fontWeight={500}>
+                            {dept.name}
+                          </Typography>
+                        </TableCell>
+                      )}
+
+                      {/* Scheme */}
+                      {yIndex === 0 && (
+                        <TableCell rowSpan={years.length}>
+                          {scheme.name}
+                        </TableCell>
+                      )}
+
+                      {/* Output */}
+                      <TableCell align="center">
+                        {yearData.output.total}
+                      </TableCell>
+                      <TableCell align="center">
+                        {yearData.output.compliance}%
+                      </TableCell>
+
+                      {/* Outcome */}
+                      <TableCell align="center">
+                        {yearData.outcome.total}
+                      </TableCell>
+                      <TableCell align="center">
+                        {yearData.outcome.compliance}%
+                      </TableCell>
+                    </TableRow>
+                  );
+                });
+              });
+            });
+          })}
+        </TableBody>
+      </Table>
+    </TableContainer>
   );
 };
 
