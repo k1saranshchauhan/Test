@@ -9,16 +9,18 @@ const ReportComponent = ({ data }) => {
         <div key={mIdx} className="mb-8 border border-gray-300 rounded shadow-sm bg-white">
           {/* Ministry Header */}
           <div className="bg-gray-50 p-3 border-b border-gray-300 flex justify-between items-center">
-            <h1 className="text-lg font-bold text-gray-700 uppercase">{ministry.name}</h1>
-            <span className="text-gray-500">−</span>
+            <h1 className="text-lg font-bold text-gray-700 uppercase tracking-wide">
+              {mIdx + 1}) {ministry.name}
+            </h1>
+            <span className="text-gray-500 font-bold">−</span>
           </div>
 
           <div className="p-4">
             {ministry.departments.map((dept, dIdx) => (
               <div key={dIdx} className="mb-6">
                 {/* Department Name */}
-                <h2 className="text-xl font-bold text-blue-900 mb-4 uppercase tracking-tight">
-                  {dept.name}
+                <h2 className="text-xl font-bold text-blue-900 mb-4 tracking-tight">
+                  {mIdx + 1}.{dIdx + 1}) {dept.name}
                 </h2>
 
                 {dept.schemes.map((scheme, sIdx) => {
@@ -27,24 +29,24 @@ const ReportComponent = ({ data }) => {
                   return (
                     <div key={sIdx} className="mb-8">
                       {/* Scheme Name */}
-                      <h3 className="text-md font-bold text-blue-800 mb-2">
-                        {sIdx + 1}. {scheme.name}
+                      <h3 className="text-md font-bold text-[#45154F] mb-3">
+                        {mIdx + 1}.{dIdx + 1}.{sIdx + 1}) {scheme.name}
                       </h3>
                       
                       {/* Dynamic Table */}
-                      <div className="overflow-x-auto">
+                      <div className="overflow-x-auto shadow-md rounded-lg">
                         <table className="min-w-full border-collapse border border-gray-300">
                           <thead className="bg-[#45154F] text-white">
                             <tr>
-                              <th rowSpan="2" className="border border-[#632a6d] p-2 text-sm font-semibold">Financial Year</th>
-                              {/* Conditional Frequency Column */}
+                              <th rowSpan="2" className="border border-[#632a6d] p-3 text-sm font-semibold">Financial Year</th>
+                              {/* Only show frequency column if NOT yearly */}
                               {!isYearly && (
-                                <th rowSpan="2" className="border border-[#632a6d] p-2 text-sm font-semibold capitalize">
+                                <th rowSpan="2" className="border border-[#632a6d] p-3 text-sm font-semibold capitalize">
                                   {scheme.frequency === 'half-yearly' ? 'Half Year' : 'Quarter'}
                                 </th>
                               )}
-                              <th colSpan="2" className="border border-[#632a6d] p-2 text-sm font-semibold text-center">Output Indicators</th>
-                              <th colSpan="2" className="border border-[#632a6d] p-2 text-sm font-semibold text-center">Outcome Indicators</th>
+                              <th colSpan="2" className="border border-[#632a6d] p-2 text-sm font-semibold">Output Indicators</th>
+                              <th colSpan="2" className="border border-[#632a6d] p-2 text-sm font-semibold">Outcome Indicators</th>
                             </tr>
                             <tr>
                               <th className="border border-[#632a6d] p-2 text-xs font-semibold">Total</th>
@@ -57,41 +59,39 @@ const ReportComponent = ({ data }) => {
                             {Object.entries(scheme.years).map(([year, yearData]) => (
                               <React.Fragment key={year}>
                                 {yearData.rows.map((row, rIdx) => (
-                                  <tr key={rIdx} className="text-center hover:bg-gray-50">
-                                    {/* Year RowSpan Fix: 
-                                        If yearly, span 1. 
-                                        If freq based, span (rows + 1) to account for 'Overall' row */}
+                                  <tr key={rIdx} className="text-center bg-white hover:bg-gray-50 transition-colors">
+                                    {/* Fix: If Yearly, span only rows. If not, span rows + 1 (for Overall row) */}
                                     {rIdx === 0 && (
                                       <td 
                                         rowSpan={isYearly ? yearData.rows.length : yearData.rows.length + 1} 
-                                        className="border border-gray-300 p-2 text-sm text-gray-800 font-medium"
+                                        className="border border-gray-300 p-3 text-sm text-gray-900 font-bold bg-white"
                                       >
                                         {year}
                                       </td>
                                     )}
 
-                                    {/* Hide Frequency label cell if yearly */}
+                                    {/* Hide this cell entirely in yearly mode to prevent column shift */}
                                     {!isYearly && (
-                                      <td className="border border-gray-300 p-2 text-sm text-gray-600">
+                                      <td className="border border-gray-300 p-2 text-sm text-gray-700 font-medium">
                                         {row.label.split(' ')[0]}
                                       </td>
                                     )}
 
-                                    <td className="border border-gray-300 p-2 text-sm">{row.output.total}</td>
-                                    <td className="border border-gray-300 p-2 text-sm">{row.output.compliance}</td>
-                                    <td className="border border-gray-300 p-2 text-sm">{row.outcome.total}</td>
-                                    <td className="border border-gray-300 p-2 text-sm">{row.outcome.compliance}</td>
+                                    <td className="border border-gray-300 p-2 text-sm text-gray-800">{row.output.total}</td>
+                                    <td className="border border-gray-300 p-2 text-sm text-gray-800 font-medium">{row.output.compliance}</td>
+                                    <td className="border border-gray-300 p-2 text-sm text-gray-800">{row.outcome.total}</td>
+                                    <td className="border border-gray-300 p-2 text-sm text-gray-800 font-medium">{row.outcome.compliance}</td>
                                   </tr>
                                 ))}
 
-                                {/* Only show 'Overall' row for Half-Yearly or Quarterly */}
+                                {/* Only render Overall row if frequency is NOT yearly */}
                                 {!isYearly && (
-                                  <tr className="text-center font-bold bg-gray-50">
-                                    <td className="border border-gray-300 p-2 text-sm italic text-gray-700">Overall</td>
+                                  <tr className="text-center font-bold bg-gray-100">
+                                    <td className="border border-gray-300 p-2 text-sm italic text-[#45154F]">Overall</td>
                                     <td className="border border-gray-300 p-2 text-sm">{yearData.overall.output.total}</td>
-                                    <td className="border border-gray-300 p-2 text-sm">{yearData.overall.output.compliance}</td>
+                                    <td className="border border-gray-300 p-2 text-sm text-[#45154F]">{yearData.overall.output.compliance}</td>
                                     <td className="border border-gray-300 p-2 text-sm">{yearData.overall.outcome.total}</td>
-                                    <td className="border border-gray-300 p-2 text-sm">{yearData.overall.outcome.compliance}</td>
+                                    <td className="border border-gray-300 p-2 text-sm text-[#45154F]">{yearData.overall.outcome.compliance}</td>
                                   </tr>
                                 )}
                               </React.Fragment>
