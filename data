@@ -11,13 +11,7 @@ import {
   TableBody,
 } from "@mui/material";
 
-const ReportComponent = ({ data, selectedIndicatorType = "All" }) => {
-  const getSubKeys = (frequency) => {
-    if (frequency === "quarterly") return ["Q1", "Q2", "Q3", "Q4"];
-    if (frequency === "half-yearly") return ["H1", "H2"];
-    return ["FY"];
-  };
-
+const YearlyReportComponent = ({ data, selectedIndicatorType = "All" }) => {
   const getComplianceColor = (value) => {
     const num = parseFloat(value);
     if (isNaN(num)) return "transparent";
@@ -49,12 +43,9 @@ const ReportComponent = ({ data, selectedIndicatorType = "All" }) => {
                 {minIdx + 1}.{deptIdx + 1}) {dept.name}
               </Typography>
 
-              {dept.schemes.map((scheme, schemeIdx) => {
-                const frequency = scheme.frequency;
-                const subKeys = getSubKeys(frequency);
-                const isYearly = frequency === "yearly";
-
-                return (
+              {dept.schemes
+                .filter((scheme) => scheme.frequency === "yearly") // Only yearly schemes
+                .map((scheme, schemeIdx) => (
                   <Box key={schemeIdx} sx={{ ml: 2, mb: 6 }}>
                     <Typography
                       variant="h6"
@@ -71,7 +62,6 @@ const ReportComponent = ({ data, selectedIndicatorType = "All" }) => {
                         <TableHead>
                           <TableRow sx={{ backgroundColor: "#45154F" }}>
                             <TableCell
-                              rowSpan={2}
                               sx={{
                                 color: "#fff",
                                 fontWeight: "bold",
@@ -81,22 +71,6 @@ const ReportComponent = ({ data, selectedIndicatorType = "All" }) => {
                             >
                               Financial Year
                             </TableCell>
-                            {!isYearly && (
-                              <TableCell
-                                rowSpan={2}
-                                sx={{
-                                  color: "#fff",
-                                  fontWeight: "bold",
-                                  border: "1px solid #632a6d",
-                                  textAlign: "center",
-                                }}
-                              >
-                                {frequency
-                                  ? frequency.charAt(0).toUpperCase() + frequency.slice(1)
-                                  : ""}
-                              </TableCell>
-                            )}
-
                             {showOutput && (
                               <TableCell
                                 colSpan={2}
@@ -173,96 +147,49 @@ const ReportComponent = ({ data, selectedIndicatorType = "All" }) => {
                         </TableHead>
 
                         <TableBody>
-                          {Object.entries(scheme.years).map(([year, yearData]) => {
-                            const rowSpan = isYearly ? yearData.rows.length : yearData.rows.length + 1;
-                            return (
-                              <React.Fragment key={year}>
-                                {yearData.rows.map((row, rIdx) => (
-                                  <TableRow
-                                    key={rIdx}
-                                    sx={{ "&:nth-of-type(even)": { backgroundColor: "#f9f9f9" } }}
-                                  >
-                                    {rIdx === 0 && (
-                                      <TableCell
-                                        rowSpan={rowSpan}
-                                        align="center"
-                                        sx={{ fontWeight: "bold" }}
-                                      >
-                                        {year}
-                                      </TableCell>
-                                    )}
-                                    {!isYearly && (
-                                      <TableCell align="center">{row.label?.split(" ")[0]}</TableCell>
-                                    )}
-                                    {showOutput && (
-                                      <>
-                                        <TableCell align="center">{row.output.total}</TableCell>
-                                        <TableCell
-                                          align="center"
-                                          sx={{
-                                            backgroundColor: getComplianceColor(row.output.compliance),
-                                          }}
-                                        >
-                                          {row.output.compliance}
-                                        </TableCell>
-                                      </>
-                                    )}
-                                    {showOutcome && (
-                                      <>
-                                        <TableCell align="center">{row.outcome.total}</TableCell>
-                                        <TableCell
-                                          align="center"
-                                          sx={{
-                                            backgroundColor: getComplianceColor(row.outcome.compliance),
-                                          }}
-                                        >
-                                          {row.outcome.compliance}
-                                        </TableCell>
-                                      </>
-                                    )}
-                                  </TableRow>
-                                ))}
-
-                                {!isYearly && (
-                                  <TableRow sx={{ backgroundColor: "#f0f4ff", fontStyle: "italic" }}>
-                                    <TableCell align="center">Overall</TableCell>
-                                    {showOutput && (
-                                      <>
-                                        <TableCell align="center">{yearData.overall.output.total}</TableCell>
-                                        <TableCell
-                                          align="center"
-                                          sx={{
-                                            backgroundColor: getComplianceColor(yearData.overall.output.compliance),
-                                          }}
-                                        >
-                                          {yearData.overall.output.compliance}
-                                        </TableCell>
-                                      </>
-                                    )}
-                                    {showOutcome && (
-                                      <>
-                                        <TableCell align="center">{yearData.overall.outcome.total}</TableCell>
-                                        <TableCell
-                                          align="center"
-                                          sx={{
-                                            backgroundColor: getComplianceColor(yearData.overall.outcome.compliance),
-                                          }}
-                                        >
-                                          {yearData.overall.outcome.compliance}
-                                        </TableCell>
-                                      </>
-                                    )}
-                                  </TableRow>
+                          {Object.entries(scheme.years).map(([year, yearData]) =>
+                            yearData.rows.map((row, rIdx) => (
+                              <TableRow
+                                key={rIdx}
+                                sx={{ "&:nth-of-type(even)": { backgroundColor: "#f9f9f9" } }}
+                              >
+                                <TableCell align="center" sx={{ fontWeight: "bold" }}>
+                                  {year}
+                                </TableCell>
+                                {showOutput && (
+                                  <>
+                                    <TableCell align="center">{row.output.total}</TableCell>
+                                    <TableCell
+                                      align="center"
+                                      sx={{
+                                        backgroundColor: getComplianceColor(row.output.compliance),
+                                      }}
+                                    >
+                                      {row.output.compliance}
+                                    </TableCell>
+                                  </>
                                 )}
-                              </React.Fragment>
-                            );
-                          })}
+                                {showOutcome && (
+                                  <>
+                                    <TableCell align="center">{row.outcome.total}</TableCell>
+                                    <TableCell
+                                      align="center"
+                                      sx={{
+                                        backgroundColor: getComplianceColor(row.outcome.compliance),
+                                      }}
+                                    >
+                                      {row.outcome.compliance}
+                                    </TableCell>
+                                  </>
+                                )}
+                              </TableRow>
+                            )),
+                          )}
                         </TableBody>
                       </Table>
                     </TableContainer>
                   </Box>
-                );
-              })}
+                ))}
             </Box>
           ))}
         </Box>
@@ -271,4 +198,4 @@ const ReportComponent = ({ data, selectedIndicatorType = "All" }) => {
   );
 };
 
-export default ReportComponent;
+export default YearlyReportComponent;
