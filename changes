@@ -1,12 +1,38 @@
 import PDFDocument from "pdfkit";
+import 'pdfkit-table';
 
-const generateProgressReportPDF = (reportData, res) => {
+/**
+ * Generates a Progress Report PDF similar to the ProgressTable component
+ * @param {Object} reportData - raw data grouped by year -> array of schemes
+ * @param {Object} res - Express response object to stream PDF
+ */
+export const generateProgressReportPDF = async (reportData, res) => {
   const doc = new PDFDocument({ margin: 20, layout: "landscape", size: "A4" });
   doc.pipe(res);
 
   const years = Object.keys(reportData).sort();
 
-  // Build hierarchy like in ProgressTable
+  // Helper functions
+  const formatDecimal = (val) => {
+    if (val === null || val === undefined || val === "-") return "-";
+    const num = Number(val);
+    return isNaN(num) ? val : num.toFixed(2);
+  };
+
+  const getSubKeys = (frequency) => {
+    if (frequency === "Quarterly") return ["Q1", "Q2", "Q3", "Q4"];
+    if (frequency === "Half-Yearly") return ["HY1", "HY2"];
+    return ["Yearly"];
+  };
+
+  const getBackgroundColor = (value) => {
+    if (isNaN(value) || value === null) return null;
+    if (value > 80) return "#90ee90"; // lightgreen
+    if (value >= 50) return "#fff9c4"; // lightyellow
+    return "#f8bbd0"; // lightcoral
+  };
+
+  // Build hierarchy like ProgressTable
   const hierarchy = {};
   years.forEach((year) => {
     reportData[year].forEach((schemeEntry) => {
@@ -52,47 +78,30 @@ const generateProgressReportPDF = (reportData, res) => {
     });
   });
 
-  // Helper for formatting numbers
-  const formatDecimal = (value) => {
-    if (value === null || value === undefined || value === "-") return "-";
-    const num = Number(value);
-    return !isNaN(num) ? num.toFixed(2) : value;
-  };
-
-  const getSubKeys = (frequency) => {
-    if (frequency === "Quarterly") return ["Q1", "Q2", "Q3", "Q4"];
-    if (frequency === "Half-Yearly") return ["HY1", "HY2"];
-    return ["Yearly"];
-  };
-
-  const getBackgroundColor = (value) => {
-    if (isNaN(value) || value === null) return null;
-    if (value > 80) return "#90ee90"; // lightgreen
-    if (value >= 50) return "#fff9c4"; // lightyellow
-    return "#f8bbd0"; // lightcoral
-  };
-
-  // Loop through hierarchy
-  Object.entries(hierarchy).forEach(([minName, departments], minIdx) => {
+  // Render PDF
+  let minIdx = 0;
+  for (const [minName, departments] of Object.entries(hierarchy)) {
     doc.addPage();
     doc.fontSize(16).fillColor("#1a237e").text(`${minIdx + 1}) Ministry: ${minName}`, { underline: true });
-    
-    Object.entries(departments).forEach(([deptName, schemes], deptIdx) => {
-      doc.moveDown(0.5);
+
+    let deptIdx = 0;
+    for (const [deptName, schemes] of Object.entries(departments)) {
+      doc.moveDown(0.3);
       doc.fontSize(14).fillColor("black").text(`${minIdx + 1}.${deptIdx + 1}) Department: ${deptName}`);
-      
-      Object.entries(schemes).forEach(([schemeName, schemeContent], schemeIdx) => {
-        doc.moveDown(0.5);
+
+      let schemeIdx = 0;
+      for (const [schemeName, schemeContent] of Object.entries(schemes)) {
+        doc.moveDown(0.3);
         doc.fontSize(12).fillColor("#45154F").text(`${minIdx + 1}.${deptIdx + 1}.${schemeIdx + 1}) Scheme: ${schemeName}`, { underline: true });
         doc.moveDown(0.2);
 
         const rows = [];
         const indicatorValues = Object.values(schemeContent.indicatorRows);
+
         indicatorValues.forEach((row) => {
           let cumulativeTarget = 0;
           let cumulativeProgress = 0;
-          const firstRow = row;
-          const frequency = firstRow.frequency;
+          const frequency = row.frequency;
           const subKeys = getSubKeys(frequency);
           const isYearly = frequency === "Yearly";
           const showTotalCol = !isYearly;
@@ -123,7 +132,6 @@ const generateProgressReportPDF = (reportData, res) => {
             if (showTotalCol) rowCells.push(`${yearlyAchievedPct.toFixed(2)}%`);
           });
 
-          // Add cumulative
           rowCells.push(formatDecimal(cumulativeTarget));
           rowCells.push(formatDecimal(cumulativeProgress));
           rowCells.push(`${cumulativeTarget > 0 ? ((cumulativeProgress / cumulativeTarget) * 100).toFixed(2) : "0.00"}%`);
@@ -131,14 +139,56 @@ const generateProgressReportPDF = (reportData, res) => {
           rows.push(rowCells);
         });
 
-        // You can use pdfkit-table or manually draw table with doc.text at positions
-        // Example using simple text (replace with pdfkit-table for complex tables)
-        const colWidths = [50, 100, 100, 40, 50];
-        // Add dynamic width for years and subKeys...
-        // TODO: Implement table rendering library or custom logic
-      });
-    });
-  });
+        // Define table headers dynamically
+        const headers = [
+          { label: "Type", property: "type", width: 60 },
+          { label: "Statement", property: "statement", width: 120 },
+          { label: "Indicator", property: "indicator", width: 120 },
+          { label: "Unit", property: "unit", width: 50 },
+          { label: "Period", property: "period", width: 50 },
+        ];
+
+        years.forEach((year) => {
+          const firstRow = indicatorValues[0];
+          const frequency = firstRow?.frequency || "Yearly";
+          const subKeys = getSubKeys(frequency);
+          const isYearly = frequency === "Yearly";
+          const showTotalCol = !isYearly;
+
+          ["Target", "Progress", "Achieved"].forEach((type) => {
+            subKeys.forEach(sk => headers.push({ label: `${year}-${sk}-${type}`, property: `${year}-${sk}-${type}`, width: 40 }));
+            if (showTotalCol) headers.push({ label: `${year}-Total-${type}`, property: `${year}-Total-${type}`, width: 50 });
+          });
+        });
+
+        // Map rowCells into row objects for pdfkit-table
+        const tableRows = rows.map((rowCells) => {
+          const rowObj = {};
+          headers.forEach((h, idx) => {
+            rowObj[h.property] = rowCells[idx] ?? "-";
+          });
+          return rowObj;
+        });
+
+        await doc.table(
+          {
+            headers,
+            rows: tableRows,
+          },
+          {
+            prepareHeader: () => doc.font("Helvetica-Bold").fontSize(8),
+            prepareRow: (row, i) => doc.font("Helvetica").fontSize(7),
+          }
+        );
+
+        schemeIdx++;
+      }
+
+      deptIdx++;
+    }
+
+    minIdx++;
+  }
 
   doc.end();
 };
