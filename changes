@@ -1,304 +1,200 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import {
   Box,
-  Button,
-  Typography,
-  Tooltip,
-  Card,
-  CardContent,
+  TextField,
+  Paper,
+  InputAdornment,
+  IconButton,
+  Chip,
   Stack,
   Divider,
 } from "@mui/material";
-import { CloudUpload, MergeType } from "@mui/icons-material";
-import apiClient from "@/utils/apiClient";
-import EnhancedSupportingDocumentsRepeater from "./EnhancedSupportingDocRepeater";
-import AdvancedDataGrid from "./AdvancedDataGrid";
-import DynamicDialog from "./DynamicDialog";
-import MainFormHeader from "@/src/components/DashboardUI/MainFormHeader";
-import CloudUploadIcon from "@mui/icons-material/CloudUpload";
-import { oomfFrameworkId } from "@/src/constants/unified/frameworkConstants";
-import DescriptionIcon from "@mui/icons-material/Description";
-import PictureAsPdfIcon from "@mui/icons-material/PictureAsPdf";
-import InsertDriveFileIcon from "@mui/icons-material/InsertDriveFile";
-import { useDispatch, useSelector } from "react-redux";
-import { startLoader, stopLoader } from "@/store/slices/errorSlice";
-import { setError, setSuccess } from "@/store/slices/errorSlice";
+import {
+  DataGrid,
+  GridToolbarContainer,
+} from "@mui/x-data-grid";
+import {
+  Search,
+  Clear,
+  KeyboardArrowUp,
+  KeyboardArrowDown,
+} from "@mui/icons-material";
+import StraightIcon from '@mui/icons-material/Straight';
+import SouthIcon from '@mui/icons-material/South';
+import NorthIcon from '@mui/icons-material/North';
 
-const DocumentMergePage = () => {
-  const [documents, setDocuments] = useState([]);
-  const [selectionModel, setSelectionModel] = useState([]);
-  const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const dispatch = useDispatch();
-  // File Server URL (same convention you use elsewhere)
-  const FILE_SERVER_URL = `${process.env.NEXT_PUBLIC_API_BASE_URL}api/public/download-file/`;
-  const getFileIcon = (fileName) => {
-    const extension = fileName?.split(".").pop()?.toLowerCase();
-    switch (extension) {
-      case "pdf":
-        return <PictureAsPdfIcon sx={{ color: "#D32F2F", mr: 1 }} />;
-      case "doc":
-      case "docx":
-        return <DescriptionIcon sx={{ color: "#45254f", mr: 1 }} />;
-      case "ppt":
-      case "pptx":
-        return <SlideshowIcon sx={{ color: "#F57C00", mr: 1 }} />;
-      case "txt":
-        return <DescriptionIcon sx={{ color: "#388E3C", mr: 1 }} />;
-      default:
-        return <InsertDriveFileIcon color="primary" sx={{ mr: 1 }} />;
-    }
-  };
-  function convertToLocalTime(utcDateString) {
-    if (!utcDateString) return "—";
-
-    const date = new Date(utcDateString);
-
-    const day = String(date.getDate()).padStart(2, "0");
-    const month = String(date.getMonth() + 1).padStart(2, "0"); // Months are 0-based
-    const year = date.getFullYear();
-
-    let hours = date.getHours();
-    const minutes = String(date.getMinutes()).padStart(2, "0");
-    const seconds = String(date.getSeconds()).padStart(2, "0");
-
-    const ampm = hours >= 12 ? "PM" : "AM";
-    hours = hours % 12 || 12; // Convert 0 → 12
-    const formattedHours = String(hours).padStart(2, "0");
-
-    return `${day}/${month}/${year}, ${formattedHours}:${minutes}:${seconds} ${ampm}`;
-  }
+const AdvancedDataGrid = ({
+  data = [],
+  columns = [],
+  rowIdField = "id",
+  enableReorder = false,
+  searchPlaceholder = "Search records...",
+  onSelectionChange,
+  onOrderChange, // <--- prop to sync with parent
+  checkboxSelection = true,
+  loading=false,
+}) => {
+  const [searchText, setSearchText] = useState("");
+  const [tableData, setTableData] = useState(data);
 
   useEffect(() => {
-    fetchDocuments();
-  }, []);
+    setTableData(data);
+  }, [data]);
 
-  const fetchDocuments = async () => {
-    try {
-      setLoading(true);
-      const res = await apiClient.get(
-        `api/document/get-folder-documents/${oomfFrameworkId}`,
-      );
-      if (res?.data?.success) {
-        const filteredDocs = res.data.result.filter((doc) =>
-          doc.document_name?.toLowerCase().endsWith(".docx"),
-        );
-        // setDocuments(filteredDocs);
+  const filteredRows = useMemo(() => {
+    const term = searchText.toLowerCase().trim();
+    if (!term) return tableData;
 
-        // Ensure you don't mutate filteredDocs (avoid side effects)
-        const sorted = [...filteredDocs].sort((a, b) => {
-          const ta = new Date(a.uploaded_at).getTime();
-          const tb = new Date(b.uploaded_at).getTime();
-          // Newest first
-          return tb - ta;
-        });
-
-        setDocuments(sorted);
-      }
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const uploadMultipleFiles = async (files, titles = [], description) => {
-    const formData = new FormData();
-    files.forEach((file, idx) => {
-      formData.append("files", file);
-      formData.append("titles[]", titles[idx] || file.name);
+    return tableData.filter((row) => {
+      return Object.values(row).some((val) => {
+        if (val === null || val === undefined) return false;
+        return JSON.stringify(val).toLowerCase().includes(term);
+      });
     });
-    formData.append("reference_type", "oomf");
-    formData.append("remarks", description);
+  }, [tableData, searchText]);
+
+  const handleMove = (index, direction) => {
+    const newData = [...tableData];
+    const targetIndex = direction === "up" ? index - 1 : index + 1;
+    if (targetIndex < 0 || targetIndex >= newData.length) return;
+
+    // Swap items
+    [newData[index], newData[targetIndex]] = [newData[targetIndex], newData[index]];
     
-    try {
-      dispatch(startLoader());
-      const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-      const res = await apiClient.post("api/document/upload-files", formData);
-      dispatch(setSuccess("Document uploaded successfully"));
-      fetchDocuments(); // Refresh the list
-      await delay(500);
-      setIsDialogOpen(false); // Close dialog on success
-      return res.data.files;
-    } catch (err) {
-      console.error("Upload failed", err);
-      return [];
-    } finally {
-      dispatch(stopLoader());
+    setTableData(newData);
+    
+    // Notify parent immediately so the payload stays in sync
+    if (onOrderChange) {
+      onOrderChange(newData);
     }
   };
 
-const handleMerge = async () => {
-  if (selectionModel.length < 2) return;
-
-  const orderedPayload = documents
-    .filter((doc) => selectionModel.includes(doc.document_id))
-    .map((doc, index) => ({
-      [index + 1]: doc.document_id,
+  const finalColumns = useMemo(() => {
+    const baseCols = columns.map((col) => ({
+      ...col,
     }));
 
-  try {
-    const response = await apiClient.post(
-      "/api/document/download-merged-documents",
-      { documentIds: orderedPayload?.map(obj => Object.values(obj)[0]) },
-      { responseType: "blob", headers: { "Content-Type": "application/json" } }
-    );
-
-    const blob = new Blob([response.data], { type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" });
-    const url = window.URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-
-    let filename = "merged_documents.docx";
-    const contentDisposition = response.headers["content-disposition"];
-    if (contentDisposition) {
-      const filenameStarMatch = contentDisposition.match(/filename\*\s*=\s*UTF-8''(.+?)(?:;|$)/i);
-      if (filenameStarMatch && filenameStarMatch[1]) {
-        filename = decodeURIComponent(filenameStarMatch[1]);
-      } else {
-        const filenameMatch = contentDisposition.match(/filename="?([^";]+)"?/i);
-        if (filenameMatch && filenameMatch[1]) filename = filenameMatch[1];
-      }
-      filename = filename.replace(/_+$/, "");
+    if (enableReorder) {
+      return [
+        {
+          field: "reorder_actions",
+          headerName: "Order",
+          width: 100,
+          sortable: false,
+          renderCell: (params) => {
+            const index = tableData?.findIndex((r) => r[rowIdField] === params.id);
+            return (
+              <Stack direction="row" sx={{mt:1.4}}>
+                <IconButton 
+                  size="small" 
+                  disabled={index === 0} 
+                  onClick={() => handleMove(index, "up")}
+                >
+                  <NorthIcon fontSize="small" color="primary"  sx={{fontWeight:600}}/>
+                </IconButton>
+                <IconButton 
+                  size="small" 
+                  disabled={index === tableData.length - 1} 
+                  onClick={() => handleMove(index, "down")}
+                >
+                  <SouthIcon fontSize="small" color="primary" sx={{fontWeight:600}}/>
+                </IconButton>
+              </Stack>
+            );
+          },
+        },
+        ...baseCols,
+      ];
     }
-
-    link.setAttribute("download", filename);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    window.URL.revokeObjectURL(url);
-
-    dispatch(setSuccess("Documents merged and downloaded successfully"));
-    setSelectionModel([]);
-    fetchDocuments();
-  } catch (err) {
-    console.error(err);
-    dispatch(setError(err.response?.data?.message || "Failed to merge/download documents"));
-  }
-};
-
-  const columns = [
-    { field: "document_title", headerName: "Title", flex: 1 },
-    { field: "document_name", headerName: "File Name", flex: 1.5 },
-
-    {
-      field: "view_document",
-      headerName: "Download Document",
-      width: 210,
-      sortable: false,
-      filterable: false,
-      renderCell: ({ row }) => {
-        const href = row?.download_id
-          ? `${FILE_SERVER_URL}${row.download_id}`
-          : null;
-
-        if (!href) return "—";
-        return (
-          <Tooltip title={row.document_name}>
-            <a
-              href={href}
-              target="_blank"
-              rel="noopener noreferrer"
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                textDecoration: "none",
-                color: "#45145f", // your purple tone (you can theme this)
-                fontWeight: 500,
-              }}
-            >
-              {getFileIcon(row.document_name)}
-              <span>Download to View</span>
-            </a>
-          </Tooltip>
-        );
-      },
-    },
-    {
-      field: "uploaded_by",
-      headerName: "Uploaded By",
-      width: 170,
-      valueGetter: (value, row) => row?.first_name + " " + row?.last_name,
-    },
-    {
-      field: "uploaded_at",
-      headerName: "Uploaded At",
-      width: 200,
-      valueGetter: (value, row) => convertToLocalTime(row?.uploaded_at),
-    },
-  ];
+    return baseCols;
+  }, [columns, enableReorder, tableData]);
 
   return (
-    <Box p={3}>
-      <Stack
-        direction="row"
-        justifyContent="space-between"
-        alignItems="center"
-        mb={3}
-      >
-        <MainFormHeader title="Merge Documents" />
-      </Stack>
-      <Divider sx={{ my: 1 }} />
-
-      <Box
-        display="flex"
-        justifyContent="right"
-        gap={2}
-        alignItems="center"
-        mb={2}
-      >
-        <Tooltip title="Select at least 2 files to merge">
-          <span>
-            <Button
-              variant="contained"
-              color="success"
-              startIcon={<MergeType />}
-              disabled={selectionModel.length < 2}
-              onClick={handleMerge}
-            >
-              Merge Selected
-            </Button>
-          </span>
-        </Tooltip>
-        <Button
-          variant="contained"
-          color="primary"
-          startIcon={<CloudUpload />}
-          onClick={() => setIsDialogOpen(true)}
-        >
-          Add New Document
-        </Button>
-      </Box>
-
-      <AdvancedDataGrid
-        data={documents}
-        columns={columns}
-        rowIdField="document_id"
-        enableReorder={true}
-        checkboxSelection={true}
-        onSelectionChange={setSelectionModel}
-        onOrderChange={setDocuments} // Keeps the parent array in sync with UI
-        loading={loading}
-      />
-
-      {/* Professional Import Dialog */}
-      <DynamicDialog
-        open={isDialogOpen}
-        onClose={() => setIsDialogOpen(false)}
-        title="Add New Documents"
-        icon={<CloudUploadIcon color="#fff" sx={{ mr: 1 }} />}
-        maxWidth="md"
-      >
-        <EnhancedSupportingDocumentsRepeater
-          onUploadComplete={() => {}}
-          uploadMultipleFiles={uploadMultipleFiles}
-          maxWidth={900}
+    <Paper
+      elevation={3}
+      sx={{ borderRadius: 2, overflow: "hidden", border: "1px solid #eee" }}
+    >
+      <Box sx={{ p: 2, bgcolor: "background.paper" }}>
+        <TextField
+          size="small"
+          placeholder={searchPlaceholder}
+          value={searchText}
+          onChange={(e) => setSearchText(e.target.value)}
+          sx={{ width: 300 }}
+          InputProps={{
+            startAdornment: (
+              <InputAdornment position="start">
+                <Search color="action" />
+              </InputAdornment>
+            ),
+            endAdornment: searchText && (
+              <IconButton size="small" onClick={() => setSearchText("")}>
+                <Clear fontSize="small" />
+              </IconButton>
+            ),
+          }}
         />
-      </DynamicDialog>
-    </Box>
+      </Box>
+      <Divider />
+      <Box sx={{ height: 500, width: "100%", px: 1 }}>
+        <DataGrid
+          rows={filteredRows}
+          columns={finalColumns}
+          getRowId={(row) => row[rowIdField]}
+          checkboxSelection={checkboxSelection}
+          onRowSelectionModelChange={(ids) => onSelectionChange?.(ids)}
+          disableRowSelectionOnClick
+          disableColumnFilter
+          pageSizeOptions={[10, 20, 30, 40, 50, 100]}
+          initialState={{
+            pagination: {
+              paginationModel: { pageSize: 10, page: 0 }, //replaces pageSize
+            },
+          }}
+          pagination
+          slots={{
+            toolbar: () => (
+              <GridToolbarContainer sx={{ p: 1 }}>
+                <Box sx={{ flexGrow: 1 }} />
+              </GridToolbarContainer>
+            ),
+          }}
+          localeText={{
+            columnMenuSortAsc: "Sort as A to Z",
+            columnMenuSortDesc: "Sort as Z to A",
+          }}
+          loading={loading}
+          sx={{
+            border: "none",
+            "& .MuiDataGrid-columnHeader": {
+              bgcolor: "grey.50",
+              fontWeight: "bold",
+            },
+            // --- TARGET THE HEADER CHECKBOX HERE ---
+            "& .MuiDataGrid-columnHeaderCheckbox .MuiCheckbox-root": {
+              color: "#fff", // Default color
+              "&.Mui-checked": {
+                color: "#fff", // Color when checked (e.g., Purple/Red/etc)
+              },
+            },
+            // --- TARGET ROW CHECKBOXES (Optional) ---
+            "& .MuiDataGrid-cellCheckbox .MuiCheckbox-root": {
+              color: "primary.light",
+            },
+            "& .MuiDataGrid-row:hover": {
+              bgcolor: "primary.lighter",
+              cursor: "pointer",
+            },
+            "& .MuiDataGrid-cell": {
+              borderColor: "grey.100",
+            },
+          }}
+        />
+      </Box>
+    </Paper>
   );
 };
 
-export default DocumentMergePage;
+export default AdvancedDataGrid;
