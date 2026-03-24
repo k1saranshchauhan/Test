@@ -7,7 +7,6 @@ import {
   Paper,
   InputAdornment,
   IconButton,
-  Chip,
   Stack,
   Divider,
 } from "@mui/material";
@@ -18,10 +17,7 @@ import {
 import {
   Search,
   Clear,
-  KeyboardArrowUp,
-  KeyboardArrowDown,
 } from "@mui/icons-material";
-import StraightIcon from '@mui/icons-material/Straight';
 import SouthIcon from '@mui/icons-material/South';
 import NorthIcon from '@mui/icons-material/North';
 
@@ -32,9 +28,10 @@ const AdvancedDataGrid = ({
   enableReorder = false,
   searchPlaceholder = "Search records...",
   onSelectionChange,
-  onOrderChange, // <--- prop to sync with parent
+  selectionModel = [], // ✅ controlled prop
+  onOrderChange,
   checkboxSelection = true,
-  loading=false,
+  loading = false,
 }) => {
   const [searchText, setSearchText] = useState("");
   const [tableData, setTableData] = useState(data);
@@ -43,6 +40,7 @@ const AdvancedDataGrid = ({
     setTableData(data);
   }, [data]);
 
+  // 🔍 Search
   const filteredRows = useMemo(() => {
     const term = searchText.toLowerCase().trim();
     if (!term) return tableData;
@@ -55,26 +53,24 @@ const AdvancedDataGrid = ({
     });
   }, [tableData, searchText]);
 
+  // 🔼🔽 Reorder
   const handleMove = (index, direction) => {
     const newData = [...tableData];
     const targetIndex = direction === "up" ? index - 1 : index + 1;
     if (targetIndex < 0 || targetIndex >= newData.length) return;
 
-    // Swap items
     [newData[index], newData[targetIndex]] = [newData[targetIndex], newData[index]];
-    
+
     setTableData(newData);
-    
-    // Notify parent immediately so the payload stays in sync
+
     if (onOrderChange) {
       onOrderChange(newData);
     }
   };
 
+  // 📊 Columns
   const finalColumns = useMemo(() => {
-    const baseCols = columns.map((col) => ({
-      ...col,
-    }));
+    const baseCols = columns.map((col) => ({ ...col }));
 
     if (enableReorder) {
       return [
@@ -84,22 +80,26 @@ const AdvancedDataGrid = ({
           width: 100,
           sortable: false,
           renderCell: (params) => {
-            const index = tableData?.findIndex((r) => r[rowIdField] === params.id);
+            const index = tableData?.findIndex(
+              (r) => r[rowIdField] === params.id
+            );
+
             return (
-              <Stack direction="row" sx={{mt:1.4}}>
-                <IconButton 
-                  size="small" 
-                  disabled={index === 0} 
+              <Stack direction="row" sx={{ mt: 1.4 }}>
+                <IconButton
+                  size="small"
+                  disabled={index === 0}
                   onClick={() => handleMove(index, "up")}
                 >
-                  <NorthIcon fontSize="small" color="primary"  sx={{fontWeight:600}}/>
+                  <NorthIcon fontSize="small" color="primary" />
                 </IconButton>
-                <IconButton 
-                  size="small" 
-                  disabled={index === tableData.length - 1} 
+
+                <IconButton
+                  size="small"
+                  disabled={index === tableData.length - 1}
                   onClick={() => handleMove(index, "down")}
                 >
-                  <SouthIcon fontSize="small" color="primary" sx={{fontWeight:600}}/>
+                  <SouthIcon fontSize="small" color="primary" />
                 </IconButton>
               </Stack>
             );
@@ -108,15 +108,15 @@ const AdvancedDataGrid = ({
         ...baseCols,
       ];
     }
+
     return baseCols;
   }, [columns, enableReorder, tableData]);
 
   return (
-    <Paper
-      elevation={3}
-      sx={{ borderRadius: 2, overflow: "hidden", border: "1px solid #eee" }}
-    >
-      <Box sx={{ p: 2, bgcolor: "background.paper" }}>
+    <Paper elevation={3} sx={{ borderRadius: 2, overflow: "hidden", border: "1px solid #eee" }}>
+      
+      {/* 🔍 Search */}
+      <Box sx={{ p: 2 }}>
         <TextField
           size="small"
           placeholder={searchPlaceholder}
@@ -126,7 +126,7 @@ const AdvancedDataGrid = ({
           InputProps={{
             startAdornment: (
               <InputAdornment position="start">
-                <Search color="action" />
+                <Search />
               </InputAdornment>
             ),
             endAdornment: searchText && (
@@ -137,23 +137,33 @@ const AdvancedDataGrid = ({
           }}
         />
       </Box>
+
       <Divider />
+
+      {/* 📊 DataGrid */}
       <Box sx={{ height: 500, width: "100%", px: 1 }}>
         <DataGrid
           rows={filteredRows}
           columns={finalColumns}
           getRowId={(row) => row[rowIdField]}
+
           checkboxSelection={checkboxSelection}
+
+          // ✅ CONTROLLED SELECTION
+          rowSelectionModel={selectionModel}
           onRowSelectionModelChange={(ids) => onSelectionChange?.(ids)}
+
           disableRowSelectionOnClick
           disableColumnFilter
+
           pageSizeOptions={[10, 20, 30, 40, 50, 100]}
           initialState={{
             pagination: {
-              paginationModel: { pageSize: 10, page: 0 }, //replaces pageSize
+              paginationModel: { pageSize: 10, page: 0 },
             },
           }}
           pagination
+
           slots={{
             toolbar: () => (
               <GridToolbarContainer sx={{ p: 1 }}>
@@ -161,34 +171,17 @@ const AdvancedDataGrid = ({
               </GridToolbarContainer>
             ),
           }}
-          localeText={{
-            columnMenuSortAsc: "Sort as A to Z",
-            columnMenuSortDesc: "Sort as Z to A",
-          }}
+
           loading={loading}
+
           sx={{
             border: "none",
             "& .MuiDataGrid-columnHeader": {
               bgcolor: "grey.50",
               fontWeight: "bold",
             },
-            // --- TARGET THE HEADER CHECKBOX HERE ---
-            "& .MuiDataGrid-columnHeaderCheckbox .MuiCheckbox-root": {
-              color: "#fff", // Default color
-              "&.Mui-checked": {
-                color: "#fff", // Color when checked (e.g., Purple/Red/etc)
-              },
-            },
-            // --- TARGET ROW CHECKBOXES (Optional) ---
-            "& .MuiDataGrid-cellCheckbox .MuiCheckbox-root": {
-              color: "primary.light",
-            },
             "& .MuiDataGrid-row:hover": {
               bgcolor: "primary.lighter",
-              cursor: "pointer",
-            },
-            "& .MuiDataGrid-cell": {
-              borderColor: "grey.100",
             },
           }}
         />
