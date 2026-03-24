@@ -1,77 +1,144 @@
-const generateLegacyProgressReportPDF = async (reportData, res) => {
-  // A4 Landscape is better for wide tables
-  const doc = new PDFDocument({ margin: 30, layout: "landscape", size: "A4" });
+import PDFDocument from "pdfkit";
 
-  // Stream directly to the response
+const generateProgressReportPDF = (reportData, res) => {
+  const doc = new PDFDocument({ margin: 20, layout: "landscape", size: "A4" });
   doc.pipe(res);
 
   const years = Object.keys(reportData).sort();
 
-  for (const year of years) {
-    doc.fontSize(18).fillColor("#45154F").text(`Progress Report: FY ${year}-${parseInt(year) + 1}`, { align: 'center' });
-    doc.moveDown();
+  // Build hierarchy like in ProgressTable
+  const hierarchy = {};
+  years.forEach((year) => {
+    reportData[year].forEach((schemeEntry) => {
+      const minName = schemeEntry.ministryId?.name || "Unknown Ministry";
+      const deptName = schemeEntry.departmentId?.name || "Unknown Department";
+      const schemeName = schemeEntry.schemeId?.name || "Unknown Scheme";
 
-    for (const schemeEntry of reportData[year]) {
-      // Scheme Headers
-      doc.fontSize(12).fillColor("#1a237e").text(`Ministry: ${schemeEntry.ministryId.name}`);
-      doc.text(`Department: ${schemeEntry.departmentId.name}`);
-      doc.fontSize(14).fillColor("#45154F").text(`Scheme: ${schemeEntry.schemeId.name}`, { underline: true });
-      doc.moveDown(0.5);
+      if (!hierarchy[minName]) hierarchy[minName] = {};
+      if (!hierarchy[minName][deptName]) hierarchy[minName][deptName] = {};
+      if (!hierarchy[minName][deptName][schemeName]) hierarchy[minName][deptName][schemeName] = {
+        financialInfo: {},
+        indicatorRows: {}
+      };
 
-      const tableRows = [];
+      hierarchy[minName][deptName][schemeName].financialInfo[year] = {
+        be: schemeEntry.financialOutlay || 0,
+        ae: schemeEntry.actualExpenditure || 0,
+      };
 
-      // Logic to flatten nested indicator data
       schemeEntry.indicatorData.forEach((typeGroup) => {
         typeGroup.sections.forEach((section) => {
           section.indicators.forEach((ind) => {
-            
-            // Helper to format Target/Progress/Achieved cells (handles Q1, HY1, etc.)
-            const formatCell = (val) => {
-              if (typeof val === "object" && val !== null) {
-                return Object.entries(val)
-                  .map(([key, value]) => `${key}: ${value}`)
-                  .join("\n");
-              }
-              return String(val ?? "-");
+            const rowKey = `${typeGroup.indicatorType.name}-${section.name}-${ind.indicator.name}`;
+            if (!hierarchy[minName][deptName][schemeName].indicatorRows[rowKey]) {
+              hierarchy[minName][deptName][schemeName].indicatorRows[rowKey] = {
+                type: typeGroup.indicatorType.name,
+                statement: section.name,
+                indicatorName: ind.indicator.name,
+                unit: ind.unit?.name || "nos.",
+                period: ind.period?.name || "Duration",
+                frequency: ind.frequency?.name || "Yearly",
+                yearlyValues: {},
+              };
+            }
+            hierarchy[minName][deptName][schemeName].indicatorRows[rowKey].yearlyValues[year] = {
+              target: ind.target,
+              progress: ind.progress,
+              achieved: ind.achieved,
             };
-
-            tableRows.push([
-              typeGroup.indicatorType.name,
-              section.name,
-              ind.indicator.name,
-              ind.unit.name,
-              formatCell(ind.target),
-              formatCell(ind.progress),
-              formatCell(ind.achieved) + (typeof ind.achieved === 'number' ? '%' : '')
-            ]);
           });
         });
       });
+    });
+  });
 
-      const table = {
-        headers: [
-          { label: "Type", property: "type", width: 60 },
-          { label: "Statement", property: "statement", width: 120 },
-          { label: "Indicator", property: "indicator", width: 120 },
-          { label: "Unit", property: "unit", width: 50 },
-          { label: "Target", property: "target", width: 80 },
-          { label: "Progress", property: "progress", width: 80 },
-          { label: "Achieved", property: "achieved", width: 80 },
-        ],
-        rows: tableRows,
-      };
+  // Helper for formatting numbers
+  const formatDecimal = (value) => {
+    if (value === null || value === undefined || value === "-") return "-";
+    const num = Number(value);
+    return !isNaN(num) ? num.toFixed(2) : value;
+  };
 
-      await doc.table(table, {
-        prepareHeader: () => doc.font("Helvetica-Bold").fontSize(9),
-        prepareRow: (row, indexColumn, indexRow, rectRow, rectCell) => {
-          doc.font("Helvetica").fontSize(8);
-          // Optional: Add borders/colors here
-        },
+  const getSubKeys = (frequency) => {
+    if (frequency === "Quarterly") return ["Q1", "Q2", "Q3", "Q4"];
+    if (frequency === "Half-Yearly") return ["HY1", "HY2"];
+    return ["Yearly"];
+  };
+
+  const getBackgroundColor = (value) => {
+    if (isNaN(value) || value === null) return null;
+    if (value > 80) return "#90ee90"; // lightgreen
+    if (value >= 50) return "#fff9c4"; // lightyellow
+    return "#f8bbd0"; // lightcoral
+  };
+
+  // Loop through hierarchy
+  Object.entries(hierarchy).forEach(([minName, departments], minIdx) => {
+    doc.addPage();
+    doc.fontSize(16).fillColor("#1a237e").text(`${minIdx + 1}) Ministry: ${minName}`, { underline: true });
+    
+    Object.entries(departments).forEach(([deptName, schemes], deptIdx) => {
+      doc.moveDown(0.5);
+      doc.fontSize(14).fillColor("black").text(`${minIdx + 1}.${deptIdx + 1}) Department: ${deptName}`);
+      
+      Object.entries(schemes).forEach(([schemeName, schemeContent], schemeIdx) => {
+        doc.moveDown(0.5);
+        doc.fontSize(12).fillColor("#45154F").text(`${minIdx + 1}.${deptIdx + 1}.${schemeIdx + 1}) Scheme: ${schemeName}`, { underline: true });
+        doc.moveDown(0.2);
+
+        const rows = [];
+        const indicatorValues = Object.values(schemeContent.indicatorRows);
+        indicatorValues.forEach((row) => {
+          let cumulativeTarget = 0;
+          let cumulativeProgress = 0;
+          const firstRow = row;
+          const frequency = firstRow.frequency;
+          const subKeys = getSubKeys(frequency);
+          const isYearly = frequency === "Yearly";
+          const showTotalCol = !isYearly;
+
+          const rowCells = [
+            row.type,
+            row.statement,
+            row.indicatorName,
+            row.unit,
+            row.period,
+          ];
+
+          years.forEach((year) => {
+            const val = row.yearlyValues[year] || {};
+            const getSum = (obj) => isYearly ? Number(obj) || 0 : subKeys.reduce((acc, key) => acc + (Number(obj?.[key]) || 0), 0);
+            const yearlyTarget = getSum(val.target);
+            const yearlyProgress = getSum(val.progress);
+            const yearlyAchievedPct = yearlyTarget > 0 ? (yearlyProgress / yearlyTarget) * 100 : 0;
+
+            cumulativeTarget += yearlyTarget;
+            cumulativeProgress += yearlyProgress;
+
+            subKeys.forEach(sk => rowCells.push(formatDecimal(isYearly ? val.target : val.target?.[sk])));
+            if (showTotalCol) rowCells.push(formatDecimal(yearlyTarget));
+            subKeys.forEach(sk => rowCells.push(formatDecimal(isYearly ? val.progress : val.progress?.[sk])));
+            if (showTotalCol) rowCells.push(formatDecimal(yearlyProgress));
+            subKeys.forEach(sk => rowCells.push(formatDecimal(isYearly ? val.achieved : val.achieved?.[sk])));
+            if (showTotalCol) rowCells.push(`${yearlyAchievedPct.toFixed(2)}%`);
+          });
+
+          // Add cumulative
+          rowCells.push(formatDecimal(cumulativeTarget));
+          rowCells.push(formatDecimal(cumulativeProgress));
+          rowCells.push(`${cumulativeTarget > 0 ? ((cumulativeProgress / cumulativeTarget) * 100).toFixed(2) : "0.00"}%`);
+
+          rows.push(rowCells);
+        });
+
+        // You can use pdfkit-table or manually draw table with doc.text at positions
+        // Example using simple text (replace with pdfkit-table for complex tables)
+        const colWidths = [50, 100, 100, 40, 50];
+        // Add dynamic width for years and subKeys...
+        // TODO: Implement table rendering library or custom logic
       });
-
-      doc.addPage(); // New scheme, new page
-    }
-  }
+    });
+  });
 
   doc.end();
 };
