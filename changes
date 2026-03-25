@@ -54,18 +54,18 @@ const ProgressReport = () => {
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
   const printRef = useRef(null);
 
- const handlePrint = useReactToPrint({
-  content: () => printRef.current,
-  documentTitle: "Progress Report",
-});
+  const handlePrint = useReactToPrint({
+    contentRef: printRef,
+    documentTitle: "Progress Report",
+    removeAfterPrint: true,
+  });
 
-  const { userMinistryIds, userDepartmentIds } =
-    useFilteredFrameworkAccess({
-      userPermittedMinistryIds: userData?.userRelationships[0]?.ministryIds,
-      userPermittedDepartmentIds: userData?.userRelationships[0]?.departmentIds,
-      // userPermittedSchemeIds: userData?.userRelationships[0]?.schemeIds,
-      frameworkId: oomfFrameworkId,
-    });
+  const { userMinistryIds, userDepartmentIds } = useFilteredFrameworkAccess({
+    userPermittedMinistryIds: userData?.userRelationships[0]?.ministryIds,
+    userPermittedDepartmentIds: userData?.userRelationships[0]?.departmentIds,
+    // userPermittedSchemeIds: userData?.userRelationships[0]?.schemeIds,
+    frameworkId: oomfFrameworkId,
+  });
 
   const handleGeneratePdf = async () => {
     // Validate that we have table data
@@ -154,13 +154,13 @@ const ProgressReport = () => {
       financialYear: Yup.array()
         .min(1, "Financial Year is required")
         .max(3, "You can select maximum 3 Financial Years"),
-           frequency: Yup.object() // Keep object, add custom test
+      frequency: Yup.object() // Keep object, add custom test
         .test(
           "is-valid-frequency", //  Custom test for validation
           "Frequency is Required",
           function (value) {
             return value?.id != null; // Fail if no id (handles {} initial)
-          }
+          },
         )
         .required("Frequency is Required"),
     }),
@@ -222,10 +222,9 @@ const ProgressReport = () => {
         schemeTypeIds:
           values?.schemeType?.map((item) => Number(item?.id)) || [],
         schemeIds: values?.scheme?.map((item) => Number(item?.id)) || [],
-        indicatorTypes:
-          values?.indicatorType?.map((item) => item?.label) || [],
-        frequencyId:values?.frequency?.id,
-        indicatorIds:values?.indicatorNames?.map((item) => Number(item?.id)),
+        indicatorTypes: values?.indicatorType?.map((item) => item?.label) || [],
+        frequencyId: values?.frequency?.id,
+        indicatorIds: values?.indicatorNames?.map((item) => Number(item?.id)),
         // measurementArea: measurementAreaList,
 
         // subSchemeIds: values?.subScheme?.map((item) => Number(item?.id)),
@@ -456,8 +455,12 @@ const ProgressReport = () => {
       const departmentIds = selectedType?.map(
         (department, index) => department?.id,
       );
-          const schemeTypeIds=  formik.values?.schemeType?.map(item=>item?.id)?.length>0?formik.values?.schemeType?.map(item=>item?.id):[1,2];
-          const financialYears=formik?.values?.financialYear?.map(item=>item?.label) || [];
+      const schemeTypeIds =
+        formik.values?.schemeType?.map((item) => item?.id)?.length > 0
+          ? formik.values?.schemeType?.map((item) => item?.id)
+          : [1, 2];
+      const financialYears =
+        formik?.values?.financialYear?.map((item) => item?.label) || [];
       try {
         const response = await apiClient.post(
           `api/master/get-all-schemes-for-departments`,
@@ -487,7 +490,7 @@ const ProgressReport = () => {
           const filteredData = formattedData?.filter((item) =>
             userSchemeIds?.includes(item?.id),
           );
-          console.log("Filtered Data:",filteredData?.length)
+          console.log("Filtered Data:", filteredData?.length);
           setSchemeList(filteredData);
         }
       } catch (error) {
@@ -496,7 +499,7 @@ const ProgressReport = () => {
       }
     };
     fetchSchemeList();
-  }, [formik?.values?.department,formik.values?.schemeType]);
+  }, [formik?.values?.department, formik.values?.schemeType]);
 
   useEffect(() => {
     async function getDistrictsByState() {
@@ -781,48 +784,6 @@ const ProgressReport = () => {
     }
   }, [departmentList]);
 
-  <style>
-{`
-@media print {
-  @page {
-    size: A3 landscape;   /* 🔥 A3 Horizontal */
-    margin: 10mm;
-  }
-
-  body {
-    -webkit-print-color-adjust: exact;
-  }
-
-  table {
-    page-break-inside: auto;
-  }
-
-  tr {
-    page-break-inside: avoid;
-    page-break-after: auto;
-  }
-
-  thead {
-    display: table-header-group;  /* Repeat header */
-  }
-
-  tfoot {
-    display: table-footer-group;
-  }
-
-  .MuiTableCell-root {
-    font-size: 9px !important;
-    padding: 4px !important;
-  }
-
-  /* Optional: scale if content is too big */
-  .print-container {
-    zoom: 0.85;
-  }
-}
-`}
-</style>
-
   return (
     <>
       <Box marginTop={2} padding={3}>
@@ -1106,17 +1067,17 @@ const ProgressReport = () => {
               </Typography>
             </Box>
           ) : (
-            <Box ref={printRef} className="print-container">
+            <Box ref={printRef}>
               <ProgressTable data={tableData} />
-
-              {tableData && tableData?.data?.length > 0 && (
-                <Box sx={{ mt: 6 }}>
-                  <ProgressFootnote />
-                </Box>
-              )}
             </Box>
           )}
         </Box>
+
+        {tableData && tableData?.data?.length > 0 ? (
+          <Box sx={{ mt: 6 }}>
+            <ProgressFootnote />
+          </Box>
+        ) : null}
       </Box>
     </>
   );
