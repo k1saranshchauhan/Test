@@ -54,10 +54,9 @@ const ProgressReport = () => {
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
   const printRef = useRef(null);
 
-  const handlePrint = useReactToPrint({
-  contentRef: printRef,
+ const handlePrint = useReactToPrint({
+  content: () => printRef.current,
   documentTitle: "Progress Report",
-  removeAfterPrint: true,
 });
 
   const { userMinistryIds, userDepartmentIds } =
@@ -782,6 +781,48 @@ const ProgressReport = () => {
     }
   }, [departmentList]);
 
+  <style>
+{`
+@media print {
+  @page {
+    size: A3 landscape;   /* 🔥 A3 Horizontal */
+    margin: 10mm;
+  }
+
+  body {
+    -webkit-print-color-adjust: exact;
+  }
+
+  table {
+    page-break-inside: auto;
+  }
+
+  tr {
+    page-break-inside: avoid;
+    page-break-after: auto;
+  }
+
+  thead {
+    display: table-header-group;  /* Repeat header */
+  }
+
+  tfoot {
+    display: table-footer-group;
+  }
+
+  .MuiTableCell-root {
+    font-size: 9px !important;
+    padding: 4px !important;
+  }
+
+  /* Optional: scale if content is too big */
+  .print-container {
+    zoom: 0.85;
+  }
+}
+`}
+</style>
+
   return (
     <>
       <Box marginTop={2} padding={3}>
@@ -915,7 +956,9 @@ const ProgressReport = () => {
               <CustomAutoComplete
                 name="scheme"
                 // options={schemeList}
-                options={filterSchemesByFramework(schemeList,oomfFrameworkId) || []}
+                options={
+                  filterSchemesByFramework(schemeList, oomfFrameworkId) || []
+                }
                 label="Scheme"
                 formik={formik}
                 //required
@@ -1018,26 +1061,26 @@ const ProgressReport = () => {
           </Box>
         )} */}
 
-          <Box sx={{ display: "flex", justifyContent: "flex-end", mt: 3 }}>
-  <Tooltip
-    title={
-      !tableData || tableData.length === 0
-        ? "Generate report first to print"
-        : ""
-    }
-  >
-    <span>
-      <Button
-        variant="contained"
-        startIcon={<PrintIcon />}
-        onClick={handlePrint}
-        disabled={!tableData || tableData.length === 0}
-      >
-        Print Report
-      </Button>
-    </span>
-  </Tooltip>
-</Box>
+        <Box sx={{ display: "flex", justifyContent: "flex-end", mt: 3 }}>
+          <Tooltip
+            title={
+              !tableData || tableData.length === 0
+                ? "Generate report first to print"
+                : ""
+            }
+          >
+            <span>
+              <Button
+                variant="contained"
+                startIcon={<PrintIcon />}
+                onClick={handlePrint}
+                disabled={!tableData || tableData.length === 0}
+              >
+                Print Report
+              </Button>
+            </span>
+          </Tooltip>
+        </Box>
         <Box sx={{ mt: 6 }}>
           {!tableData ? (
             <Box sx={{ display: "flex", justifyContent: "center", mt: 8 }}>
@@ -1063,17 +1106,17 @@ const ProgressReport = () => {
               </Typography>
             </Box>
           ) : (
-            <Box ref={printRef}>
-            <ProgressTable data={tableData} />
+            <Box ref={printRef} className="print-container">
+              <ProgressTable data={tableData} />
+
+              {tableData && tableData?.data?.length > 0 && (
+                <Box sx={{ mt: 6 }}>
+                  <ProgressFootnote />
+                </Box>
+              )}
             </Box>
           )}
         </Box>
-
-        {tableData && tableData?.data?.length > 0 ? (
-          <Box sx={{ mt: 6 }}>
-            <ProgressFootnote />
-          </Box>
-        ) : null}
       </Box>
     </>
   );
