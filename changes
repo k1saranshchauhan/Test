@@ -1,194 +1,618 @@
-import PDFDocument from "pdfkit";
-import 'pdfkit-table';
+"use client";
 
-/**
- * Generates a Progress Report PDF similar to the ProgressTable component
- * @param {Object} reportData - raw data grouped by year -> array of schemes
- * @param {Object} res - Express response object to stream PDF
- */
-export const generateProgressReportPDF = async (reportData, res) => {
-  const doc = new PDFDocument({ margin: 20, layout: "landscape", size: "A4" });
-  doc.pipe(res);
+import React, {
+  useEffect,
+  useMemo,
+  useState,
+  useRef,
+  useCallback,
+} from "react";
+import {
+  Box,
+  Typography,
+  CircularProgress,
+  Divider,
+  Button,
+  Tooltip,
+  MenuItem,
+  TextField,
+  Chip,
+} from "@mui/material";
+import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
+import { Accordion, AccordionSummary, AccordionDetails } from "@mui/material";
 
-  const years = Object.keys(reportData).sort();
+import PreviewHeader from "../preview/PreviewHeader";
+import { useQuestionnaires } from "../../_hooks/useQuestionnaires";
+import { useQuestionnaireResponses } from "../../_hooks/useQuestionnaireResponses";
+import { useWorkflow } from "@/dgqiassets/workflow/_hooks/useWorkflow";
+import PreviewRenderer from "./PreviewRenderer";
+import { useReactToPrint } from "react-to-print";
+import PrintIcon from "@mui/icons-material/Print";
+import ArrowBackIcon from "@mui/icons-material/ArrowBack"; // at the top
+import { checkRenderConditions } from "../../../_utils/formUtils";
+import { aggregateHierarchyScores } from "@/dgqiassets/_utils/scoringUtils";
+import { useSelector } from "react-redux";
+import { useRouter } from "next/router";
 
-  // Helper functions
-  const formatDecimal = (val) => {
-    if (val === null || val === undefined || val === "-") return "-";
-    const num = Number(val);
-    return isNaN(num) ? val : num.toFixed(2);
-  };
+// placement_id -> response object
+function buildResponseMap(apiResponses) {
+  const map = {};
+  (apiResponses || []).forEach((r) => {
+    // Guard against missing placement_id
+    if (r.placement_id != null) {
+      map[r.placement_id] = r.response || {};
+    }
+  });
+  return map;
+}
 
-  const getSubKeys = (frequency) => {
-    if (frequency === "Quarterly") return ["Q1", "Q2", "Q3", "Q4"];
-    if (frequency === "Half-Yearly") return ["HY1", "HY2"];
-    return ["Yearly"];
-  };
-
-  const getBackgroundColor = (value) => {
-    if (isNaN(value) || value === null) return null;
-    if (value > 80) return "#90ee90"; // lightgreen
-    if (value >= 50) return "#fff9c4"; // lightyellow
-    return "#f8bbd0"; // lightcoral
-  };
-
-  // Build hierarchy like ProgressTable
-  const hierarchy = {};
-  years.forEach((year) => {
-    reportData[year].forEach((schemeEntry) => {
-      const minName = schemeEntry.ministryId?.name || "Unknown Ministry";
-      const deptName = schemeEntry.departmentId?.name || "Unknown Department";
-      const schemeName = schemeEntry.schemeId?.name || "Unknown Scheme";
-
-      if (!hierarchy[minName]) hierarchy[minName] = {};
-      if (!hierarchy[minName][deptName]) hierarchy[minName][deptName] = {};
-      if (!hierarchy[minName][deptName][schemeName]) hierarchy[minName][deptName][schemeName] = {
-        financialInfo: {},
-        indicatorRows: {}
-      };
-
-      hierarchy[minName][deptName][schemeName].financialInfo[year] = {
-        be: schemeEntry.financialOutlay || 0,
-        ae: schemeEntry.actualExpenditure || 0,
-      };
-
-      schemeEntry.indicatorData.forEach((typeGroup) => {
-        typeGroup.sections.forEach((section) => {
-          section.indicators.forEach((ind) => {
-            const rowKey = `${typeGroup.indicatorType.name}-${section.name}-${ind.indicator.name}`;
-            if (!hierarchy[minName][deptName][schemeName].indicatorRows[rowKey]) {
-              hierarchy[minName][deptName][schemeName].indicatorRows[rowKey] = {
-                type: typeGroup.indicatorType.name,
-                statement: section.name,
-                indicatorName: ind.indicator.name,
-                unit: ind.unit?.name || "nos.",
-                period: ind.period?.name || "Duration",
-                frequency: ind.frequency?.name || "Yearly",
-                yearlyValues: {},
-              };
-            }
-            hierarchy[minName][deptName][schemeName].indicatorRows[rowKey].yearlyValues[year] = {
-              target: ind.target,
-              progress: ind.progress,
-              achieved: ind.achieved,
-            };
-          });
-        });
-      });
-    });
+export default function QuestionnairePreview({
+  questionnaireId,
+  partId: initialPartId,
+  workflowId,
+  showBackButton = true,
+}) {
+  const { getQuestionnaireById } = useQuestionnaires();
+  const {
+    fetchByQuestionnaireId,
+    fetchQuestionnaireValidateStatus,
+    fetchQuestionnaireValidateScoreRelease,
+  } = useQuestionnaireResponses();
+  const { getActionableById } = useWorkflow();
+  const router = useRouter();
+  const [loading, setLoading] = useState(true);
+  const [data, setData] = useState(null);
+  const [workflow, setWorkflow] = useState(null);
+  const [selectedPartId, setSelectedPartId] = useState(initialPartId);
+  const [apiResponses, setApiResponses] = useState([]);
+  const [questionScores, setQuestionScores] = useState({});
+  const [printQuestionnaire, setPrintQuestionnaire] = useState(false);
+  const [scoreReleaseStatus, setScoreReleaseStatus] = useState({});
+  const userData = useSelector((state) => state.config.userData);
+  const [hierarchyScores, setHierarchyScores] = useState({
+    parts: {},
+    pillars: {},
+    themes: {},
+  });
+  // Print setup
+  const printRef = useRef(null);
+  const handlePrint = useReactToPrint({
+    contentRef: printRef,
+    documentTitle: "questionnaires",
+    removeAfterPrint: true,
   });
 
-  // Render PDF
-  let minIdx = 0;
-  for (const [minName, departments] of Object.entries(hierarchy)) {
-    doc.addPage();
-    doc.fontSize(16).fillColor("#1a237e").text(`${minIdx + 1}) Ministry: ${minName}`, { underline: true });
-
-    let deptIdx = 0;
-    for (const [deptName, schemes] of Object.entries(departments)) {
-      doc.moveDown(0.3);
-      doc.fontSize(14).fillColor("black").text(`${minIdx + 1}.${deptIdx + 1}) Department: ${deptName}`);
-
-      let schemeIdx = 0;
-      for (const [schemeName, schemeContent] of Object.entries(schemes)) {
-        doc.moveDown(0.3);
-        doc.fontSize(12).fillColor("#45154F").text(`${minIdx + 1}.${deptIdx + 1}.${schemeIdx + 1}) Scheme: ${schemeName}`, { underline: true });
-        doc.moveDown(0.2);
-
-        const rows = [];
-        const indicatorValues = Object.values(schemeContent.indicatorRows);
-
-        indicatorValues.forEach((row) => {
-          let cumulativeTarget = 0;
-          let cumulativeProgress = 0;
-          const frequency = row.frequency;
-          const subKeys = getSubKeys(frequency);
-          const isYearly = frequency === "Yearly";
-          const showTotalCol = !isYearly;
-
-          const rowCells = [
-            row.type,
-            row.statement,
-            row.indicatorName,
-            row.unit,
-            row.period,
-          ];
-
-          years.forEach((year) => {
-            const val = row.yearlyValues[year] || {};
-            const getSum = (obj) => isYearly ? Number(obj) || 0 : subKeys.reduce((acc, key) => acc + (Number(obj?.[key]) || 0), 0);
-            const yearlyTarget = getSum(val.target);
-            const yearlyProgress = getSum(val.progress);
-            const yearlyAchievedPct = yearlyTarget > 0 ? (yearlyProgress / yearlyTarget) * 100 : 0;
-
-            cumulativeTarget += yearlyTarget;
-            cumulativeProgress += yearlyProgress;
-
-            subKeys.forEach(sk => rowCells.push(formatDecimal(isYearly ? val.target : val.target?.[sk])));
-            if (showTotalCol) rowCells.push(formatDecimal(yearlyTarget));
-            subKeys.forEach(sk => rowCells.push(formatDecimal(isYearly ? val.progress : val.progress?.[sk])));
-            if (showTotalCol) rowCells.push(formatDecimal(yearlyProgress));
-            subKeys.forEach(sk => rowCells.push(formatDecimal(isYearly ? val.achieved : val.achieved?.[sk])));
-            if (showTotalCol) rowCells.push(`${yearlyAchievedPct.toFixed(2)}%`);
-          });
-
-          rowCells.push(formatDecimal(cumulativeTarget));
-          rowCells.push(formatDecimal(cumulativeProgress));
-          rowCells.push(`${cumulativeTarget > 0 ? ((cumulativeProgress / cumulativeTarget) * 100).toFixed(2) : "0.00"}%`);
-
-          rows.push(rowCells);
-        });
-
-        // Define table headers dynamically
-        const headers = [
-          { label: "Type", property: "type", width: 60 },
-          { label: "Statement", property: "statement", width: 120 },
-          { label: "Indicator", property: "indicator", width: 120 },
-          { label: "Unit", property: "unit", width: 50 },
-          { label: "Period", property: "period", width: 50 },
-        ];
-
-        years.forEach((year) => {
-          const firstRow = indicatorValues[0];
-          const frequency = firstRow?.frequency || "Yearly";
-          const subKeys = getSubKeys(frequency);
-          const isYearly = frequency === "Yearly";
-          const showTotalCol = !isYearly;
-
-          ["Target", "Progress", "Achieved"].forEach((type) => {
-            subKeys.forEach(sk => headers.push({ label: `${year}-${sk}-${type}`, property: `${year}-${sk}-${type}`, width: 40 }));
-            if (showTotalCol) headers.push({ label: `${year}-Total-${type}`, property: `${year}-Total-${type}`, width: 50 });
-          });
-        });
-
-        // Map rowCells into row objects for pdfkit-table
-        const tableRows = rows.map((rowCells) => {
-          const rowObj = {};
-          headers.forEach((h, idx) => {
-            rowObj[h.property] = rowCells[idx] ?? "-";
-          });
-          return rowObj;
-        });
-
-        await doc.table(
-          {
-            headers,
-            rows: tableRows,
-          },
-          {
-            prepareHeader: () => doc.font("Helvetica-Bold").fontSize(8),
-            prepareRow: (row, i) => doc.font("Helvetica").fontSize(7),
-          }
-        );
-
-        schemeIdx++;
+  useEffect(() => {
+    if (!questionnaireId) {
+      setLoading(false);
+      return;
+    }
+    let mounted = true;
+    (async () => {
+      try {
+        setLoading(true);
+        const [{ data: questionnaireData }, wf, resp, status, scoreRelease] =
+          await Promise.all([
+            getQuestionnaireById(questionnaireId),
+            workflowId ? getActionableById(workflowId) : Promise.resolve(null),
+            workflowId
+              ? fetchByQuestionnaireId(questionnaireId, workflowId)
+              : Promise.resolve([]),
+            workflowId
+              ? fetchQuestionnaireValidateStatus(questionnaireId, workflowId)
+              : Promise.resolve(false),
+            workflowId
+              ? fetchQuestionnaireValidateScoreRelease(
+                  questionnaireId,
+                  workflowId,
+                )
+              : Promise.resolve(false),
+          ]);
+        if (!mounted) return;
+        setData(questionnaireData);
+        setPrintQuestionnaire(status);
+        setScoreReleaseStatus(scoreRelease);
+        setWorkflow(wf?.data ?? null);
+        setApiResponses(resp?.data ?? []);
+      } catch (e) {
+        console.error("[Preview] fetch error:", e);
+      } finally {
+        if (mounted) setLoading(false);
       }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, [
+    questionnaireId,
+    workflowId,
+    getQuestionnaireById,
+    getActionableById,
+    fetchByQuestionnaireId,
+  ]);
 
-      deptIdx++;
+  const questions = useMemo(() => data?.questions ?? [], [data]);
+
+  // Build parts and default selection
+  const parts = useMemo(() => {
+    const uniqueParts = new Map();
+    questions.forEach((q) => {
+      if (!uniqueParts.has(q.part_id)) uniqueParts.set(q.part_id, q.part);
+    });
+    const sorted = Array.from(uniqueParts.values()).sort((a, b) =>
+      a.part_name.localeCompare(b.part_name),
+    );
+    if (sorted.length > 0 && !selectedPartId) {
+      setSelectedPartId(sorted[0].id);
+    }
+    return sorted;
+  }, [questions, selectedPartId]);
+
+  // Filter by part
+  const filteredQuestions = useMemo(() => {
+    if (selectedPartId === "all") return questions;
+    return questions.filter((q) => q.part_id === Number(selectedPartId));
+  }, [questions, selectedPartId]);
+
+  useEffect(() => {
+    const agg = aggregateHierarchyScores(questionScores, filteredQuestions);
+    setHierarchyScores(agg);
+  }, [questionScores, filteredQuestions]);
+
+  const handleScoreChange = useCallback((placementId, scoreObj) => {
+    setQuestionScores((prev) => {
+      const prevObj = prev[placementId];
+      if (
+        prevObj &&
+        prevObj.raw === scoreObj.raw &&
+        prevObj.weighted === scoreObj.weighted &&
+        prevObj.weightage === scoreObj.weightage
+      ) {
+        return prev;
+      }
+      return { ...prev, [placementId]: scoreObj };
+    });
+  }, []);
+
+  //   const displayOrderForPart = useMemo(() => {
+  //   const raw = data?.display_order || {};
+
+  //   if (!selectedPartId || selectedPartId === "all") {
+  //     return {
+  //       pillars: raw.pillars || [],
+  //       themes: raw.themes || {},
+  //     };
+  //   }
+
+  //   const partKey = String(selectedPartId);
+
+  //   if (raw[partKey]) return raw[partKey];
+
+  //   if (raw.pillars || raw.themes) {
+  //     return {
+  //       pillars: raw.pillars || [],
+  //       themes: raw.themes || {},
+  //     };
+  //   }
+
+  //   return { pillars: [], themes: {} };
+  // }, [data?.display_order, selectedPartId]);
+
+  // Pillar -> Theme -> Questions hierarchy
+
+  // const displayOrderForPart = useMemo(() => {
+  //   const raw = data?.display_order || {};
+  //   if (!raw) return { pillars: [], themes: {} };
+
+  //   // If "all" or not selected, don't force any pillar/theme order
+  //   if (!selectedPartId || selectedPartId === "all") {
+  //     // Fallback: if you still have old global pillars/themes, use them
+  //     if (raw.pillars || raw.themes) {
+  //       return {
+  //         pillars: raw.pillars || [],
+  //         themes: raw.themes || {},
+  //       };
+  //     }
+  //     return { pillars: [], themes: {} };
+  //   }
+
+  //   const partKey = String(selectedPartId);
+
+  //   //  New schema: display_order[partId] = { pillars, themes }
+  //   if (raw[partKey]) {
+  //     return raw[partKey];
+  //   }
+
+  //   // Safety: if only old global structure exists, fallback to that
+  //   if (raw.pillars || raw.themes) {
+  //     return {
+  //       pillars: raw.pillars || [],
+  //       themes: raw.themes || {},
+  //     };
+  //   }
+
+  //   return { pillars: [], themes: {} };
+  // }, [data?.display_order, selectedPartId]);
+
+  const displayOrderForPart = useMemo(() => {
+    const raw = data?.display_order || {};
+
+    // Always return global order first (no filter enforcement)
+    const globalOrder = {
+      pillars: raw.pillars || [],
+      themes: raw.themes || {},
+    };
+
+    // If no part selected OR "all" → use global
+    if (!selectedPartId || selectedPartId === "all") {
+      return globalOrder;
     }
 
-    minIdx++;
-  }
+    const partKey = String(selectedPartId);
 
-  doc.end();
-};
+    // Use part-specific order ONLY if backend explicitly provides it
+    if (raw[partKey]?.pillars || raw[partKey]?.themes) {
+      return {
+        pillars: raw[partKey].pillars || [],
+        themes: raw[partKey].themes || {},
+      };
+    }
+
+    // Otherwise DO NOT FILTER — fallback to global order
+    return globalOrder;
+  }, [data?.display_order, selectedPartId]);
+
+  const hierarchy = useMemo(() => {
+    // const orderMap = data?.display_order ?? { pillars: [], themes: {} };
+    const orderMap = displayOrderForPart || { pillars: [], themes: {} };
+    const out = { pillars: [] };
+    const pillarMap = {};
+
+    filteredQuestions.forEach((qItem) => {
+      const { pillar_id, theme_id } = qItem;
+      pillarMap[pillar_id] ||= { info: qItem.pillar, themes: {} };
+      pillarMap[pillar_id].themes[theme_id] ||= {
+        info: qItem.theme,
+        questions: [],
+      };
+      pillarMap[pillar_id].themes[theme_id].questions.push(qItem);
+    });
+
+    // sort questions inside a theme
+    Object.values(pillarMap).forEach((pillar) => {
+      Object.values(pillar.themes).forEach((theme) => {
+        theme.questions.sort(
+          (a, b) => (a.display_order ?? 0) - (b.display_order ?? 0),
+        );
+      });
+    });
+
+    // sort themes per pillar by configured order
+    Object.entries(pillarMap).forEach(([pillarId, pillar]) => {
+      const themeOrder =
+        orderMap.themes?.[String(pillarId)]?.map((t) => Number(t.id)) ?? [];
+      const sortedThemes = Object.values(pillar.themes).sort((a, b) => {
+        const aIndex = themeOrder.indexOf(a.info.id);
+        const bIndex = themeOrder.indexOf(b.info.id);
+        if (aIndex === -1 && bIndex === -1) return 0;
+        if (aIndex === -1) return 1;
+        if (bIndex === -1) return -1;
+        return aIndex - bIndex;
+      });
+      pillarMap[pillarId].themes = sortedThemes;
+    });
+
+    // sort pillars by configured order
+    const pillarOrder = orderMap.pillars?.map((p) => Number(p.id)) ?? [];
+    const sortedPillars = Object.values(pillarMap).sort((a, b) => {
+      const aIndex = pillarOrder.indexOf(a.info.id);
+      const bIndex = pillarOrder.indexOf(b.info.id);
+      if (aIndex === -1 && bIndex === -1) return 0;
+      if (aIndex === -1) return 1;
+      if (bIndex === -1) return -1;
+      return aIndex - bIndex;
+    });
+
+    out.pillars = sortedPillars;
+    return out;
+  }, [filteredQuestions, data?.display_order]);
+
+  // placement_id -> response
+  const respByPlacement = useMemo(
+    () => buildResponseMap(apiResponses),
+    [apiResponses],
+  );
+
+  //added to check can render for none values
+  const previewValues = useMemo(() => {
+    const values = {};
+    Object.entries(respByPlacement)?.forEach(([placementId, resp]) => {
+      values[`q_${placementId}`] = resp?.value ?? resp ?? "";
+    });
+    return values;
+  }, [respByPlacement]);
+
+  if (loading)
+    return (
+      <Box sx={{ p: 6, display: "flex", justifyContent: "center" }}>
+        <CircularProgress />
+      </Box>
+    );
+
+  if (!data)
+    return (
+      <Box sx={{ p: 4 }}>
+        <Typography>No questionnaire found</Typography>
+      </Box>
+    );
+
+  if (!filteredQuestions.length)
+    return (
+      <Box sx={{ p: 4 }}>
+        <Typography>No questions found for this part</Typography>
+      </Box>
+    );
+
+  const handleBack = () => {
+    sessionStorage.setItem("needReset", "false");
+
+    router.push("/niti/dgqi/workflow/report");
+  };
+
+  return (
+    <>
+      <Box
+        sx={{
+          display: "flex",
+          justifyContent: "flex-end",
+          gap: 1, // space between buttons
+          mb: 1,
+          mt: 2,
+          mr: 3,
+        }}
+      >
+        {/* Print Button */}
+        <Tooltip
+          title={
+            !printQuestionnaire
+              ? "No questionnaire available to print. Printing is available only after all mandatory questions are completed."
+              : ""
+          }
+        >
+          <span>
+            <Button
+              variant="contained"
+              startIcon={<PrintIcon />}
+              disabled={!printQuestionnaire}
+              onClick={handlePrint}
+            >
+              Print
+            </Button>
+          </span>
+        </Tooltip>
+
+        {/* Back Button */}
+        {showBackButton && (
+          <Tooltip title="Go back to the previous page">
+            <span>
+              <Button
+                variant="contained" // or "contained" if you want same style as Print
+                startIcon={<ArrowBackIcon />}
+                onClick={handleBack} // define this function
+              >
+                Back
+              </Button>
+            </span>
+          </Tooltip>
+        )}
+      </Box>
+
+      <Box sx={{ p: 3 }} ref={printRef}>
+        <PreviewHeader
+          title={data.title}
+          round={data.round_name}
+          status={data?.status}
+          part={parts.find((p) => p.id === Number(selectedPartId))?.part_name}
+          assignedDate={null}
+          userData={userData}
+          partId={workflow?.part_id}
+          workflowStatus={workflow?.status}
+          ministryName={workflow?.ministry?.name}
+          partScore={scoreReleaseStatus?.partScoreRelease}
+          departmentName={workflow?.department?.name}
+          departmentScore={
+            scoreReleaseStatus?.ministryScoreRelease?.[workflow?.department_id]
+          }
+          schemeName={workflow?.scheme?.name}
+          schemeScoreRelease={
+            scoreReleaseStatus?.schemeScoreRelease?.[workflow?.scheme_id]
+          }
+        />
+
+        {hierarchy.pillars.map((pillar, plIdx) => {
+          const pillarNumber = plIdx + 1;
+          return (
+            <Accordion
+              key={pillar.info?.id ?? `pillar-${plIdx}`}
+              defaultExpanded
+              sx={{ mb: 2, border: "1px solid #eee", borderRadius: 1 }}
+            >
+              <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                <Box
+                  sx={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    width: "100%",
+                  }}
+                >
+                  <Typography
+                    component="span"
+                    sx={{ fontWeight: 600, fontSize: "21px" }}
+                  >
+                    {pillarNumber}. {pillar.info?.pillar_name}
+                  </Typography>
+
+                  {pillar?.info?.is_score_visible &&
+                    ([10, 11, 1, 9].includes(userData?.orgType_id) ||
+                      scoreReleaseStatus?.pillarScoreRelease?.[pillar.info.id]
+                        ?.is_released) && (
+                      <Box sx={{ display: "flex", gap: 1 }}>
+                        <Chip
+                          label={`Score: ${
+                            scoreReleaseStatus?.pillarScoreRelease?.[
+                              pillar.info.id
+                            ]?.score.toFixed(2) || 0
+                          }`}
+                          size="small"
+                        />
+                        {/* <Chip
+                                         label={`%: ${(
+                                           hierarchyScores.pillars[pillar.info.id]?.percent || 0
+                                         ).toFixed(1)}%`}
+                                         size="small"
+                                       /> */}
+                      </Box>
+                    )}
+                </Box>
+              </AccordionSummary>
+
+              <AccordionDetails sx={{ mt: -2 }}>
+                {pillar.themes.map((theme, thIdx) => {
+                  const themeNumber = thIdx + 1;
+                  const themeScores =
+                    hierarchyScores.themes[theme.info.id] || {};
+
+                  return (
+                    <Accordion
+                      key={theme.info?.id ?? `theme-${thIdx}`}
+                      defaultExpanded
+                      sx={{
+                        mb: 2,
+                        border: "1px solid #f0f0f0",
+                        borderRadius: 1,
+                        p: 1,
+                        backgroundColor: "#fafafa",
+                      }}
+                    >
+                      <AccordionSummary
+                        expandIcon={<ExpandMoreIcon />}
+                        sx={{ px: 2 }}
+                      >
+                        <Box
+                          sx={{
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "space-between",
+                            mb: 1,
+                          }}
+                        >
+                          <Typography
+                            component="span"
+                            sx={{ fontWeight: 600, fontSize: "19px" }}
+                          >
+                            {pillarNumber}.{themeNumber}{" "}
+                            {theme.info?.theme_name}
+                          </Typography>
+
+                          {((theme?.info?.is_score_visible &&
+                            [10, 11, 1, 9]?.includes(userData?.orgType_id)) ||
+                            scoreReleaseStatus?.themeScoreRelease?.[
+                              theme.info.id
+                            ]?.is_released) && (
+                            <Box sx={{ display: "flex", gap: 1 }}>
+                              <Chip
+                                label={`Score: ${
+                                  scoreReleaseStatus?.themeScoreRelease?.[
+                                    theme.info.id
+                                  ]?.score.toFixed(2) || 0
+                                }`}
+                                size="small"
+                              />
+                              {/* <Chip
+                                                     label={`%: ${(themeScores.percent || 0).toFixed(
+                                                       1,
+                                                     )}%`}
+                                                     size="small"
+                                                   /> */}
+                            </Box>
+                          )}
+                        </Box>
+                      </AccordionSummary>
+                      <AccordionDetails sx={{ pt: 1 }}>
+                        <Divider sx={{ mb: 1 }} />
+
+                        {/* {theme.questions.map((qItem, qIdx) => {
+                        const questionNumber = `${pillarNumber}.${themeNumber}.${
+                          qIdx + 1
+                        }`;
+
+                        // Prefer placement-id mapping: qItem.id is placement_id in your payload
+                        const savedResponse =
+                          respByPlacement[qItem.id] ??
+                          (qItem.placement_id != null
+                            ? respByPlacement[qItem.placement_id]
+                            : undefined);
+
+                        return (
+                          <Box key={`q-${qItem.id}`} sx={{ mb: 2 }}>
+                            <PreviewRenderer
+                              qItem={qItem}
+                              number={questionNumber}
+                              savedResponse={savedResponse}
+                            />
+                          </Box>
+                        );
+                      })} */}
+                        {theme?.questions?.map((qItem, qIdx) => {
+                          const questionCounter = qIdx + 1;
+                          const fieldName = `q_${qItem.id}`;
+
+                          const questionNumber = `${pillarNumber}.${themeNumber}.${
+                            qIdx + 1
+                          }`;
+
+                          const savedResponse =
+                            respByPlacement[qItem.id] ??
+                            (qItem.placement_id != null
+                              ? respByPlacement[qItem.placement_id]
+                              : undefined);
+
+                          const canRender = checkRenderConditions(
+                            qItem.render_conditions,
+                            previewValues,
+                            filteredQuestions,
+                          );
+
+                          if (!canRender) return null;
+
+                          return (
+                            <Box key={`q-${qItem.id}`} sx={{ mb: 2 }}>
+                              <PreviewRenderer
+                                qItem={qItem}
+                                name={fieldName}
+                                canRender={canRender}
+                                ministryId={workflow?.ministry_id}
+                                number={questionNumber}
+                                savedResponse={savedResponse}
+                                questionScores={
+                                  scoreReleaseStatus?.questionScoreRelease
+                                }
+                                onScoreChange={handleScoreChange}
+                              />
+                            </Box>
+                          );
+                        })}
+                      </AccordionDetails>
+                    </Accordion>
+                  );
+                })}
+              </AccordionDetails>
+            </Accordion>
+          );
+        })}
+      </Box>
+    </>
+  );
+}
+
