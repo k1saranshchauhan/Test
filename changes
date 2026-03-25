@@ -1,1086 +1,1407 @@
-"use client";
-import React, { useEffect, useState } from "react";
-import FileDownloadOutlinedIcon from "@mui/icons-material/FileDownloadOutlined";
-import { useFormik } from "formik";
-import {
-  Grid,
-  Button,
-  TextField,
-  Autocomplete,
-  Divider,
-  Box,
-  Typography,
-  CircularProgress,
-  Tooltip,
-} from "@mui/material";
-import * as Yup from "yup";
-import { CustomAutoComplete } from "@/src/components/superadmin/CustomAutoComplete";
 import MainFormHeader from "@/src/components/DashboardUI/MainFormHeader";
+import { setError, setLoader } from "@/store/slices/errorSlice";
 import apiClient from "@/utils/apiClient";
-import BodyDashboard from "@/src/components/DashboardUI/BodyDashboard";
-import InboxIcon from "@mui/icons-material/Inbox";
-import ProgressTable from "./progress-table";
-import ProgressFootnote from "./progress-footnote";
+import SearchTable from "../../SearchTable";
+import { Box, Divider, IconButton, Tooltip, Typography } from "@mui/material";
+import MoreHorizIcon from "@mui/icons-material/MoreHoriz";
+import { useEffect, useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
-import { setError, setSuccess } from "@/store/slices/errorSlice";
-import { oomfFrameworkId } from "@/src/constants/unified/frameworkConstants";
+import CardConatiner2 from "../../UI/CardContainer2";
+import OomfDashboardActionDialog from "../../nitiAyog/OomfDashboardActionDialog";
+import ModeEditOutlineOutlinedIcon from "@mui/icons-material/ModeEditOutlineOutlined";
 import {
-  filterByFramework,
-  filterSchemesByFramework,
-} from "@/utils/niti/filterByFramework";
-import { useFilteredFrameworkAccess } from "@/utils/niti/useFilteredFrameworkAccess";
-import { startLoader, stopLoader } from "@/store/slices/errorSlice";
-import { useReactToPrint } from "react-to-print";
-import PrintIcon from "@mui/icons-material/Print";
-import { useRef } from "react";
+  CheckCircle,
+  HourglassEmpty,
+  Undo,
+  RemoveCircleOutline,
+  Edit,
+} from "@mui/icons-material";
+import { useRouter } from "next/router";
+import dayjs from "dayjs";
+import ForwardedSchemesDialog from "../../nitiAyog/ForwardedSchemesDialog";
+import RemoveRedEyeIcon from "@mui/icons-material/RemoveRedEye";
+import EditIcon from "@mui/icons-material/Edit";
+import { Tabs, Tab } from "@mui/material";
+import { ReorderColumnsDialog } from "../../nitiAyog/dgqi/ReorderColumnsDialog";
+import DeleteIcon from "@mui/icons-material/Delete";
+import CloudUploadIcon from "@mui/icons-material/CloudUpload";
+import PictureAsPdfIcon from "@mui/icons-material/PictureAsPdf";
+import TableChartIcon from "@mui/icons-material/TableChart";
+import ArticleIcon from "@mui/icons-material/Article";
+import ImageIcon from "@mui/icons-material/Image";
+import InsertDriveFileIcon from "@mui/icons-material/InsertDriveFile";
+import FilePresentIcon from "@mui/icons-material/FilePresent";
+import DescriptionIcon from "@mui/icons-material/Description";
+import SlideshowIcon from "@mui/icons-material/Slideshow"; // For PowerPoint
+import CodeIcon from "@mui/icons-material/Code"; // For code files
+import CompressedFileIcon from "@mui/icons-material/Archive";
+import HistoryIcon from "@mui/icons-material/History";
+import { usePrivileges } from "@/src/context/privilegeContextProvider";
+import { SECTION_KEY } from "@/src/constants/privilegesSectionKeys/sectionKeys";
+import CustomRemarksDialog from "../../common/CustomRemarksDialog";
+import VisibilityOutlinedIcon from "@mui/icons-material/VisibilityOutlined";
+import ForwardDialog from "../../nitiAyog/oomfForm/ForwardDialog";
+import {
+ Button
+} from "@mui/material";
+import { encryptData } from "@/utils/niti/encryption";
+import { oomfFrameworkId } from "@/src/constants/unified/frameworkConstants";
+import ArrowForwardIosIcon from "@mui/icons-material/ArrowForwardIos";
 
-const ProgressReport = () => {
-  const dispatch = useDispatch();
-  const [ministryList, setMinistryList] = useState([]);
-  const [departmentList, setDepartmentList] = useState([]);
-  const [financialYearList, setFinancialYearList] = useState([]);
-  const [measurementAreaList, setMeasurementAreaList] = useState([]);
-  const [stateList, setStateList] = useState([]);
-  const [districtList, setDistrictList] = useState([]);
-  const [schemeList, setSchemeList] = useState([]);
-  const [subSchemeList, setSubSchemeList] = useState([]);
-  const [schemeTypeList, setSchemeTypeList] = useState([]);
-  const [frequencyList, setFrequencyList] = useState([]);
-  const [indicatorTypeList, setIndicatorTypeList] = useState([]);
-  const [indicatorNamesList, setIndicatorNamesList] = useState([]);
-  const [tableData, setTableData] = useState([]);
+const CommonDashboardNiti = () => {
+  const {
+    mappedPrivileges,
+    hasAddAccess,
+    hasEditAccess,
+    hasViewAccess,
+    hasAuditTrailViewAccess,
+    refresh,
+  } = usePrivileges(SECTION_KEY.OUTPUT_OUTCOME_STATEMENT_WITH_INDICATOR);
+  const [applicationStatus, setApplicationStatus] = useState("Pending");
+  const [tableDataApplication, setTableDataApplication] = useState([]);
+  const [applicationCount, setApplicationCount] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [open, setOpen] = useState(false);
+  const [openForwarded, setOpenForwarded] = useState(false);
+  const [columns, setColumns] = useState([]);
+  const [openForwardDialog, setOpenForwardDialog] = useState(false);
+
   const userData = useSelector((state) => state.config.userData);
-  const userSchemeIds = userData?.userRelationships[0]?.schemeIds;
-  const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
-  const printRef = useRef(null);
+  const [selectedRow, setSelectedRow] = useState(null);
+  const subRoleIds = [
+    ...new Set(
+      userData?.privileges?.flatMap(
+        (item) => item.accessRights?.oomfSubRoles?.map((role) => role.id) || [],
+      ) || [],
+    ),
+  ];
 
-  const handlePrint = useReactToPrint({
-    contentRef: printRef,
-    documentTitle: "Progress Report",
-    removeAfterPrint: true,
-  });
+  const getFileIcon = (filename) => {
+    const ext = filename?.split(".").pop()?.toLowerCase();
+    if (!ext) return <InsertDriveFileIcon sx={{ color: "gray" }} />;
 
-  const { userMinistryIds, userDepartmentIds } = useFilteredFrameworkAccess({
-    userPermittedMinistryIds: userData?.userRelationships[0]?.ministryIds,
-    userPermittedDepartmentIds: userData?.userRelationships[0]?.departmentIds,
-    // userPermittedSchemeIds: userData?.userRelationships[0]?.schemeIds,
-    frameworkId: oomfFrameworkId,
-  });
-
-  const handleGeneratePdf = async () => {
-    // Validate that we have table data
-    if (!tableData || tableData.length === 0) {
-      dispatch(
-        setError(
-          "No data available to generate PDF. Please generate a report first.",
-        ),
-      );
-      return;
-    }
-
-    setIsGeneratingPdf(true);
-
-    try {
-      // Use the same payload as the form submission
-      const measurementAreaList = {
-        id: formik.values?.measurementArea?.id,
-        name: formik.values?.measurementArea?.label,
-      };
-
-      const payload = {
-        financialYears: formik.values?.financialYear?.map(
-          (item) => item?.label,
-        ),
-        schemeTypeIds:
-          formik.values?.schemeType?.map((item) => Number(item?.id)) || "",
-        // measurementArea: measurementAreaList,
-        // stateIds: formik.values?.state?.map((item) => Number(item?.id)),
-        // districtIds: formik.values?.district?.map((item) => Number(item?.id)),
-        // subSchemeIds: formik.values?.subScheme?.map((item) => Number(item?.id)),
-        schemeIds: formik.values?.scheme?.map((item) => Number(item?.id)),
-        frequencyId: formik.values?.frequency?.id || "",
-        indicatorTypes:
-          formik.values?.indicatorType?.map((item) => Number(item?.id)) || "",
-        indicatorNameIds:
-          formik.values?.indicatorNames?.map((item) => Number(item?.id)) || "",
-      };
-
-      const response = await apiClient.post(
-        "/api/oomf/report/progress-report-pdf",
-        payload,
-        {
-          responseType: "blob", // Important for file download
-        },
-      );
-
-      // Create blob and download
-      const blob = new Blob([response.data], { type: "application/pdf" });
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.setAttribute(
-        "download",
-        `progress-report-${new Date().toISOString().split("T")[0]}.pdf`,
-      );
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      window.URL.revokeObjectURL(url);
-
-      dispatch(setSuccess("PDF generated successfully!"));
-    } catch (error) {
-      console.error("PDF Generation Error:", error);
-      dispatch(setError("Failed to generate PDF. Please try again."));
-    } finally {
-      setIsGeneratingPdf(false);
+    switch (ext) {
+      case "pdf":
+        return <PictureAsPdfIcon sx={{ color: "#D32F2F" }} />;
+      case "xls":
+      case "xlsx":
+      case "csv":
+        return <TableChartIcon sx={{ color: "#2E7D32" }} />;
+      case "doc":
+      case "docx":
+      case "rtf":
+        return <ArticleIcon sx={{ color: "#1565C0" }} />;
+      case "ppt":
+      case "pptx":
+        return <SlideshowIcon sx={{ color: "#D44726" }} />; // Distinct color for PowerPoint
+      case "png":
+      case "jpg":
+      case "jpeg":
+      case "gif":
+      case "bmp":
+      case "tiff":
+      case "webp":
+        return <ImageIcon sx={{ color: "#FBC02D" }} />;
+      case "txt":
+      case "log":
+        return <DescriptionIcon sx={{ color: "#6A1B9A" }} />;
+      case "json":
+      case "xml":
+      case "html":
+      case "css":
+      case "js":
+        return <CodeIcon sx={{ color: "#4A148C" }} />; // Icon for code/structured text
+      case "mp3":
+      case "wav":
+      case "mp4":
+      case "mpeg":
+        return <FilePresentIcon sx={{ color: "#00838F" }} />; // Generic media icon
+      case "zip":
+      case "rar":
+      case "7z":
+        return <CompressedFileIcon sx={{ color: "#BF360C" }} />; // Icon for compressed files
+      default:
+        return <FilePresentIcon sx={{ color: "#78909C" }} />;
     }
   };
-  const formik = useFormik({
-    initialValues: {
-      ministry: [],
-      department: [],
-      financialYear: [],
-      schemeType: [],
-      measurementArea: [{ id: 2, label: "National" }],
-      state: [],
-      district: [],
-      scheme: [],
-      subScheme: [],
-      frequency: {},
-      indicatorType: [],
-      indicatorNames: [],
-    },
-    validationSchema: Yup.object().shape({
-      financialYear: Yup.array()
-        .min(1, "Financial Year is required")
-        .max(3, "You can select maximum 3 Financial Years"),
-      frequency: Yup.object() // Keep object, add custom test
-        .test(
-          "is-valid-frequency", //  Custom test for validation
-          "Frequency is Required",
-          function (value) {
-            return value?.id != null; // Fail if no id (handles {} initial)
-          },
-        )
-        .required("Frequency is Required"),
-    }),
-    // validationSchema: Yup.object().shape({
-    //   ministry: Yup.array().min(1, "Ministry is Required"),
-    //   department: Yup.array().min(1, "Department is Required"),
-    //   financialYear: Yup.array().min(1, "Financial Year is Required"),
-    //   schemeType: Yup.array().min(1, "Scheme Type is Required"),
-    //   measurementArea: Yup.mixed() // Changed to mixed() to handle array/object/null
-    //     .test(
-    //       "is-valid-area", //  Custom test for validation
-    //       "Measurement Area is Required",
-    //       function (value) {
-    //         if (Array.isArray(value)) {
-    //           return value.length > 0 && value[0]?.id != null; // Handle if set as [object]
-    //         }
-    //         return value?.id != null; // Handle object or null
-    //       }
-    //     )
-    //     .required("Measurement Area is Required"),
-    //   frequency: Yup.object().required("Frequency is Required"),
-    //   state: Yup.array().when("measurementArea", {
-    //     is: (val) => val && val.id === 3, // Only required when area.id = 3
-    //     then: (schema) => schema.min(1, "State is Required"),
-    //     otherwise: (schema) => schema.notRequired(),
-    //   }),
+  const FILE_SERVER_URL = `${process.env.NEXT_PUBLIC_API_BASE_URL}api/public/download-file/`;
 
-    //   district: Yup.array().when("measurementArea", {
-    //     is: (val) => val && val.id === 1, // Only required when area.id = 1
-    //     then: (schema) => schema.min(1, "District is Required"),
-    //     otherwise: (schema) => schema.notRequired(),
-    //   }),
-
-    //   scheme: Yup.array().min(1, "Scheme is Required"),
-    //   indicatorType: Yup.array().min(1, "Indicator Type is Required"),
-    //   frequency: Yup.object() // Keep object, add custom test
-    //     .test(
-    //       "is-valid-frequency", //  Custom test for validation
-    //       "Frequency is Required",
-    //       function (value) {
-    //         return value?.id != null; // Fail if no id (handles {} initial)
-    //       }
-    //     )
-    //     .required("Frequency is Required"),
-    //   indicatorNames: Yup.array().min(1, "Indicator Names is Required"),
-    // }),
-    onSubmit: async (values) => {
-      const measurementAreaList = {
-        id: values?.measurementArea?.id,
-        name: values?.measurementArea?.label,
-      };
-      const payload = {
-        ministryIds: values?.ministry?.map((item) => Number(item?.id)) || [],
-        departmentIds:
-          values?.department?.map((item) => Number(item?.id)) || [],
-        years:
-          values?.financialYear?.map((item) => item?.label?.split("-")[0]) ||
-          [],
-        schemeTypeIds:
-          values?.schemeType?.map((item) => Number(item?.id)) || [],
-        schemeIds: values?.scheme?.map((item) => Number(item?.id)) || [],
-        indicatorTypes: values?.indicatorType?.map((item) => item?.label) || [],
-        frequencyId: values?.frequency?.id,
-        indicatorIds: values?.indicatorNames?.map((item) => Number(item?.id)),
-        // measurementArea: measurementAreaList,
-
-        // subSchemeIds: values?.subScheme?.map((item) => Number(item?.id)),
-        // frequencyId: values?.frequency?.id || "",
-        // indicatorNameIds:
-        //   values?.indicatorNames?.map((item) => Number(item?.id)) || "",
-      };
-      try {
-        dispatch(startLoader());
-        const res = await apiClient.post(
-          "/api/oomf/report/legacy-progress-report",
-          payload,
-        );
-        setTableData(res?.data);
-      } catch (error) {
-        console.error("API Error:", error);
-      } finally {
-        dispatch(stopLoader());
-      }
-    },
-  });
-  //API calls
-  const fetchMinistryList = async () => {
-    try {
-      const response = await apiClient.post("api/dynamic-model-details/data", {
-        modelName: "ministry",
-        filters: userMinistryIds?.length
-          ? {
-              where: {
-                id: {
-                  in: userMinistryIds || [],
-                },
-                status: true,
-              },
-            } // ✅ filter by userData
-          : {}, // ✅ else fetch all
-      });
-
-      const { data } = response.data || {};
-      if (Array.isArray(data)) {
-        const formattedData = data?.map((item) => ({
-          id: item?.id,
-          label: item?.name,
-          associatedFramework: item?.jsonData?.associatedFramework,
-        }));
-        // if (Array.isArray(formattedData)) {
-        //   const filteredData = formattedData?.filter((item) =>
-        //     userMinistryIds?.includes(item?.id)
-        //   );
-        //   setMinistryList(filteredData);
-        // }
-        setMinistryList(formattedData);
-      }
-    } catch (error) {
-      console.error("Error fetching ministries:", error);
-      setMinistryList([]);
-    }
-  };
-  const fetchAllMastersList = async () => {
-    try {
-      const response = await apiClient.get(`api/master/all-oomf-masters`);
-
-      const { data } = response?.data || {};
-
-      setFrequencyList(
-        data?.frequencies?.map((item) => ({
-          id: item?.id,
-          label: item?.name,
-        })),
-      );
-      setIndicatorTypeList(
-        data?.indicatorTypes?.map((item) => ({
-          id: item?.id,
-          label: item?.name,
-        })) || [],
-      );
-      setMeasurementAreaList(
-        data?.measurementAreas?.map((item) => ({
-          id: item?.id,
-          label: item?.name,
-        })),
-      );
-      setStateList(
-        data?.states?.map((item) => ({
-          id: item?.id,
-          label: item?.state_name,
-        })),
-      );
-    } catch (error) {
-      console.error("Failed to fetch masters list:", error);
-      setMinistryList([]);
-    }
-  };
-  useEffect(() => {
-    const fetchSchemeTypeByFramework = async () => {
-      try {
-        const response = await apiClient.post(
-          `api/master/schemeType/by-framework`,
-          {
-            associatedFrameworks: [oomfFrameworkId],
-          },
-        );
-
-        const { data } = response?.data || {};
-        if (Array.isArray(data)) {
-          const formattedData = data?.map((item) => ({
-            id: item?.id,
-            label: item?.name,
-          }));
-          setSchemeTypeList(formattedData);
-        }
-      } catch (error) {
-        console.error("Failed to fetch scheme-type list:", error);
-        setSchemeTypeList([]);
-      }
-    };
-    fetchSchemeTypeByFramework();
-  }, []);
-  // const fetchFinancialYearList = async () => {
-  //   try {
-  //     const response = await apiClient.post(
-  //       `api/oomf/submissions/get-scheme-filters`,
-  //       {
-  //         isSubScheme: false,
-  //       }
-  //     );
-
-  //     const { filters } = response?.data || {};
-  //     const formattedData = filters?.financialYears?.map((item) => ({
-  //       id: item?.id,
-  //       name: item?.name,
-  //     }));
-  //     setFinancialYearList(
-  //       formattedData?.map((item, index) => ({
-  //         id: index + 1,
-  //         label: item?.name,
-  //       }))
-  //     );
-  //   } catch (error) {
-  //     console.error("Failed to fetch financialYear list:", error);
-  //     setFinancialYearList([]);
-  //   }
-  // };
-
-  const fetchFinancialYearList = () => {
-    const years = [
-      "2018-2019",
-      "2019-2020",
-      "2020-2021",
-      "2021-2022",
-      "2022-2023",
-      "2023-2024",
-      "2024-2025",
-      "2025-2026",
-    ];
-
-    const formattedData = years.map((year, index) => ({
-      id: index + 1,
-      label: year,
-    }));
-
-    setFinancialYearList(formattedData);
+  // set first role as default
+  const [activeSubRoleId, setActiveSubRoleId] = useState(subRoleIds[0] ?? null);
+  const [columnVisibilityModel, setColumnVisibilityModel] = useState({});
+  const [tempColumns, setTempColumns] = useState([]);
+  const [openReorder, setOpenReorder] = useState(false);
+  const [tempOrder, setTempOrder] = useState({});
+  const router = useRouter();
+  const dispatch = useDispatch();
+  const route = useRouter();
+  const subRoleLabels = {
+    1: "Planner",
+    2: "Approver",
+    3: "Reporter",
+    // extend as needed
   };
 
-  useEffect(() => {
-    // fetchMinistryList();
-    fetchAllMastersList();
-    fetchFinancialYearList();
-  }, []);
-
-  useEffect(() => {
-    fetchMinistryList();
-  }, [userMinistryIds]);
-
-  useEffect(() => {
-    const fetchDepartmentList = async () => {
-      const selectedMinistries = formik.values?.ministry;
-      if (!selectedMinistries || selectedMinistries.length === 0) {
-        setDepartmentList([]);
-        return;
-      }
-
-      formik.setFieldValue("department", []);
-
-      const ministryIds = selectedMinistries?.map((m) => m?.id);
-
-      try {
-        const response = await apiClient.post(
-          `api/master/get-departments-for-ministry`,
-          { ministryIds },
-        );
-
-        const { data } = response?.data || {};
-        if (Array.isArray(data)) {
-          // Filter based on userData relationships
-          const allowedDepartmentIds = userDepartmentIds || [];
-
-          const filteredData = data.filter((dept) =>
-            allowedDepartmentIds.includes(dept.id),
-          );
-
-          const formattedData = filteredData.map((item) => ({
-            id: item?.id,
-            label: item?.name,
-            associatedFramework: item?.jsonData?.associatedFramework,
-          }));
-
-          setDepartmentList(formattedData);
-        }
-      } catch (error) {
-        console.error("Failed to fetch department list:", error);
-        setDepartmentList([]);
-      }
-    };
-
-    fetchDepartmentList();
-  }, [formik?.values?.ministry, userData?.userRelationships]);
-
-  useEffect(() => {
-    const fetchSchemeList = async () => {
-      const selectedType = formik.values?.department;
-      if (!selectedType) {
-        setSchemeList([]);
-        return;
-      }
-      formik.setFieldValue("scheme", []);
-
-      const departmentIds = selectedType?.map(
-        (department, index) => department?.id,
-      );
-      const schemeTypeIds =
-        formik.values?.schemeType?.map((item) => item?.id)?.length > 0
-          ? formik.values?.schemeType?.map((item) => item?.id)
-          : [1, 2];
-      const financialYears =
-        formik?.values?.financialYear?.map((item) => item?.label) || [];
-      try {
-        const response = await apiClient.post(
-          `api/master/get-all-schemes-for-departments`,
-          {
-            departmentIds,
-            schemeTypeIds,
-            financialYears,
-          },
-        );
-
-        const { data } = response?.data || {};
-
-        if (Array.isArray(data)) {
-          const formattedData = data?.map((item) => ({
-            id: item?.id,
-            label: item?.name,
-            schemeTypeId: {
-              id: item?.jsonData?.schemeType?.id,
-              name: item?.jsonData?.schemeType?.name,
-            },
-            associatedFramework:
-              item?.jsonData?.schemeFinancialYearWiseBudgetDetails?.map(
-                (item) => item?.associatedFrameworks,
-              ),
-          }));
-
-          const filteredData = formattedData?.filter((item) =>
-            userSchemeIds?.includes(item?.id),
-          );
-          console.log("Filtered Data:", filteredData?.length);
-          setSchemeList(filteredData);
-        }
-      } catch (error) {
-        console.error("Failed to fetch scheme list:", error);
-        setSchemeList([]);
-      }
-    };
-    fetchSchemeList();
-  }, [formik?.values?.department, formik.values?.schemeType]);
-
-  useEffect(() => {
-    async function getDistrictsByState() {
-      try {
-        if (!formik?.values?.state || formik.values.state.length === 0) {
-          setDistrictList([]);
-          formik.setFieldValue("district", []); // Clear districts when no state selected
-          return;
-        }
-
-        // Get all selected state IDs
-        const stateIds = formik.values.state.map((state) => state.id);
-
-        const payload = {
-          stateIds: stateIds,
-        };
-        const res = await apiClient.post(
-          `/api/master/get-district-for-state`,
-          payload,
-        );
-        const districtsData = res?.data?.data;
-        const formattedData = districtsData?.map((district) => ({
-          id: district?.id,
-          label: district?.district_name,
-        }));
-        setDistrictList(formattedData);
-      } catch (err) {
-        dispatch(setError(err.message));
-      }
-    }
-
-    getDistrictsByState();
-  }, [formik?.values?.state]);
-
-  useEffect(() => {
-    const fetchSubSchemeList = async () => {
-      const selectedDepartments = formik.values?.department;
-      const selectedSchemes = formik.values?.scheme;
-      const measurementArea = formik.values?.measurementArea;
-
-      // ✅ Exit early if department is not selected
-      if (!selectedDepartments || selectedDepartments.length === 0) {
-        setSubSchemeList([]);
-        dispatch(setError("Department is required."));
-        return;
-      }
-
-      // ✅ Exit early if scheme is not selected
-      if (!selectedSchemes || selectedSchemes.length === 0) {
-        setSubSchemeList([]);
-        return;
-      }
-
-      // ✅ Exit early if measurement area is not selected
-      if (!measurementArea || !measurementArea.id) {
-        setSubSchemeList([]);
-        dispatch(setError("Measurement Area is required."));
-        return;
-      }
-
-      formik.setFieldValue("subScheme", []);
-
-      const schemeIds = selectedSchemes.map((s) => s?.id);
-      const departmentIds = selectedDepartments.map((d) => Number(d?.id));
-
-      // Apply measurement area-specific logic
-      const selectedStates = formik?.values?.state || [];
-      const selectedDistricts = formik?.values?.district || [];
-
-      if (measurementArea.id === 3 && selectedStates.length === 0) {
-        setSubSchemeList([]);
-        dispatch(
-          setError(
-            "Please select at least one state for the selected Measurement Area.",
-          ),
-        );
-        return;
-      }
-
-      if (measurementArea.id === 1 && selectedDistricts.length === 0) {
-        setSubSchemeList([]);
-        dispatch(
-          setError(
-            "Please select at least one district for the selected Measurement Area.",
-          ),
-        );
-        return;
-      }
-
-      try {
-        const response = await apiClient.post(
-          `api/master/get-schemes-by-measurementArea`,
-          {
-            schemeIds,
-            departmentIds,
-            measurementArea,
-            parentScheme: false,
-            stateIds:
-              measurementArea.id === 3
-                ? selectedStates.map((s) => Number(s.id))
-                : [],
-            districtIds:
-              measurementArea.id === 1
-                ? selectedDistricts.map((d) => Number(d.id))
-                : [],
-          },
-        );
-
-        const { data } = response?.data || {};
-        if (Array.isArray(data)) {
-          const formattedData = data.map((item) => ({
-            id: item?.id,
-            label: item?.label,
-          }));
-          setSubSchemeList(formattedData);
-        }
-      } catch (error) {
-        console.error("Failed to fetch sub-scheme list:", error);
-        setSubSchemeList([]);
-      }
-    };
-
-    const measurementId = formik?.values?.measurementArea?.id;
-
-    if (
-      formik?.values?.department?.length > 0 &&
-      formik?.values?.scheme?.length > 0 &&
-      measurementId &&
-      ((measurementId === 3 && formik.values.state?.length > 0) ||
-        (measurementId === 1 && formik.values.district?.length > 0) ||
-        measurementId === 2)
-    ) {
-      fetchSubSchemeList();
-    }
-  }, [
-    formik?.values?.department,
-    formik?.values?.scheme,
-    formik?.values?.state,
-    formik?.values?.district,
-    formik?.values?.measurementArea,
-  ]);
-
-  useEffect(() => {
-    const fetchIndicatorsNameList = async () => {
-      // const selectedTypeScheme = formik.values?.scheme || [];
-      // const selectedTypeSchemeType = formik.values?.schemeType || [];
-      // const selectedTypeSubScheme = formik.values?.subScheme || [];
-      // const selectedTypeIndicatorType = formik.values?.indicatorType || [];
-      // const selectedTypeFinancialYear = formik.values?.financialYear || [];
-      // const frequencyId = formik.values?.frequency?.id;
-      // const measurementArea =
-      //   {
-      //     id: formik.values?.measurementArea?.id,
-      //     name: formik.values?.measurementArea?.label,
-      //   } || {};
-      // const selectedStates = formik.values?.state || [];
-      // const selectedDistricts = formik.values?.district || [];
-
-      // if (
-      //   selectedTypeScheme.length === 0 ||
-      //   selectedTypeSchemeType.length === 0 ||
-      //   selectedTypeIndicatorType.length === 0 ||
-      //   selectedTypeFinancialYear.length === 0 ||
-      //   !frequencyId ||
-      //   !measurementArea?.id
-      // ) {
-      //   setIndicatorNamesList([]);
-      //   return;
-      // }
-
-      // formik.setFieldValue("indicatorNames", []);
-
-      // const schemeIds = selectedTypeScheme.map((scheme) => Number(scheme?.id));
-      // const schemeTypeIds = selectedTypeSchemeType.map((type) =>
-      //   Number(type?.id),
-      // );
-      // const indicatorTypes = selectedTypeIndicatorType.map((type) =>
-      //   Number(type?.id),
-      // );
-      // const financialYears = selectedTypeFinancialYear.map(
-      //   (year) => year?.label,
-      // );
-      // const subSchemeIds =
-      //   selectedTypeSubScheme.length > 0
-      //     ? selectedTypeSubScheme.map((s) => Number(s?.id))
-      //     : [];
-
-      // // ✅ Measurement area-specific filtering
-      // let stateIds = [];
-      // let districtIds = [];
-      // if (measurementArea.id === 1) {
-      //   districtIds = selectedDistricts.map((d) => Number(d?.id));
-      // } else if (measurementArea.id === 3) {
-      //   stateIds = selectedStates.map((s) => Number(s?.id));
-      // }
-
-      const requestBody = {
-        schemeIds:
-          formik?.values?.scheme?.map((item) => Number(item?.id)) || [],
-        years:
-          formik?.values?.financialYear?.map(
-            (item) => item?.label?.split("-")[0],
-          ) || [],
-        frequencyId: formik?.values?.frequency?.id,
-      };
-
-      try {
-        const response = await apiClient.post(
-          `api/oomf/report/legacy-indicators-list`,
-          requestBody,
-        );
-        const { data } = response?.data || {};
-
-        if (Array.isArray(data)) {
-          const formattedData = data?.map((item) => ({
-            id: item?.id,
-            label: item?.name,
-          }));
-          setIndicatorNamesList(formattedData);
-        }
-      } catch (error) {
-        console.error("Failed to fetch Indicator Names list:", error);
-        setIndicatorNamesList([]);
-      }
-    };
-    if (
-      formik.values?.financialYear &&
-      formik.values?.scheme?.length > 0 &&
-      formik.values?.frequency
-    )
-      fetchIndicatorsNameList();
-  }, [formik.values?.frequency]);
-
-  useEffect(() => {
-    const measurementId = formik.values.measurementArea?.id;
-    formik.setFieldValue("scheme", []);
-    if (measurementId === 3) {
-      // Clear state
-      formik.setFieldValue("state", []);
-    } else if (measurementId === 1) {
-      // Clear both state and district
-      formik.setFieldValue("state", []);
-      formik.setFieldValue("district", []);
+  const handleOpen = (row) => {
+    setSelectedRow(row);
+    if (applicationStatus === "Pending") {
+      setOpen(true);
     } else {
-      // For national or other measurement areas, optional clearing
-      formik.setFieldValue("state", []);
-      formik.setFieldValue("district", []);
+      setOpenForwarded(true);
     }
-  }, [formik.values.measurementArea]);
+  };
 
-  useEffect(() => {
-    // When ministry changes, reset department
-    formik.setFieldValue("department", []);
-  }, [formik.values.ministry]);
+  const handleClose = () => {
+    setOpen(false);
+    setSelectedRow(null);
+  };
+  const buildPayload = () => ({
+    subRoleIds: activeSubRoleId ? [activeSubRoleId] : [],
+    orgTypeId: Number(userData?.OrganizationType?.id) || 0,
+  });
 
-  useEffect(() => {
-    // When ministry changes, reset department
-    formik.setFieldValue("scheme", []);
-  }, [formik?.values?.schemeType]);
+  const filterSchemesByAssociatedFramework = (data = [], frameworkId) => {
+    if (!Array.isArray(data) || !frameworkId) return [];
 
-  const isSchemeEnabled = formik?.values?.schemeType?.length > 0;
+    return data.filter((item) => {
+      const details =
+        item?.submissionData?.jsonData?.schemeFinancialYearWiseBudgetDetails ||
+        [];
 
-  //auto select ministry
-  useEffect(() => {
-    if (
-      Array.isArray(ministryList) &&
-      ministryList.length === 1 &&
-      (!formik.values.ministry || formik.values.ministry.length === 0)
-    ) {
-      formik.setFieldValue("ministry", [ministryList[0]]);
+      return details.some((fy) =>
+        fy?.associatedFrameworks?.some(
+          (framework) => Number(framework.id) === Number(frameworkId),
+        ),
+      );
+    });
+  };
+
+  // 🔹 Map normal API data (old endpoints)
+  const mapNormalApiDataToTable = (data, status, notStartedCondition) => {
+    return (data || []).map((item, index) => ({
+      id: index + 1,
+      submissionId: item.submissionId,
+      ministry: item?.submissionData?.form_values?.ministryId?.name || "-",
+      department: item?.submissionData?.form_values?.departmentId?.name || "-",
+      scheme: item.submissionData?.isParentScheme
+        ? item.submissionData?.form_values?.schemeId?.name || "-"
+        : item.submissionData?.form_values?.subSchemeId?.name || "-",
+      isParentScheme: Boolean(item.submissionData?.isParentScheme),
+      financialYear: item.submissionData?.form_values?.financialYear || "-",
+      submittedOn: item.submissionData?.updated_on
+        ? dayjs(item.submissionData.updated_on).format("DD-MM-YYYY")
+        : item.submissionData?.submission_on
+          ? dayjs(item.submissionData.submission_on).format("DD-MM-YYYY")
+          : "-",
+
+      budgetCategory: (() => {
+        const value = item.submissionData?.form_values?.financialOutlay;
+        if (value === null || value === undefined || value === "") return "-";
+        return value % 1 !== 0 ? Number(value.toFixed(2)) : value;
+      })(),
+      status:
+        notStartedCondition && item?.submissionData?.mappingDone === false
+          ? "Mapping Pending"
+          : item?.submissionData?.status,
+      userName:
+        item?.submissionData?.User?.first_name +
+        " " +
+        item?.submissionData?.User?.last_name,
+      permission: item.toWorkflow || item.submissionData?.workflow || null,
+      atStage: notStartedCondition ? "Planner DMEO" : item.toLabel || "-",
+      remarks: item?.fromRemarks || "-",
+      forwardedTo: item.toLabel || "-",
+      documents: item?.fromDocumentIds,
+      previousRecords: item.previousRecords || [],
+      budgetPhase:
+        item?.toWorkflow?.permission?.isPostBudget === true ? "PRE" : "POST",
+    }));
+  };
+
+  // 🔹 Map special API data (new flat structure)
+  const mapSpecialApiDataToTable = (data, status) => {
+    return (data || []).map((item, index) => ({
+      id: index + 1,
+      submissionId: item.id,
+      ministry: item?.form_values?.ministryId?.name || "-",
+      department: item?.form_values?.departmentId?.name || "-",
+      scheme: item.isParentScheme
+        ? item.form_values?.schemeId?.name || "-"
+        : item.form_values?.subSchemeId?.name || "-",
+      isParentScheme: Boolean(item.isParentScheme),
+      financialYear: item.form_values?.financialYear || "-",
+      submittedOn: item.submission_on
+        ? dayjs(item.submission_on).format("DD-MM-YYYY")
+        : "-",
+      budgetCategory: (() => {
+        const value = item.form_values?.financialOutlay;
+        if (value === null || value === undefined || value === "") return "-";
+        return value % 1 !== 0 ? Number(value.toFixed(2)) : value;
+      })(),
+      remarks: item?.workflow?.forwardStep?.[0]?.fromRemarks,
+      documents: item?.workflow?.forwardStep?.[0]?.fromDocumentIds,
+      status: item.status || status,
+      permission: item.workflow || null,
+      atStage: item.workflow?.label || "-",
+      forwardedTo: item.workflow?.label || "-",
+      previousRecords: [], // special API doesn’t include previous records
+    }));
+  };
+  const mapNotStartedApiDataToTable = (data) => {
+    return (data || []).map((item, index) => {
+      const submission = item.submissionData || {};
+      return {
+        id: index + 1,
+        submissionId: submission.id, // will be null for NotStarted
+        ministry: submission.jsonData?.ministryId?.name || "-",
+        department:
+          submission.jsonData?.parentName?.name ||
+          submission.jsonData?.departmentId?.name ||
+          "-",
+        scheme: submission.schemeName || "-",
+        isParentScheme: !!submission.parentScheme,
+        financialYear: submission.financialYear || "-",
+        submittedOn: "-", // Not started, so no submission date
+        budgetCategory: (() => {
+          const value = submission.financialOutlay;
+          if (value === null || value === undefined || value === "") return "-";
+          return value % 1 !== 0 ? Number(value.toFixed(2)) : value;
+        })(),
+
+        status: submission.status || "NotStarted",
+        permission: null,
+        atStage: "-", // Not started yet
+        forwardedTo: "-", // Not started yet
+        previousRecords: [], // No previous records
+      };
+    });
+  };
+  const mapDraftApiDataToTable = (data) => {
+    return (data || []).map((item, index) => {
+      const submission = item.metaData || {};
+      return {
+        id: index + 1,
+        draftId: item?.id,
+        submissionId: submission.id, // will be null for NotStarted
+        ministry: submission.ministryId?.name || "-",
+        department: submission.departmentId?.name || "-",
+        scheme: submission.schemeId?.name || "-",
+        isParentScheme: item.subSchemeId === null,
+        financialYear: submission.financialYear || "-",
+        submittedOn: "-", // Not started, so no submission date
+
+        budgetCategory: (() => {
+          const value = submission.financialOutlay;
+          if (value === null || value === undefined || value === "") return "-";
+          return value % 1 !== 0 ? Number(value.toFixed(2)) : value;
+        })(),
+        remarks: item?.fromRemarks || "-",
+
+        status: submission.status || "Draft",
+        permission: null,
+        atStage: "-", // Not started yet
+        forwardedTo: "-", // Not started yet
+        previousRecords: [], // No previous records
+      };
+    });
+  };
+
+  const getRoleFlags = () => {
+    const orgTypeId = Number(userData?.orgType_id) || 0;
+    const subRoleId = activeSubRoleId;
+
+    return {
+      orgTypeId,
+      subRoleId,
+      isSpecialReporter:
+        [10, 11, 12, 1, 2, 3, 4, 9].includes(orgTypeId) && subRoleId === 3,
+
+      isNotStartedUser: [10, 11, 1, 9].includes(orgTypeId) && subRoleId === 1,
+
+      canSeeDraft: subRoleId === 1 && [10, 11, 1, 9].includes(orgTypeId),
+    };
+  };
+
+  const fetchApiData = async (url, payload) => {
+    const res = await apiClient.post(url, payload);
+    return res?.data?.data || [];
+  };
+
+  // 🔹 Updated getData function
+  const getData = async () => {
+    if (!userData) return;
+
+    setIsLoading(true);
+    try {
+      const payload = buildPayload();
+      const { isSpecialReporter, isNotStartedUser, canSeeDraft } =
+        getRoleFlags();
+
+      // 🔵 1. DRAFT
+      if (canSeeDraft && applicationStatus === "Draft") {
+        const moduleId = mappedPrivileges?.sectionId;
+        const userId = userData?.id;
+
+        if (!moduleId || !userId) return;
+
+        const draftData = await fetchApiData(
+          "/api/master/fetch-draft-records",
+          { moduleId, userId },
+        );
+
+        setTableDataApplication(mapDraftApiDataToTable(draftData));
+        return;
+      }
+
+      // 🔵 2. SPECIAL REPORTER
+      if (isSpecialReporter) {
+        const statusMap = {
+          Pending: "pending",
+          InProgress: "inprogress",
+          Completed: "completed",
+        };
+
+        const data = await fetchApiData(
+          "api/oomf/dashboard/get-status-based-schemes-reporter",
+          payload,
+        );
+
+        const key = statusMap[applicationStatus] || "pending";
+        const list = data[key] || [];
+
+        setTableDataApplication(
+          mapSpecialApiDataToTable(list, applicationStatus),
+        );
+        return;
+      }
+
+      // 🔵 3. PENDING + UNFORWARDED (ORG 1/9, SUBROLE 1)
+      if (applicationStatus === "Pending" && isNotStartedUser) {
+        const [unforwarded, pending] = await Promise.all([
+          fetchApiData("api/oomf/dashboard/get-unforwarded-schemes", payload),
+          fetchApiData("api/oomf/dashboard/get-pending-schemes", payload),
+        ]);
+
+        setTableDataApplication(
+          mapNormalApiDataToTable(
+            [...unforwarded, ...pending],
+            "Pending",
+            true,
+          ),
+        );
+        return;
+      }
+
+      // 🔵 4. NOT STARTED
+      if (applicationStatus === "NotStarted" && isNotStartedUser) {
+        const data = await fetchApiData(
+          "api/oomf/dashboard/get-not-started-schemes",
+          payload,
+        );
+
+        setTableDataApplication(
+          mapNotStartedApiDataToTable(
+            filterSchemesByAssociatedFramework(data, oomfFrameworkId),
+            "NotStarted",
+          ),
+        );
+        return;
+      }
+
+      // 🔵 5. NORMAL FLOW
+      const endpoint =
+        applicationStatus === "Pending"
+          ? "api/oomf/dashboard/get-pending-schemes"
+          : "api/oomf/dashboard/get-forwarded-schemes";
+
+      const data = await fetchApiData(endpoint, payload);
+
+      setTableDataApplication(
+        mapNormalApiDataToTable(
+          applicationStatus === "Pending" ? data : data.latestRecord || [],
+          applicationStatus,
+          isNotStartedUser,
+        ),
+      );
+    } catch (error) {
+      console.error(error);
+      dispatch(setError(error?.message || "Failed to fetch data"));
+      setTableDataApplication([]);
+    } finally {
+      setIsLoading(false);
     }
-  }, [ministryList]);
+  };
 
-  //auto select department
-  useEffect(() => {
-    if (
-      Array.isArray(departmentList) &&
-      departmentList.length === 1 &&
-      (!formik.values.department || formik.values.department.length === 0)
-    ) {
-      formik.setFieldValue("department", [departmentList[0]]);
+  // 🔹 Fetch counts
+  const getDataCount = async () => {
+    if (!userData) return;
+
+    setIsLoading(true);
+    try {
+      const payload = buildPayload();
+      const { isSpecialReporter, isNotStartedUser, canSeeDraft } =
+        getRoleFlags();
+
+      let counts = [];
+
+      // 🔵 1. SPECIAL REPORTER
+      if (isSpecialReporter) {
+        const data = await fetchApiData(
+          "api/oomf/dashboard/get-status-based-schemes-reporter",
+          payload,
+        );
+
+        counts = [
+          { status: "Pending", count: data.pending?.length || 0 },
+          { status: "InProgress", count: data.inprogress?.length || 0 },
+          { status: "Completed", count: data.completed?.length || 0 },
+        ];
+
+        setApplicationCount(counts);
+        return;
+      }
+
+      // 🔵 2. NORMAL COUNTS
+      const [unforwarded, pending, forwarded] = await Promise.all([
+        isNotStartedUser
+          ? fetchApiData("api/oomf/dashboard/get-unforwarded-schemes", payload)
+          : [],
+        fetchApiData("api/oomf/dashboard/get-pending-schemes", payload),
+        fetchApiData("api/oomf/dashboard/get-forwarded-schemes", payload),
+      ]);
+
+      const mergedPending = isNotStartedUser
+        ? [...pending, ...unforwarded]
+        : pending;
+
+      counts.push(
+        { status: "Pending", count: mergedPending.length },
+        { status: "Forwarded", count: forwarded?.latestRecord?.length || 0 },
+      );
+
+      // 🔵 3. NOT STARTED
+      if (isNotStartedUser) {
+        const notStarted = await fetchApiData(
+          "api/oomf/dashboard/get-not-started-schemes",
+          payload,
+        );
+
+        counts.unshift({
+          status: "NotStarted",
+          count: filterSchemesByAssociatedFramework(notStarted, oomfFrameworkId)
+            ?.length,
+        });
+      }
+
+      // 🔵 4. DRAFT
+      if (canSeeDraft) {
+        const moduleId = mappedPrivileges?.sectionId;
+        const userId = userData?.id;
+
+        if (moduleId && userId) {
+          const drafts = await fetchApiData("/api/master/fetch-draft-records", {
+            moduleId,
+            userId,
+          });
+
+          counts.unshift({ status: "Draft", count: drafts.length });
+        }
+      }
+
+      setApplicationCount(counts);
+    } catch (error) {
+      console.error(error);
+      dispatch(setError(error?.message || "Failed to fetch counts"));
+      setApplicationCount([]);
+    } finally {
+      setIsLoading(false);
     }
-  }, [departmentList]);
+  };
 
-  return (
-    <>
-      <Box marginTop={2} padding={3}>
-        <form onSubmit={formik.handleSubmit}>
-          <MainFormHeader title="Legacy Progress Report" />
-          <Divider sx={{ marginTop: 2, mb: 5 }} />
-          <Grid container spacing={2}>
-            <Grid size={{ xs: 12, sm: 6 }}>
-              <CustomAutoComplete
-                name="ministry"
-                options={filterByFramework(ministryList, oomfFrameworkId) || []}
-                label="Ministry"
-                formik={formik}
-                // required
-                selectAll
-              />
-            </Grid>
+  useEffect(() => {
+    if (!activeSubRoleId || !userData) return;
 
-            <Grid size={{ xs: 12, sm: 6 }}>
-              <Tooltip
-                title={
-                  !formik?.values?.ministry?.length
-                    ? "Select Ministry first"
-                    : ""
-                }
-                placement="top"
-                arrow
-              >
-                <div>
-                  <CustomAutoComplete
-                    name="department"
-                    options={
-                      filterByFramework(departmentList, oomfFrameworkId) || []
-                    }
-                    label="Department"
-                    formik={formik}
-                    //required
-                    selectAll
-                    readOnly={!formik?.values?.ministry?.length}
-                  />
-                </div>
+    getData();
+    getDataCount();
+  }, [applicationStatus, activeSubRoleId, userData]);
+
+  useEffect(() => {
+    if (userData?.privileges?.length) {
+      const roles =
+        userData.privileges.flatMap(
+          (item) => item.accessRights?.oomfSubRoles?.map((r) => r.id) || [],
+        ) || [];
+      if (roles.length > 0) setActiveSubRoleId(roles[0]);
+    }
+  }, [userData]);
+
+  const baseColumns = [
+    {
+      field: "id",
+      headerName: "S.No",
+      headerClassName: "super-app-theme--header",
+      width: 80,
+    },
+    {
+      field: "financialYear",
+      headerName: "Financial Year",
+      width: 150,
+      headerClassName: "super-app-theme--header",
+      headerAlign: "left",
+      align: "left",
+    },
+    {
+      field: "ministry",
+      headerName: "Ministry Name",
+      flex: 1,
+      minWidth: 200,
+      headerClassName: "super-app-theme--header",
+      headerAlign: "left",
+      align: "left",
+    },
+    {
+      field: "department",
+      headerName: "Department Name",
+      flex: 1,
+      minWidth: 200,
+      headerClassName: "super-app-theme--header",
+      headerAlign: "left",
+      align: "left",
+    },
+    {
+      field: "scheme",
+      headerName: "Scheme Name",
+      flex: 1,
+      minWidth: 200,
+      headerClassName: "super-app-theme--header",
+      headerAlign: "left",
+      align: "left",
+    },
+    {
+      field: "isParentScheme",
+      headerName: "Is Parent Scheme",
+      width: 170,
+      headerClassName: "super-app-theme--header",
+      headerAlign: "left",
+      align: "left",
+      renderCell: (params) => (params.value ? "Yes" : "No"),
+    },
+    {
+      field: "budgetCategory",
+      headerName: "Budget (In Cr.)",
+      width: 150,
+      headerClassName: "super-app-theme--header",
+      headerAlign: "left",
+      align: "left",
+    },
+  ];
+  const handleViewAuditTrail = async (row) => {
+    if (!row?.id || !auditTrailPrivileges?.sectionId) return;
+
+    setAuditParams({
+      auditableId: String(row.id),
+      sectionId: auditTrailPrivileges.sectionId,
+    });
+    setAuditDialogOpen(true);
+  };
+
+  const auditTrailColumn = {
+    field: "viewAuditTrail",
+    headerName: "Audit Trail",
+    width: 160,
+    sortable: false,
+    renderCell: (params) => (
+      <Tooltip title="View Audit Trail">
+        <IconButton
+          onClick={() => handleViewAuditTrail(params.row)}
+          color="primary"
+          size="small"
+        >
+          <HistoryIcon />
+        </IconButton>
+      </Tooltip>
+    ),
+  };
+
+  const getColumnsForStatus = (status) => {
+    switch (status) {
+      case "Pending":
+        return [
+          ...baseColumns,
+          {
+            field: "status",
+            headerName: "Status",
+            width: 150,
+            headerClassName: "super-app-theme--header",
+          },
+          {
+            field: "atStage",
+            headerName: "Stage",
+            width: 150,
+            headerClassName: "super-app-theme--header",
+            headerAlign: "left",
+            align: "left",
+          },
+          {
+            field: "documents",
+            headerName: "Documents",
+            headerClassName: "super-app-theme--header",
+            width: 150,
+            renderCell: (params) => {
+              const docs = params.row?.documents || [];
+
+              return docs.length > 0 ? (
+                <Box
+                  sx={{
+                    display: "flex",
+                    alignItems: "center",
+                    flexWrap: "nowrap",
+                    overflow: "hidden",
+                    height: "100%",
+                  }}
+                >
+                  {docs.map((doc, index) => {
+                    const fileName = doc?.name;
+                    const filePath = doc?.originalName;
+                    const fileUrl = `${FILE_SERVER_URL}${doc?.downloadId}`;
+                    return (
+                      <Tooltip key={index} title={fileName}>
+                        <a
+                          href={fileUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={{
+                            marginRight: 6,
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            lineHeight: 1,
+                            verticalAlign: "middle",
+                          }}
+                        >
+                          {getFileIcon(filePath)}
+                        </a>
+                      </Tooltip>
+                    );
+                  })}
+                </Box>
+              ) : (
+                "No Attachment"
+              );
+            },
+            sortComparator: () => 0, // prevent sorting error on arrays
+          },
+          {
+            field: "submittedOn",
+            headerName: "Submitted On",
+            width: 150,
+            headerClassName: "super-app-theme--header",
+            headerAlign: "left",
+            align: "left",
+          },
+          {
+            field: "remarks",
+            headerName: "Remarks",
+            width: 100,
+            headerClassName: "super-app-theme--header",
+            headerAlign: "left",
+            align: "left",
+            sortable: false,
+            filterable: false,
+
+            renderCell: (params) => {
+              const value = params.value;
+              if (!value) return "-";
+
+              return (
+                <CustomRemarksDialog
+                  title="Remarks"
+                  content={
+                    <Typography
+                      variant="body2"
+                      sx={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}
+                    >
+                      {value}
+                    </Typography>
+                  }
+                  trigger={
+                    <Tooltip title="View Remarks">
+                      <IconButton size="small" sx={{ color: "#45154F" }}>
+                        <VisibilityOutlinedIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                  }
+                />
+              );
+            },
+          },
+          {
+            field: "action",
+            headerName: "Action",
+            flex: 0.6,
+            minWidth: 100,
+            headerClassName: "super-app-theme--header",
+            renderCell: (params) => (
+              <Tooltip title="Take Action">
+                <IconButton
+                  onClick={() => {
+                    handleOpen(params?.row);
+                  }}
+                >
+                  <MoreHorizIcon />
+                </IconButton>
               </Tooltip>
-            </Grid>
-            <Grid size={{ xs: 12, sm: 6 }}>
-              <CustomAutoComplete
-                name="financialYear"
-                options={financialYearList}
-                label="Financial Year"
-                formik={formik}
-                required
-                selectAll={false}
-              />
-            </Grid>
-            <Grid size={{ xs: 12, sm: 6 }}>
-              <CustomAutoComplete
-                name="schemeType"
-                options={schemeTypeList}
-                label="Scheme Type"
-                formik={formik}
-                //required
-                selectAll
-              />
-            </Grid>
-            {/* <Grid
-              size={{
-                xs: 12,
-                sm:
-                  formik?.values?.measurementArea?.id === 1 ||
-                  formik?.values?.measurementArea?.id === 3
-                    ? 6
-                    : 12,
-              }}
-            >
-              <CustomAutoComplete
-                name="measurementArea"
-                options={measurementAreaList}
-                label="Measurement Area"
-                formik={formik}
-                required
-                multiple={false}
-                selectAll={false}
-              />
-            </Grid> */}
-            {/* {(formik?.values?.measurementArea?.id === 1 ||
-              formik?.values?.measurementArea?.id === 3) && (
-              <Grid size={{ xs: 12, sm: 6 }}>
-                <CustomAutoComplete
-                  name="state"
-                  options={stateList}
-                  label="State"
-                  formik={formik}
-                  //required
-                  selectAll
+            ),
+          },
+          ...(hasAuditTrailViewAccess ? [auditTrailColumn] : []),
+        ];
+      case "InProgress":
+        return [
+          ...baseColumns,
+          {
+            field: "submittedOn",
+            headerName: "Submitted On",
+            width: 150,
+            headerClassName: "super-app-theme--header",
+          },
+          {
+            field: "status",
+            headerName: "Status",
+            width: 150,
+            headerClassName: "super-app-theme--header",
+          },
+          {
+            field: "remarks",
+            headerName: "Remarks",
+            width: 100,
+            headerClassName: "super-app-theme--header",
+            headerAlign: "left",
+            align: "left",
+            sortable: false,
+            filterable: false,
+
+            renderCell: (params) => {
+              const value = params.value;
+              if (!value) return "-";
+
+              return (
+                <CustomRemarksDialog
+                  title="Remarks"
+                  content={
+                    <Typography
+                      variant="body2"
+                      sx={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}
+                    >
+                      {value}
+                    </Typography>
+                  }
+                  trigger={
+                    <Tooltip title="View Remarks">
+                      <IconButton size="small" sx={{ color: "#45154F" }}>
+                        <VisibilityOutlinedIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                  }
                 />
-              </Grid>
-            )}
-            {formik?.values?.measurementArea?.id === 1 && (
-              <Grid size={{ xs: 12, sm: 12 }}>
-                <CustomAutoComplete
-                  name="district"
-                  options={districtList}
-                  label="District"
-                  formik={formik}
-                  //required
-                  selectAll
+              );
+            },
+          },
+          {
+            field: "documents",
+            headerName: "Documents",
+            width: 150,
+            headerClassName: "super-app-theme--header",
+            renderCell: (params) => {
+              const docs = params.row?.documents || [];
+
+              return docs?.length > 0 ? (
+                <Box
+                  sx={{
+                    display: "flex",
+                    alignItems: "center",
+                    flexWrap: "nowrap",
+                    overflow: "hidden",
+                    height: "100%",
+                  }}
+                >
+                  {docs?.map((doc, index) => {
+                    const fileName = doc?.name;
+                    const filePath = doc?.originalName;
+                    const fileUrl = `${FILE_SERVER_URL}${doc?.downloadId}`;
+                    return (
+                      <Tooltip key={index} title={fileName}>
+                        <a
+                          href={fileUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={{
+                            marginRight: 6,
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            lineHeight: 1,
+                            verticalAlign: "middle",
+                          }}
+                        >
+                          {getFileIcon(filePath)}
+                        </a>
+                      </Tooltip>
+                    );
+                  })}
+                </Box>
+              ) : (
+                "No Attachment"
+              );
+            },
+            sortComparator: () => 0, // prevent sorting error on arrays
+          },
+          {
+            field: "action",
+            headerName: "Edit Progress",
+            flex: 0.8,
+            minWidth: 150,
+            headerClassName: "super-app-theme--header",
+            renderCell: (params) => (
+              <Tooltip title="Edit Progress">
+                <IconButton
+                  sx={{ color: "#45154F" }}
+                  // onClick={() => {
+                  //   // Redirect to a URL with submissionId as query param
+                  //   router.push({
+                  //     pathname: "/niti/update-indicator-progress",
+                  //     query: { id: params.row.submissionId, isEdit: true },
+                  //   });
+                  // }}
+                  onClick={() => {
+                    const token = encryptData({
+                      id: params?.row?.submissionId,
+                      isEdit: true,
+                    });
+
+                    router.push({
+                      pathname: "/niti/update-indicator-progress",
+                      query: { tk: token },
+                    });
+                  }}
+                >
+                  <EditIcon />
+                </IconButton>
+              </Tooltip>
+            ),
+          },
+          {
+            field: "view",
+            headerName: "History",
+            flex: 0.8,
+            minWidth: 150,
+            headerClassName: "super-app-theme--header",
+            renderCell: (params) => (
+              <Tooltip title="View Previous Records">
+                <IconButton onClick={() => handleOpen(params.row)}>
+                  <MoreHorizIcon />
+                </IconButton>
+              </Tooltip>
+            ),
+          },
+        ];
+      case "Completed":
+        return [
+          ...baseColumns,
+          {
+            field: "submittedOn",
+            headerName: "Submitted On",
+            width: 150,
+            headerClassName: "super-app-theme--header",
+          },
+          {
+            field: "status",
+            headerName: "Status",
+            width: 150,
+            headerClassName: "super-app-theme--header",
+          },
+          {
+            field: "documents",
+            headerName: "Documents",
+            width: 150,
+            headerClassName: "super-app-theme--header",
+            renderCell: (params) => {
+              const docs = params.row?.documents || [];
+
+              return docs.length > 0 ? (
+                <Box
+                  sx={{
+                    display: "flex",
+                    alignItems: "center",
+                    flexWrap: "nowrap",
+                    overflow: "hidden",
+                    height: "100%",
+                  }}
+                >
+                  {docs.map((doc, index) => {
+                    const fileName = doc?.name;
+                    const filePath = doc?.originalName;
+                    const fileUrl = `${FILE_SERVER_URL}${doc?.downloadId}`;
+                    return (
+                      <Tooltip key={index} title={fileName}>
+                        <a
+                          href={fileUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={{
+                            marginRight: 6,
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            lineHeight: 1,
+                            verticalAlign: "middle",
+                          }}
+                        >
+                          {getFileIcon(filePath)}
+                        </a>
+                      </Tooltip>
+                    );
+                  })}
+                </Box>
+              ) : (
+                "No Attachment"
+              );
+            },
+            sortComparator: () => 0, // prevent sorting error on arrays
+          },
+          {
+            field: "remarks",
+            headerName: "Remarks",
+            width: 100,
+            headerClassName: "super-app-theme--header",
+            headerAlign: "left",
+            align: "left",
+            sortable: false,
+            filterable: false,
+
+            renderCell: (params) => {
+              const value = params.value;
+              if (!value) return "-";
+
+              return (
+                <CustomRemarksDialog
+                  title="Remarks"
+                  content={
+                    <Typography
+                      variant="body2"
+                      sx={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}
+                    >
+                      {value}
+                    </Typography>
+                  }
+                  trigger={
+                    <Tooltip title="View Remarks">
+                      <IconButton size="small" sx={{ color: "#45154F" }}>
+                        <VisibilityOutlinedIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                  }
                 />
-              </Grid>
-            )} */}
-            {/* <Grid size={{ xs: 12, sm: 12 }}>
-              <CustomAutoComplete
-                name="scheme"
-                options={schemeList}
-                label="Scheme"
-                formik={formik}
-                required
-                selectAll
-                readOnly={!formik?.values?.department?.length > 0}
-              />
-            </Grid> */}
-            <Grid size={{ xs: 12, sm: 6 }}>
-              {/* <Tooltip
-                title={
-                  !isSchemeEnabled
-                    ? "First select Scheme Type"
-                    : ""
-                }
-                placement="top"
-                arrow
-              >
-                <div> */}
-              <CustomAutoComplete
-                name="scheme"
-                // options={schemeList}
-                options={
-                  filterSchemesByFramework(schemeList, oomfFrameworkId) || []
-                }
-                label="Scheme"
-                formik={formik}
-                //required
-                selectAll
-                // readOnly={!isSchemeEnabled}
-              />
-              {/* </div>
-              </Tooltip> */}
-            </Grid>
+              );
+            },
+          },
+          {
+            field: "viewProgress",
+            headerName: "View Progress",
+            flex: 0.8,
+            minWidth: 150,
+            headerClassName: "super-app-theme--header",
+            renderCell: (params) => (
+              <Tooltip title="View Progress">
+                <IconButton
+                  size="small"
+                  sx={{ color: "#45154F" }}
+                  // onClick={() => {
+                  //   // Redirect to a URL with submissionId as query param
+                  //   router.push({
+                  //     pathname: "/niti/update-indicator-progress",
+                  //     query: { id: params.row.submissionId, isEdit: false },
+                  //   });
+                  // }}
+                  onClick={() => {
+                    const token = encryptData({
+                      id: params?.row?.submissionId,
+                      isEdit: false,
+                    });
 
-            {/* <Grid
-              size={{ xs: 12, sm: 12 }}
-              sx={{
-                display: subSchemeList.length > 0 ? "flex" : "none",
-              }}
-            >
-              <CustomAutoComplete
-                name="subScheme"
-                options={subSchemeList}
-                label="Sub-Scheme"
-                formik={formik}
-                // required
-                selectAll
-                readOnly={!formik?.values?.scheme?.length > 0}
-              />
-            </Grid> */}
-            <Grid size={{ xs: 12, sm: 6 }}>
-              <CustomAutoComplete
-                multiple={false}
-                name="frequency"
-                label="Select Frequency"
-                formik={formik}
-                required
-                selectAll
-                options={frequencyList}
-              />
-            </Grid>
-            <Grid size={{ xs: 12, sm: 6 }}>
-              <CustomAutoComplete
-                name="indicatorType"
-                label="Select Indicator Type"
-                formik={formik}
-                //required
-                selectAll
-                options={indicatorTypeList}
-              />
-            </Grid>
-            <Grid size={{ xs: 12, sm: 6 }}>
-              <CustomAutoComplete
-                name="indicatorNames"
-                label="Select Indicator Names"
-                formik={formik}
-                //required
-                selectAll
-                options={indicatorNamesList}
-              />
-            </Grid>
-          </Grid>
-          <Grid container spacing={2}>
-            <Grid size={{ xs: 12, sm: 6 }}>
-              <Button
-                type="submit"
-                fullWidth
-                variant="contained"
-                color="primary"
-                sx={{ mt: 3 }}
-              >
-                Generate Report
-              </Button>
-            </Grid>
-            <Grid size={{ xs: 12, sm: 6 }}>
-              <Button
-                type="reset"
-                fullWidth
-                variant="outlined"
-                color="inherit"
-                sx={{ mt: 3 }}
-                onClick={() => {
-                  formik.resetForm();
-                  setTableData([]);
-                }}
-              >
-                Clear
-              </Button>
-            </Grid>
-          </Grid>
-        </form>
-        {/* {isGeneratingPdf || !tableData || tableData.length === 0 ? null : (
-          <Box sx={{ display: "flex", justifyContent: "flex-end" }}>
-            <Button
-              variant="contained"
-              color="primary"
-              sx={{ mt: 7, mb: -12 }}
-              onClick={handleGeneratePdf}
-              disabled={isGeneratingPdf || !tableData || tableData.length === 0}
-              startIcon={<FileDownloadOutlinedIcon />}
-            >
-              {isGeneratingPdf ? "Generating PDF..." : "Export PDF"}
-            </Button>
-          </Box>
-        )} */}
+                    router.push({
+                      pathname: "/niti/update-indicator-progress",
+                      query: { tk: token },
+                    });
+                  }}
+                >
+                  <RemoveRedEyeIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            ),
+          },
+          {
+            field: "view",
+            headerName: "History",
+            flex: 0.8,
+            minWidth: 150,
+            headerClassName: "super-app-theme--header",
+            renderCell: (params) => (
+              <Tooltip title="View Previous Records">
+                <IconButton onClick={() => handleOpen(params.row)}>
+                  <MoreHorizIcon />
+                </IconButton>
+              </Tooltip>
+            ),
+          },
+        ];
+      case "NotStarted":
+        return [
+          ...baseColumns,
+          {
+            field: "status",
+            headerName: "Status",
+            width: 150,
+            headerClassName: "super-app-theme--header",
+          },
+        ];
+      case "Draft":
+        return [
+          ...baseColumns,
+          {
+            field: "status",
+            headerName: "Status",
+            width: 150,
+            headerClassName: "super-app-theme--header",
+          },
+          {
+            field: "action",
+            headerName: "Action",
+            flex: 0.6,
+            minWidth: 150,
+            headerClassName: "super-app-theme--header",
+            renderCell: (params) => (
+              <Tooltip title="Edit Draft">
+                <ModeEditOutlineOutlinedIcon
+                  sx={{ cursor: "pointer", color: "#45154F" }}
+                  onClick={() => {
+                    const token = encryptData({
+                      id: params?.row?.draftId,
+                      mode: params?.row?.status?.toLowerCase(), // draft
+                    });
 
-        <Box sx={{ display: "flex", justifyContent: "flex-end", mt: 3 }}>
-          <Tooltip
-            title={
-              !tableData || tableData.length === 0
-                ? "Generate report first to print"
-                : ""
-            }
-          >
-            <span>
-              <Button
-                variant="contained"
-                startIcon={<PrintIcon />}
-                onClick={handlePrint}
-                disabled={!tableData || tableData.length === 0}
-              >
-                Print Report
-              </Button>
-            </span>
-          </Tooltip>
-        </Box>
-        <Box sx={{ mt: 6 }}>
-          {!tableData ? (
-            <Box sx={{ display: "flex", justifyContent: "center", mt: 8 }}>
-              <CircularProgress color="primary" />
-            </Box>
-          ) : tableData?.length === 0 ? (
-            <Box
-              sx={{
-                textAlign: "center",
-                mt: 8,
-                color: "#6c757d",
-                display: "flex",
-                flexDirection: "column",
-                alignItems: "center",
-              }}
-            >
-              <InboxIcon sx={{ fontSize: 60, mb: 1, color: "#adb5bd" }} />
-              <Typography variant="h6" gutterBottom>
-                No data available
-              </Typography>
-              <Typography variant="body2">
-                No data available for the selected filters.
-              </Typography>
-            </Box>
-          ) : (
-            <Box ref={printRef}>
-              <ProgressTable data={tableData} />
-            </Box>
-          )}
-        </Box>
+                    router.push({
+                      pathname: params?.row?.isParentScheme
+                        ? "/niti/create-output-outcomes"
+                        : "/niti/create-sub-scheme-op-oc",
+                      query: { tk: token },
+                    });
+                  }}
+                >
+                  <MoreHorizIcon />
+                </ModeEditOutlineOutlinedIcon>
+              </Tooltip>
+            ),
+          },
+        ];
+      default: // Forwarded / other
+        return [
+          ...baseColumns,
+          {
+            field: "forwardedTo",
+            headerName: "Forwarded To",
+            width: 150,
+            headerClassName: "super-app-theme--header",
+          },
+          {
+            field: "submittedOn",
+            headerName: "Submitted On",
+            width: 150,
+            headerClassName: "super-app-theme--header",
+          },
+          {
+            field: "view",
+            headerName: "History",
+            flex: 0.8,
+            minWidth: 150,
+            headerClassName: "super-app-theme--header",
+            renderCell: (params) => (
+              <Tooltip title="View Previous Records">
+                <IconButton onClick={() => handleOpen(params.row)}>
+                  <MoreHorizIcon />
+                </IconButton>
+              </Tooltip>
+            ),
+          },
+        ];
+    }
+  };
 
-        {tableData && tableData?.data?.length > 0 ? (
-          <Box sx={{ mt: 6 }}>
-            <ProgressFootnote />
-          </Box>
-        ) : null}
+  const icons = [
+    //  Draft
+    {
+      icon: <Edit fontSize="large" />,
+      bgColor: "#e3f2fd", // light blue
+      color: "#1976d2", // blue
+    },
+
+    //  NotStarted
+    {
+      icon: <RemoveCircleOutline fontSize="large" />,
+      bgColor: "#f3e5f5", // light purple
+      color: "#8e24aa", // purple
+    },
+
+    //  Pending (existing)
+    {
+      icon: <HourglassEmpty fontSize="large" />,
+      bgColor: "#f0fbf8",
+      color: "#ff9800",
+    },
+
+    //  InProgress (existing)
+    {
+      icon: <Undo fontSize="large" />,
+      bgColor: "#42a5f524",
+      color: "#42a5f5",
+    },
+
+    //  Completed (existing)
+    {
+      icon: <CheckCircle fontSize="large" />,
+      bgColor: "#dcedc8",
+      color: "#4caf50",
+    },
+  ];
+
+  useEffect(() => {
+    const cols = getColumnsForStatus(applicationStatus);
+    setColumns([...cols]);
+
+    const visibility = {};
+    cols.forEach((col) => (visibility[col.field] = true));
+    setColumnVisibilityModel(visibility);
+
+    setTempColumns([...cols]);
+  }, [applicationStatus]);
+  // Initialize column visibility (all true)
+  useEffect(() => {
+    const initialModel = {};
+    columns.forEach((col) => {
+      initialModel[col.field] = true;
+    });
+    setColumnVisibilityModel(initialModel);
+  }, []);
+
+  const moveColumn = (fromIndex, toIndex) => {
+    const newCols = [...tempColumns];
+    const [moved] = newCols.splice(fromIndex, 1);
+    newCols.splice(toIndex, 0, moved);
+    setTempColumns(newCols);
+  };
+
+  const handleOpenReorder = () => {
+    if (!columns || columns.length === 0) return;
+    setTempColumns([...columns]);
+
+    // Optional: initialize ranks for visible columns if needed
+    const visibleCols = columns.filter(
+      (col) => columnVisibilityModel[col.field] !== false,
+    );
+    const initialOrder = {};
+    visibleCols.forEach((col, idx) => {
+      initialOrder[col.field] = idx + 1;
+    });
+    setTempOrder(initialOrder);
+
+    // Open dialog
+    setOpenReorder(true);
+  };
+  const handleApply = () => {
+    const visibleCols = tempColumns.filter(
+      (col) => columnVisibilityModel[col.field] !== false,
+    );
+    const hiddenCols = tempColumns.filter(
+      (col) => columnVisibilityModel[col.field] === false,
+    );
+
+    setColumns([...visibleCols, ...hiddenCols]);
+    setOpenReorder(false);
+  };
+
+  const handleCancelReorder = () => {
+    setTempColumns([...columns]); // restore tempColumns to current columns
+    setOpenReorder(false);
+  };
+
+  const handleReset = () => {
+    // Reset tempColumns in the dialog to default
+    setTempColumns([...getColumnsForStatus(applicationStatus)]);
+
+    // Reset visibility
+    const initialVisibility = {};
+    getColumnsForStatus(applicationStatus).forEach((col) => {
+      initialVisibility[col.field] = true;
+    });
+    setColumnVisibilityModel(initialVisibility);
+  };
+  return (
+    <Box marginTop={2} padding={3}>
+      <MainFormHeader title={`${applicationStatus}`} />
+      <Divider sx={{ marginTop: 2 }} />
+      <ReorderColumnsDialog
+        openReorder={openReorder}
+        handleCancelReorder={handleCancelReorder}
+        tempColumns={tempColumns}
+        moveColumn={moveColumn}
+        setColumnVisibilityModel={setColumnVisibilityModel}
+        columnVisibilityModel={columnVisibilityModel}
+        handleReset={handleReset}
+        handleApply={handleApply}
+      />
+      <Box marginTop={2}>
+        {/* Role Tabs */}
+        <Tabs
+          value={activeSubRoleId ?? subRoleIds[0]} // default to first role if none selected
+          onChange={(e, newValue) => {
+            setActiveSubRoleId(newValue);
+            setTableDataApplication([]); // clear previous table instantly
+            setApplicationStatus("Pending"); // reset status cards
+          }}
+          indicatorColor="primary"
+          textColor="primary"
+          variant="scrollable"
+          scrollButtons="auto"
+        >
+          {[...subRoleIds]
+            .sort((a, b) => a - b)
+            .map((roleId) => (
+              <Tab
+                key={roleId}
+                label={subRoleLabels[roleId] || `Role ${roleId}`}
+                value={roleId}
+              />
+            ))}
+        </Tabs>
       </Box>
-    </>
+      {/* <Box
+        sx={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          mb: 2,
+          mt: 2,
+          flexWrap: "wrap", // responsive wrapping
+          gap: 2,
+        }}
+      >
+        {auditParams?.auditableId && auditParams?.sectionId && (
+          <AuditDataGrid
+            {...auditParams}
+            auditDialogOpen={auditDialogOpen}
+            setAuditDialogOpen={setAuditDialogOpen}
+          />
+        )}
+      </Box> */}
+
+      <Box
+        display="grid"
+        gridTemplateColumns="repeat(auto-fit, minmax(250px, 1fr))"
+        gap={2}
+        marginTop={5}
+        marginBottom={5}
+      >
+        {applicationCount?.map((item, key) => (
+          <Box
+            key={key}
+            onClick={() => setApplicationStatus(item?.status)}
+            sx={{ cursor: "pointer" }}
+          >
+            <CardConatiner2
+              iconColor={icons[key]?.color}
+              bgColor={icons[key]?.bgColor}
+              icon={icons[key]?.icon}
+              title={item?.status}
+              applicationStatus={applicationStatus}
+              count={item?.count}
+            />
+          </Box>
+        ))}
+      </Box>
+
+      <Box
+        sx={{
+          maxHeight: 470,
+          width: "100%",
+          overflow: "auto",
+          "&::-webkit-scrollbar": {
+            display: "none",
+            scrollbarWidth: "none",
+          },
+        }}
+      >
+        {isLoading ? (
+          <Typography>Loading...</Typography>
+        ) : tableDataApplication.length === 0 ? (
+          <Typography>No submissions found</Typography>
+        ) : (
+          <>
+            {/* {(((isSavedMapping || mode === "edit") && mode !== "view") ||
+              canForward === true) && ( */}
+              <Button
+                variant="contained"
+                color="success"
+                onClick={() => setOpenForwardDialog(true)}
+                endIcon={<ArrowForwardIosIcon />}
+              >
+                Click to Forward
+              </Button>
+            {/* )} */}
+            <SearchTable
+              columns={columns}
+              data={tableDataApplication}
+              isCheckbox={false}
+              isHideDensity={false}
+              isHideExport={true}
+              isHideFilter={false}
+              isHideColumn={true}
+              isHidePaging={false}
+              name="villageName"
+              id="villageName"
+              fileName="tableData"
+              columnVisibilityModel={columnVisibilityModel}
+              onColumnVisibilityModelChange={(newModel) =>
+                setColumnVisibilityModel(newModel)
+              }
+              handleOpenReorder={handleOpenReorder}
+            />
+          </>
+        )}
+      </Box>
+
+      <OomfDashboardActionDialog
+        open={open}
+        onClose={handleClose}
+        row={selectedRow}
+      />
+      <ForwardedSchemesDialog
+        open={openForwarded}
+        onClose={() => setOpenForwarded(false)}
+        latestRecord={selectedRow ? [selectedRow] : []}
+        row={selectedRow}
+        previousRecords={selectedRow?.previousRecords || []}
+      />
+      <ForwardDialog
+        open={openForwardDialog}
+        onClose={() => setOpenForwardDialog(false)}
+        mode={"edit"}
+        // submissionId={submission_id || results?.id}
+        isCreator={false} // true only when creator is submitting first time
+        type={""}
+        canForward={true}
+      />
+    </Box>
   );
 };
 
-export default ProgressReport;
+export default CommonDashboardNiti;
+
