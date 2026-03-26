@@ -1,230 +1,1798 @@
-import React, { useEffect, useState } from "react";
-import { DataGrid } from "@mui/x-data-grid";
-import { CustomAutoCompleteWithoutFormik } from "../../superadmin/CustomAutoCompleteWithoutFormik";
-import { filterByFramework } from "@/utils/niti/filterByFramework";
-import { oomfFrameworkId } from "@/src/constants/unified/frameworkConstants";
+import { Box, IconButton, Stack, Tooltip } from "@mui/material";
+import {
+  RemoveRedEyeOutlined,
+  Edit as EditIcon,
+  History as HistoryIcon,
+  PlaylistAdd as PlaylistAddIcon,
+} from "@mui/icons-material";
+import dayjs from "dayjs";
+import { genericSortComparator } from "@/utils/customSortingFunc";
+import DeleteIcon from "@mui/icons-material/Delete";
+import CloudUploadIcon from "@mui/icons-material/CloudUpload";
+import PictureAsPdfIcon from "@mui/icons-material/PictureAsPdf";
+import TableChartIcon from "@mui/icons-material/TableChart";
+import ArticleIcon from "@mui/icons-material/Article";
+import ImageIcon from "@mui/icons-material/Image";
+import InsertDriveFileIcon from "@mui/icons-material/InsertDriveFile";
+import FilePresentIcon from "@mui/icons-material/FilePresent";
+import DescriptionIcon from "@mui/icons-material/Description";
+import SlideshowIcon from "@mui/icons-material/Slideshow"; // For PowerPoint
+import CodeIcon from "@mui/icons-material/Code"; // For code files
+import CompressedFileIcon from "@mui/icons-material/Archive";
+import { getGridStringOperators } from "@mui/x-data-grid";
+/**
+ * Extracts the searchable string from a cell value.
+ * Handles strings, numbers, and JSON objects (prioritizing 'name').
+ */
+const getTargetValue = (val) => {
+  if (val === null || val === undefined) return "";
 
-const SchemeAcrossMd = ({
-  financialYearSchemeList,
-  selectedYearSchemeAcrossMd,
-  setSelectedYearSchemeAcrossMd,
-  schemeAcrossMd,
-  ministryList,
-  setMinistryList,
-  selectedMinistrySchemeAcrossMd,
-  setSelectedMinistrySchemeAcrossMd,
-  departmentListAcrossMd,
-  setDepartmentListAcrossMd,
-  selectedDepartmentAcrossMd,
-  setSelectedDepartmentAcrossMd,
-}) => {
-  const [rows, setRows] = useState([]);
-  const [columns, setColumns] = useState([]);
-
-  // ✅ Transform API data
-  const transformSchemeData = (data) => {
-    const result = [];
-    const allYearsSet = new Set();
-
-    data.forEach((ministryEntry) => {
-      const ministryName =
-        ministryEntry.ministry?.name?.trim() || "Unknown Ministry";
-      const ministryId = ministryEntry.ministry?.id || "M";
-
-      (ministryEntry.departments || []).forEach((dept) => {
-        const departmentName =
-          dept.department?.name?.trim() || "Unknown Department";
-        const departmentId = dept.department?.id || "D";
-
-        // ✅ UNIQUE & STABLE ID (CRITICAL FIX)
-        const uniqueId = `${ministryId}-${departmentId}-${result.length}`;
-
-        const row = {
-          id: uniqueId,
-          "Ministry Name": ministryName,
-          "Department Name": departmentName,
-        };
-
-        const yearsData = dept.yearsData || {};
-
-        Object.entries(yearsData).forEach(([year, yearInfo]) => {
-          row[year] = yearInfo?.totalSchemes ?? 0;
-          allYearsSet.add(year);
-        });
-
-        result.push(row);
-      });
-    });
-
-    // ✅ Sort years
-    const allYears = Array.from(allYearsSet).sort((a, b) => {
-      const numA = parseInt(a.split("-")[0]) || 0;
-      const numB = parseInt(b.split("-")[0]) || 0;
-      return numA - numB;
-    });
-
-    // ✅ Fill missing years
-    result.forEach((row) => {
-      allYears.forEach((year) => {
-        if (!(year in row)) row[year] = "-";
-      });
-    });
-
-    return { rows: result, years: allYears };
-  };
-
-  // ✅ Auto-select logic
-  useEffect(() => {
-    const filteredMinistries =
-      filterByFramework(ministryList, oomfFrameworkId) || [];
-
-    if (
-      filteredMinistries.length === 1 &&
-      selectedMinistrySchemeAcrossMd.length === 0
-    ) {
-      setSelectedMinistrySchemeAcrossMd([filteredMinistries[0]?.id]);
-      setSelectedDepartmentAcrossMd([]);
+  // If it's an object (like your Organization or Framework objects)
+  if (typeof val === "object" && !Array.isArray(val)) {
+    if ("name" in val) {
+      return String(val.name).toLowerCase();
     }
+    // Fallback for objects without a 'name' key
+    return Object.values(val)
+      .map((v) => String(v))
+      .join(" ")
+      .toLowerCase();
+  }
 
-    const filteredDepartments =
-      filterByFramework(departmentListAcrossMd, oomfFrameworkId) || [];
+  // If it's an array (useful for "is any of" or multi-select data)
+  if (Array.isArray(val)) {
+    return val.map((item) => getTargetValue(item)).join(" ");
+  }
 
-    if (
-      filteredDepartments.length === 1 &&
-      selectedDepartmentAcrossMd.length === 0
-    ) {
-      setSelectedDepartmentAcrossMd([filteredDepartments[0]?.id]);
-    }
-  }, [
-    ministryList,
-    departmentListAcrossMd,
-    selectedMinistrySchemeAcrossMd,
-    selectedDepartmentAcrossMd,
-  ]);
-
-  // ✅ Build rows & columns
-  useEffect(() => {
-    if (schemeAcrossMd && schemeAcrossMd.length > 0) {
-      const { rows: transformedData, years: sortedYears } =
-        transformSchemeData(schemeAcrossMd);
-
-      // ✅ Stable S.No (NOT used as ID)
-      const rowsWithIndex = transformedData.map((item, index) => ({
-        ...item,
-        "S.No": index + 1,
-      }));
-
-      const dynamicColumns = [
-        {
-          field: "S.No",
-          headerName: "S.No",
-          flex: 0.6,
-          align: "center",
-          headerAlign: "center",
-          sortable: false, // prevents confusion
-        },
-        {
-          field: "Ministry Name",
-          headerName: "Ministry Name",
-          flex: 1.5,
-        },
-        {
-          field: "Department Name",
-          headerName: "Department Name",
-          flex: 1.5,
-        },
-        ...sortedYears.map((year) => ({
-          field: year,
-          headerName: year,
-          flex: 1,
-          align: "center",
-          headerAlign: "center",
-        })),
-      ];
-
-      setRows(rowsWithIndex);
-      setColumns(dynamicColumns);
-    } else {
-      setRows([]);
-      setColumns([]);
-    }
-  }, [
-    schemeAcrossMd,
-    selectedMinistrySchemeAcrossMd,
-    selectedDepartmentAcrossMd,
-    selectedYearSchemeAcrossMd,
-  ]);
-
-  return (
-    <div>
-      <div
-        className="col-md-12 mb-4"
-        style={{
-          border: "1px solid lightgray",
-          borderRadius: "6px",
-          padding: "20px",
-          backgroundColor: "#fff",
-        }}
-      >
-        <div className="row">
-          <div className="col-md-12">
-            <h5 className="card-title text-dark mt-2 fw-bold">
-              Total Number of Scheme across all M/D
-            </h5>
-          </div>
-
-          <div className="row px-0 mx-0 my-3">
-            {/* Year Filter */}
-            <div className="col-md-6">
-              <CustomAutoCompleteWithoutFormik
-                label="Financial Year"
-                multiple
-                selectAll
-                options={financialYearSchemeList || []}
-                getOptionLabel={(option) => option?.name || "Unknown"}
-                value={
-                  financialYearSchemeList?.filter((item) =>
-                    (selectedYearSchemeAcrossMd || []).includes(item.id)
-                  ) || []
-                }
-                onChange={(event, newValue) => {
-                  setSelectedYearSchemeAcrossMd(
-                    newValue.map((item) => item.id)
-                  );
-                }}
-                isOptionEqualToValue={(option, value) =>
-                  option.id === value.id
-                }
-                renderOption={(props, option) => (
-                  <li {...props} key={option.id}>
-                    {option.name}
-                  </li>
-                )}
-                fullWidth
-              />
-            </div>
-          </div>
-        </div>
-
-        {/* ✅ DataGrid */}
-        <div style={{ height: 400, width: "100%", marginTop: "15px" }}>
-          <DataGrid
-            rows={rows}
-            columns={columns}
-            pageSize={5}
-            rowsPerPageOptions={[5, 10, 20]}
-            disableColumnFilter
-            disableSelectionOnClick
-            localeText={{
-              columnMenuSortAsc: "Sort as A to Z",
-              columnMenuSortDesc: "Sort as Z to A",
-            }}
-          />
-        </div>
-      </div>
-    </div>
-  );
+  return String(val).toLowerCase();
 };
 
-export default SchemeAcrossMd;
-please check why it is showing 39 after api correction also though api is sending correct response that is 37
+export const dataGridFilterOperators = getGridStringOperators().map(
+  (operator) => {
+    const originalGetApplyFilterFn = operator.getApplyFilterFn;
+    return {
+      ...operator,
+      getApplyFilterFn: (filterItem) => {
+        // 1. Standard MUI check for empty filter values
+        if (
+          !filterItem.value &&
+          operator.value !== "isEmpty" &&
+          operator.value !== "isNotEmpty"
+        ) {
+          return null;
+        }
+
+        const filterValue = Array.isArray(filterItem.value)
+          ? filterItem.value.map((v) => String(v).toLowerCase())
+          : String(filterItem.value).toLowerCase();
+
+        const innerFilterFn = originalGetApplyFilterFn(filterItem);
+
+        return (params) => {
+          // IMPORTANT: Pass params.value, not the whole params object
+          const cellValue = getTargetValue(params);
+
+          // Map logic for ALL common operators
+          switch (operator.value) {
+            case "contains":
+              return cellValue.includes(filterValue);
+            case "doesNotContain":
+              return !cellValue.includes(filterValue);
+            case "equals":
+              return cellValue === filterValue;
+            case "doesNotEqual":
+              return cellValue !== filterValue;
+            case "startsWith":
+              return cellValue.startsWith(filterValue);
+            case "endsWith":
+              return cellValue.endsWith(filterValue);
+            case "isEmpty":
+              return cellValue.trim() === "";
+            case "isNotEmpty":
+              return cellValue.trim() !== "";
+            case "isAnyOf":
+              return (
+                Array.isArray(filterValue) && filterValue.includes(cellValue)
+              );
+            default:
+              /** * For any other operator, we pass our extracted string
+               * into a mock params object to use MUI's internal logic.
+               */
+              return innerFilterFn
+                ? innerFilterFn({ ...params, value: cellValue })
+                : true;
+          }
+        };
+      },
+    };
+  },
+);
+
+// 🔹 Common reusable renderer for object / array values
+/**
+ * 🔹 Universal render function for object/array/string values
+ */
+const getFileIcon = (filename) => {
+  const ext = filename?.split(".").pop()?.toLowerCase();
+  if (!ext) return <InsertDriveFileIcon sx={{ color: "gray" }} />;
+
+  switch (ext) {
+    case "pdf":
+      return <PictureAsPdfIcon sx={{ color: "#D32F2F" }} />;
+    case "xls":
+    case "xlsx":
+    case "csv":
+      return <TableChartIcon sx={{ color: "#2E7D32" }} />;
+    case "doc":
+    case "docx":
+    case "rtf":
+      return <ArticleIcon sx={{ color: "#1565C0" }} />;
+    case "ppt":
+    case "pptx":
+      return <SlideshowIcon sx={{ color: "#D44726" }} />; // Distinct color for PowerPoint
+    case "png":
+    case "jpg":
+    case "jpeg":
+    case "gif":
+    case "bmp":
+    case "tiff":
+    case "webp":
+      return <ImageIcon sx={{ color: "#FBC02D" }} />;
+    case "txt":
+    case "log":
+      return <DescriptionIcon sx={{ color: "#6A1B9A" }} />;
+    case "json":
+    case "xml":
+    case "html":
+    case "css":
+    case "js":
+      return <CodeIcon sx={{ color: "#4A148C" }} />; // Icon for code/structured text
+    case "mp3":
+    case "wav":
+    case "mp4":
+    case "mpeg":
+      return <FilePresentIcon sx={{ color: "#00838F" }} />; // Generic media icon
+    case "zip":
+    case "rar":
+    case "7z":
+      return <CompressedFileIcon sx={{ color: "#BF360C" }} />; // Icon for compressed files
+    default:
+      return <FilePresentIcon sx={{ color: "#78909C" }} />;
+  }
+};
+const FILE_SERVER_URL = `${process.env.NEXT_PUBLIC_API_BASE_URL}api/public/download-file/`;
+export const renderCellValue = (params) => {
+  const val = params?.value ?? params?.row?.[params?.field];
+
+  if (val === null || val === undefined) return "-";
+
+  // 🔸 Handle arrays
+  if (Array.isArray(val)) {
+    if (val.length === 0) return "-";
+    return val
+      .map((v) => {
+        if (typeof v === "object")
+          return v?.name || v?.label || v?.frameworkName || "-";
+        return v;
+      })
+      .join(", ");
+  }
+
+  // 🔸 Handle single objects
+  if (typeof val === "object") {
+    return val?.name || val?.label || "-";
+  }
+
+  // 🔸 Default (string, number, etc.)
+  return val.toString();
+};
+
+/**
+ * 🔹 Universal sort comparator that works with:
+ * - primitives
+ * - objects with name/label
+ * - arrays of such objects
+ */
+
+// 🔹 Common reusable Actions column
+
+const getMasterCondition = (rowData, urlModal) => {
+  if (!rowData || !urlModal) return true; // default allow
+
+  // Define a mapping between modal types and their respective flags
+  const editabilityMap = {
+    user: "isEditableUser",
+    role: "isEditableRole",
+  };
+
+  // Get the relevant key based on the current modal
+  const key = editabilityMap[urlModal?.toLowerCase()];
+
+  // If key doesn’t exist in map → default allow editing
+  if (!key) return true;
+  // Return value of the matched key, or default to true
+  return rowData[key] !== false;
+};
+
+const getActionsColumn = ({
+  hasAddAccess,
+  hasEditAccess,
+  hasViewAccess,
+  handleEdit,
+  handleViewAuditTrail,
+  setIsViewing,
+  setSchemeData,
+  urlModal,
+}) => ({
+  field: "actions",
+  headerName: "Actions",
+  // flex: 0.5,
+  // minWidth: 200,
+  width: 150,
+  sortable: false,
+  filterable: false,
+  headerAlign: "left",
+  align: "left",
+  renderCell: (params) => {
+    const key = getMasterCondition(params.row, urlModal);
+    return (
+      <Stack direction="row" spacing={1}>
+        {hasEditAccess && key && (
+          <IconButton
+            onClick={() => {
+              handleEdit(params.row);
+              setIsViewing(false);
+            }}
+            color="primary"
+            size="small"
+          >
+            <EditIcon />
+          </IconButton>
+        )}
+        {hasViewAccess && (
+          <IconButton
+            onClick={() => {
+              handleEdit(params.row);
+              setIsViewing(true);
+            }}
+            color="primary"
+            size="small"
+          >
+            <RemoveRedEyeOutlined />
+          </IconButton>
+        )}
+        {/* <Tooltip title="View Audit Trail">
+        <IconButton
+          onClick={() => handleViewAuditTrail(params.row)}
+          color="primary"
+          size="small"
+        >
+          <HistoryIcon />
+        </IconButton>
+      </Tooltip> */}
+        {urlModal === "schemes" && hasAddAccess && (
+          <Tooltip title="Add Scheme Budget Details">
+            <IconButton
+              onClick={() => setSchemeData(params.row)}
+              color="primary"
+              size="small"
+            >
+              <PlaylistAddIcon sx={{ fontSize: "32px" }} />
+            </IconButton>
+          </Tooltip>
+        )}
+      </Stack>
+    );
+  },
+});
+
+const applyCustomLogic = (columns) =>
+  columns.map((col) => ({
+    ...col,
+    filterOperators: dataGridFilterOperators, // Your custom logic here
+  }));
+// 🔹 Columns for each master type
+export const getMasterColumns = (urlModal, actionsConfig = {}) => {
+  switch (urlModal) {
+    case "role":
+      return applyCustomLogic([
+        { field: "serial", headerName: "S.No", width: 80 },
+        { field: "name", headerName: "Role Name", minWidth: 150, flex: 1 },
+        {
+          field: "orgType",
+          headerName: "Organization Type",
+          width: 180,
+          renderCell: renderCellValue,
+
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "associatedFrameworks",
+          headerName: "Associated Framework",
+          width: 210,
+          renderCell: renderCellValue,
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "description",
+          headerName: "Description",
+          width: 180,
+        },
+        { field: "status", headerName: "Status", width: 100 },
+        getActionsColumn(actionsConfig),
+      ]);
+    case "user":
+      return applyCustomLogic([
+        { field: "serial", headerName: "S.No", width: 80 },
+        {
+          field: "firstName",
+          headerName: "First Name",
+          width: 150,
+          renderCell: renderCellValue,
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "lastName",
+          headerName: "Last Name",
+          width: 150,
+          renderCell: renderCellValue,
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "email",
+          headerName: "Email",
+          flex: 1.2,
+          minWidth: 250,
+          renderCell: renderCellValue,
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "mobileNo",
+          headerName: "Mobile No.",
+          width: 140,
+          renderCell: renderCellValue,
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "designation",
+          headerName: "Designation",
+          width: 150,
+          renderCell: renderCellValue,
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "orgType",
+          headerName: "Organization Type",
+          width: 180,
+          renderCell: renderCellValue,
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "ministries",
+          headerName: "Ministries",
+          flex: 1.2,
+          minWidth: 250,
+          renderCell: renderCellValue,
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "departments",
+          headerName: "Departments",
+          flex: 1.2,
+          minWidth: 250,
+          renderCell: renderCellValue,
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "schemes",
+          headerName: "Schemes",
+          flex: 1.2,
+          minWidth: 250,
+          renderCell: renderCellValue,
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "userRoleType",
+          headerName: "Roles",
+          flex: 1.2,
+          minWidth: 250,
+          renderCell: renderCellValue,
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "associatedFrameworks",
+          headerName: "Frameworks",
+          width: 150,
+          renderCell: renderCellValue,
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "status",
+          headerName: "Status",
+          width: 100,
+          renderCell: renderCellValue,
+          sortComparator: genericSortComparator,
+        },
+        getActionsColumn(actionsConfig),
+      ]);
+
+    case "sector":
+      return applyCustomLogic([
+        { field: "serial", headerName: "S.No", width: 80 },
+        { field: "name", headerName: "Sector Name", minWidth: 300, flex: 1 },
+        {
+          field: "description",
+          headerName: "Description",
+          minWidth: 200,
+          flex: 0.5,
+        },
+        { field: "status", headerName: "Status", width: 110 },
+        getActionsColumn(actionsConfig),
+      ]);
+
+    case "ministry":
+      return applyCustomLogic([
+        {
+          field: "serial",
+          headerName: "S.No",
+          width: 80,
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "parentName",
+          headerName: "Sector Name",
+          width: 150,
+          renderCell: renderCellValue,
+
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "ministryType",
+          headerName: "Ministry Type",
+          width: 140,
+
+          renderCell: renderCellValue,
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "name",
+          headerName: "Ministry Name",
+          minWidth: 300,
+          flex: 1,
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "ministryShortName",
+          headerName: "Ministry Short Name",
+          minWidth: 200,
+          flex: 0.5,
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "associatedFramework",
+          headerName: "Associated Framework",
+          width: 210,
+          renderCell: renderCellValue,
+
+          sortComparator: genericSortComparator,
+        },
+        { field: "url", headerName: "URL", minWidth: 200, flex: 0.5 },
+        { field: "address", headerName: "Address", minWidth: 200, flex: 0.5 },
+        {
+          field: "targetGroup",
+          headerName: "Target Group",
+          width: 180,
+          renderCell: renderCellValue,
+
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "telephoneNo",
+          headerName: "Telephone No",
+          width: 150,
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "emailAddress",
+          headerName: "Email Address",
+          minWidth: 200,
+          flex: 0.5,
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "sdgAlignment",
+          headerName: "SDG Alignment",
+          width: 160,
+          renderCell: renderCellValue,
+
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "budgetCovered",
+          headerName: "Budget Covered",
+          width: 170,
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "description",
+          headerName: "Description",
+          minWidth: 200,
+          flex: 0.5,
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "status",
+          headerName: "Status",
+          width: 100,
+          sortComparator: genericSortComparator,
+        },
+        getActionsColumn(actionsConfig),
+      ]);
+
+    case "departments":
+      return applyCustomLogic([
+        { field: "serial", headerName: "S.No", width: 80 },
+        {
+          field: "parentName",
+          headerName: "Ministry Name",
+          width: 150,
+          sortable: true,
+          renderCell: renderCellValue,
+
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "name",
+          headerName: "Department Name",
+          minWidth: 300,
+          flex: 1,
+          sortComparator: genericSortComparator,
+        },
+
+        {
+          field: "departmentShortName",
+          headerName: "Department Short Name",
+          width: 230,
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "associatedFramework",
+          headerName: "Associated Framework",
+          width: 220,
+          renderCell: renderCellValue,
+
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "url",
+          headerName: "URL",
+          width: 150,
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "address",
+          headerName: "Address",
+          minWidth: 200,
+          flex: 0.5,
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "demandNo",
+          headerName: "Demand No",
+          width: 150,
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "targetGroup",
+          headerName: "Target Group",
+          width: 150,
+          renderCell: renderCellValue,
+
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "telephoneNo",
+          headerName: "Telephone No",
+          width: 150,
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "emailAddress",
+          headerName: "Email Address",
+          width: 150,
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "sdgAlignment",
+          headerName: "SDG Alignment",
+          width: 160,
+          renderCell: renderCellValue,
+
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "budgetCovered",
+          headerName: "Budget Covered",
+          width: 160,
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "description",
+          headerName: "Description",
+          width: 150,
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "status",
+          headerName: "Status",
+          width: 100,
+          sortComparator: genericSortComparator,
+        },
+        getActionsColumn(actionsConfig),
+      ]);
+    case "schemes":
+      return applyCustomLogic([
+        {
+          field: "serial",
+          headerName: "S.No",
+          width: 80,
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "ministryId",
+          headerName: "Ministry Name",
+          minWidth: 300,
+          flex: 1,
+          renderCell: renderCellValue,
+
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "parentName",
+          headerName: "Department Name",
+          minWidth: 300,
+          flex: 1,
+          renderCell: renderCellValue,
+
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "parentSchemeInfo",
+          headerName: "Parent Scheme Name",
+          width: 210,
+          renderCell: renderCellValue,
+
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "name",
+          headerName: "Scheme Name",
+          minWidth: 300,
+          flex: 1,
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "schemeShortName",
+          headerName: "Scheme Short Name",
+          width: 200,
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "schemeCode",
+          headerName: "Scheme Code",
+          width: 150,
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "schemeType",
+          headerName: "Scheme Type",
+          width: 180,
+          renderCell: renderCellValue,
+
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "budgetCovered",
+          headerName: "Budget Covered",
+          width: 170,
+          renderCell: ({ row }) => {
+            // If sub-scheme → show N/A
+            if (row.parentSchemeInfo) return "N/A";
+
+            // Otherwise show actual value
+            return row.budgetCovered ?? "N/A";
+          },
+          sortComparator: genericSortComparator,
+        },
+
+        {
+          field: "schemeStartDate",
+          headerName: "Scheme Start Year",
+          width: 180,
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "schemeEndDate",
+          headerName: "Scheme End Year",
+          width: 180,
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "isNotSubScheme",
+          headerName: "Is Not Sub Scheme",
+          minWidth: 200,
+          flex: 0.5,
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "targetGroup",
+          headerName: "Target Group",
+          width: 180,
+          renderCell: renderCellValue,
+
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "sdgAlignment",
+          headerName: "SDG Alignment",
+          width: 170,
+          renderCell: renderCellValue,
+
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "nodalMinistry",
+          headerName: "Nodal Ministry",
+          minWidth: 200,
+          flex: 0.5,
+          renderCell: renderCellValue,
+
+          sortComparator: genericSortComparator,
+        },
+
+        {
+          field: "isConvergenceScheme",
+          headerName: "Is Convergence Scheme",
+          minWidth: 200,
+          flex: 0.5,
+          renderCell: renderCellValue,
+
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "description",
+          headerName: "Description",
+          minWidth: 200,
+          flex: 0.5,
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "status",
+          headerName: "Status",
+          width: 100,
+          sortComparator: genericSortComparator,
+        },
+        getActionsColumn(actionsConfig),
+      ]);
+
+    case "schemeType":
+      return applyCustomLogic([
+        {
+          field: "serial",
+          headerName: "S.No",
+          width: 80,
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "name",
+          headerName: "Scheme Type Name",
+          minWidth: 250,
+          flex: 1,
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "schemeTypeShortName",
+          headerName: "Scheme Type Short Name",
+          minWidth: 200,
+          flex: 0.5,
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "associatedFramework",
+          headerName: "Associated Framework",
+          width: 210,
+          renderCell: renderCellValue,
+
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "description",
+          headerName: "Description",
+          minWidth: 200,
+          flex: 0.5,
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "status",
+          headerName: "Status",
+          width: 100,
+          sortComparator: genericSortComparator,
+        },
+        getActionsColumn(actionsConfig),
+      ]);
+
+    case "sdg":
+      return applyCustomLogic([
+        {
+          field: "serial",
+          headerName: "S.No",
+          width: 80,
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "name",
+          headerName: "SDG Name",
+          minWidth: 300,
+          flex: 1,
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "sdgTarget",
+          headerName: "SDG Target",
+          width: 150,
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "sdgNumber",
+          headerName: "SDG Number",
+          width: 150,
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "status",
+          headerName: "Status",
+          width: 100,
+          sortComparator: genericSortComparator,
+        },
+        getActionsColumn(actionsConfig),
+      ]);
+
+    case "targetGroup":
+      return applyCustomLogic([
+        {
+          field: "serial",
+          headerName: "S.No",
+          width: 80,
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "name",
+          headerName: "Target Group Name",
+          minWidth: 300,
+          flex: 1,
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "description",
+          headerName: "Description",
+          minWidth: 200,
+          flex: 0.5,
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "status",
+          headerName: "Status",
+          width: 100,
+          sortComparator: genericSortComparator,
+        },
+        getActionsColumn(actionsConfig),
+      ]);
+
+    case "units":
+      return applyCustomLogic([
+        {
+          field: "serial",
+          headerName: "S.No",
+          width: 80,
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "name",
+          headerName: "Unit Name",
+          minWidth: 300,
+          flex: 1,
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "status",
+          headerName: "Status",
+          width: 100,
+          sortComparator: genericSortComparator,
+        },
+        getActionsColumn(actionsConfig),
+      ]);
+
+    case "associatedFramework": {
+      return applyCustomLogic([
+        {
+          field: "serial",
+          headerName: "S.No",
+          width: 80,
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "name",
+          headerName: "Framework Name",
+          minWidth: 300,
+          flex: 1,
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "status",
+          headerName: "Status",
+          width: 100,
+          sortComparator: genericSortComparator,
+        },
+        getActionsColumn(actionsConfig),
+      ]);
+    }
+    case "strategyTrackingModule":
+      return applyCustomLogic([
+        {
+          field: "serial",
+          headerName: "S.No",
+          width: 80,
+          sortComparator: genericSortComparator,
+        },
+
+        {
+          field: "ministry",
+          headerName: "Ministry Name",
+          minWidth: 300,
+          flex: 1,
+          renderCell: renderCellValue,
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "department",
+          headerName: "Department Name",
+          minWidth: 300,
+          flex: 1,
+          renderCell: renderCellValue,
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "schemes",
+          headerName: "Scheme Name",
+          minWidth: 300,
+          flex: 1,
+          renderCell: renderCellValue,
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "questionnaire",
+          headerName: "Questionnaire Name",
+          width: 200,
+          renderCell: renderCellValue,
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "theme",
+          headerName: "Theme Name",
+          width: 170,
+          renderCell: renderCellValue,
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "name",
+          headerName: "Strategy Action Point Name",
+          width: 250,
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "expectedCompletionDate",
+          headerName: "Expected Completion Date",
+          minWidth: 250,
+          flex: 0.8,
+          renderCell: (params) =>
+            params.value ? dayjs(params.value).format("DD-MM-YYYY") : "-",
+          sortComparator: (v1, v2) =>
+            new Date(v1 || 0).getTime() - new Date(v2 || 0).getTime(),
+        },
+        {
+          field: "actionPointStatus",
+          headerName: "Strategy Action Point Status",
+          minWidth: 280,
+          flex: 1,
+          renderCell: renderCellValue,
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "responsiblePerson",
+          headerName: "Responsible Person",
+          width: 200,
+          renderCell: renderCellValue,
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "designation",
+          headerName: "Designation",
+          width: 150,
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "remarks",
+          headerName: "Remarks",
+          minWidth: 200,
+          flex: 1,
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "documents",
+          headerName: "Document View",
+          width: 170,
+          renderCell: (params) => {
+            const docs = params.row?.supportingDocuments || [];
+            return docs.length > 0 ? (
+              <Box
+                sx={{
+                  display: "flex",
+                  alignItems: "center",
+                  flexWrap: "nowrap",
+                  overflow: "hidden",
+                  height: "100%",
+                }}
+              >
+                {docs.map((doc, index) => {
+                  const fileName = doc?.title;
+                  const filePath = doc?.file;
+                  const fileUrl = `${FILE_SERVER_URL}${doc?.downloadId}`;
+                  return (
+                    <Tooltip key={index} title={fileName}>
+                      <a
+                        href={fileUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{
+                          marginRight: 6,
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          lineHeight: 1,
+                          verticalAlign: "middle",
+                        }}
+                      >
+                        {getFileIcon(filePath)}
+                      </a>
+                    </Tooltip>
+                  );
+                })}
+              </Box>
+            ) : (
+              "No Attachment"
+            );
+          },
+          sortComparator: () => 0, // prevent sorting error on arrays
+        },
+        {
+          field: "status",
+          headerName: "Status",
+          width: 100,
+          sortComparator: genericSortComparator,
+        },
+        getActionsColumn(actionsConfig),
+      ]);
+
+    case "state":
+      return applyCustomLogic([
+        {
+          field: "serial",
+          headerName: "S.No",
+          width: 80,
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "state_name",
+          headerName: "State Name",
+          minWidth: 300,
+          flex: 1,
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "state_code",
+          headerName: "State Code",
+          width: 130,
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "state_abbr",
+          headerName: "State Short Name",
+          width: 180,
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "status",
+          headerName: "Status",
+          width: 100,
+          sortComparator: genericSortComparator,
+        },
+        getActionsColumn(actionsConfig),
+      ]);
+    case "district":
+      return applyCustomLogic([
+        {
+          field: "serial",
+          headerName: "S.No",
+          width: 80,
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "state",
+          headerName: "State Name",
+          width: 180,
+          renderCell: renderCellValue,
+
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "district_name",
+          headerName: "District Name",
+          minWidth: 200,
+          flex: 1,
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "district_code",
+          headerName: "District Code",
+          width: 160,
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "district_abbr",
+          headerName: "District Short Name",
+          width: 200,
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "status",
+          headerName: "Status",
+          width: 100,
+          sortComparator: genericSortComparator,
+        },
+        getActionsColumn(actionsConfig),
+      ]);
+
+    case "outputOutcome":
+      return applyCustomLogic([
+        {
+          field: "serial",
+          headerName: "S.No",
+          width: 80,
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "statementType",
+          headerName: "Statement Type",
+          width: 170,
+          // renderCell: renderCellValue,
+          renderCell: (params) => {
+            const value = params?.value;
+            return value ? value.charAt(0).toUpperCase() + value.slice(1) : "";
+          },
+
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "name",
+          headerName: "Statement Name",
+          minWidth: 300,
+          flex: 1,
+          renderCell: renderCellValue,
+
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "ministry",
+          headerName: "Ministry Name",
+          minWidth: 250,
+          flex: 1,
+          renderCell: renderCellValue,
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "department",
+          headerName: "Department Name",
+          minWidth: 250,
+          flex: 1,
+          renderCell: renderCellValue,
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "schemeType",
+          headerName: "Scheme Type Name",
+          width: 190,
+          renderCell: renderCellValue,
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "scheme",
+          headerName: "Scheme Name",
+          minWidth: 250,
+          flex: 1,
+          renderCell: renderCellValue,
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "subScheme",
+          headerName: "SubScheme Name",
+          minWidth: 250,
+          flex: 1,
+          renderCell: renderCellValue,
+          sortComparator: genericSortComparator,
+        },
+
+        {
+          field: "status",
+          headerName: "Status",
+          width: 100,
+          sortComparator: genericSortComparator,
+        },
+        getActionsColumn(actionsConfig),
+      ]);
+    case "indicator":
+      return applyCustomLogic([
+        {
+          field: "serial",
+          headerName: "S.No",
+          width: 80,
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "indicatorType",
+          headerName: "Indicator Type",
+          width: 150,
+          // renderCell: renderCellValue,
+          renderCell: (params) => {
+            const value = params?.value;
+            return value ? value.charAt(0).toUpperCase() + value.slice(1) : "";
+          },
+
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "name",
+          headerName: "Indicator Name",
+          minWidth: 300,
+          flex: 1,
+          renderCell: renderCellValue,
+
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "ministry",
+          headerName: "Ministry Name",
+          minWidth: 250,
+          flex: 1,
+          renderCell: renderCellValue,
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "department",
+          headerName: "Department Name",
+          minWidth: 250,
+          flex: 1,
+          renderCell: renderCellValue,
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "schemeType",
+          headerName: "Scheme Type Name",
+          minWidth: 190,
+          flex: 1,
+          renderCell: renderCellValue,
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "scheme",
+          headerName: "Scheme Name",
+          minWidth: 250,
+          flex: 1,
+          renderCell: renderCellValue,
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "subScheme",
+          headerName: "SubScheme Name",
+          minWidth: 250,
+          flex: 1,
+          renderCell: renderCellValue,
+          sortComparator: genericSortComparator,
+        },
+
+        {
+          field: "sdg",
+          headerName: "SDG Name",
+          width: 150,
+          renderCell: renderCellValue,
+
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "unit",
+          headerName: "Unit Name",
+          width: 150,
+          renderCell: renderCellValue,
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "period",
+          headerName: "Period Name",
+          width: 150,
+          renderCell: renderCellValue,
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "scale",
+          headerName: "Scale Name",
+          width: 150,
+          renderCell: renderCellValue,
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "indicatorRise",
+          headerName: "Indicator Rise",
+          width: 150,
+          renderCell: renderCellValue,
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "measurementType",
+          headerName: "Measurement Type",
+          width: 190,
+          renderCell: renderCellValue,
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "measurementArea",
+          headerName: "Measurement Area",
+          width: 200,
+          renderCell: renderCellValue,
+          sortComparator: genericSortComparator,
+        },
+
+        {
+          field: "status",
+          headerName: "Status",
+          width: 100,
+          sortComparator: genericSortComparator,
+        },
+        getActionsColumn(actionsConfig),
+      ]);
+    case "orgType":
+      return applyCustomLogic([
+        {
+          field: "serial",
+          headerName: "S.No",
+          width: 80,
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "name",
+          headerName: "Organizatiion Name",
+          minWidth: 300,
+          flex: 1,
+          renderCell: renderCellValue,
+
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "status",
+          headerName: "Status",
+          width: 100,
+          sortComparator: genericSortComparator,
+        },
+        getActionsColumn(actionsConfig),
+      ]);
+    case "frequency":
+      return applyCustomLogic([
+        {
+          field: "serial",
+          headerName: "S.No",
+          width: 80,
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "name",
+          headerName: "Frequency Name",
+          minWidth: 300,
+          flex: 1,
+          renderCell: renderCellValue,
+
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "status",
+          headerName: "Status",
+          width: 100,
+          sortComparator: genericSortComparator,
+        },
+        getActionsColumn(actionsConfig),
+      ]);
+    case "applicableCategory":
+      return applyCustomLogic([
+        {
+          field: "serial",
+          headerName: "S.No",
+          width: 80,
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "name",
+          headerName: "Category Name",
+          minWidth: 300,
+          flex: 1,
+          renderCell: renderCellValue,
+
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "status",
+          headerName: "Status",
+          width: 100,
+          sortComparator: genericSortComparator,
+        },
+        getActionsColumn(actionsConfig),
+      ]);
+    case "indicatorRise":
+      return applyCustomLogic([
+        {
+          field: "serial",
+          headerName: "S.No",
+          width: 80,
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "name",
+          headerName: "Indicator Rise Name",
+          minWidth: 300,
+          flex: 1,
+          renderCell: renderCellValue,
+
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "status",
+          headerName: "Status",
+          width: 100,
+          sortComparator: genericSortComparator,
+        },
+        getActionsColumn(actionsConfig),
+      ]);
+    case "indicatorType":
+      return applyCustomLogic([
+        {
+          field: "serial",
+          headerName: "S.No",
+          width: 80,
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "name",
+          headerName: "Indicator Type Name",
+          minWidth: 300,
+          flex: 1,
+          renderCell: renderCellValue,
+
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "status",
+          headerName: "Status",
+          width: 100,
+          sortComparator: genericSortComparator,
+        },
+        getActionsColumn(actionsConfig),
+      ]);
+    case "measurementArea":
+      return applyCustomLogic([
+        {
+          field: "serial",
+          headerName: "S.No",
+          width: 80,
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "name",
+          headerName: "Measurement Area Name",
+          minWidth: 300,
+          flex: 1,
+          renderCell: renderCellValue,
+
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "status",
+          headerName: "Status",
+          width: 100,
+          sortComparator: genericSortComparator,
+        },
+        getActionsColumn(actionsConfig),
+      ]);
+    case "measurementType":
+      return applyCustomLogic([
+        {
+          field: "serial",
+          headerName: "S.No",
+          width: 80,
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "name",
+          headerName: "Measurement Type Name",
+          minWidth: 300,
+          flex: 1,
+          renderCell: renderCellValue,
+
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "status",
+          headerName: "Status",
+          width: 100,
+          sortComparator: genericSortComparator,
+        },
+        getActionsColumn(actionsConfig),
+      ]);
+    case "scales":
+      return applyCustomLogic([
+        {
+          field: "serial",
+          headerName: "S.No",
+          width: 80,
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "name",
+          headerName: "Scale Name",
+          minWidth: 300,
+          flex: 1,
+          renderCell: renderCellValue,
+
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "status",
+          headerName: "Status",
+          width: 100,
+          sortComparator: genericSortComparator,
+        },
+        getActionsColumn(actionsConfig),
+      ]);
+    case "period":
+      return applyCustomLogic([
+        {
+          field: "serial",
+          headerName: "S.No",
+          width: 80,
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "name",
+          headerName: "Period Name",
+          minWidth: 300,
+          flex: 1,
+          renderCell: renderCellValue,
+
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "status",
+          headerName: "Status",
+          width: 100,
+          sortComparator: genericSortComparator,
+        },
+        getActionsColumn(actionsConfig),
+      ]);
+    case "frameworkSection":
+      return applyCustomLogic([
+        {
+          field: "serial",
+          headerName: "S.No",
+          width: 80,
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "frameworkName",
+          headerName: "Associated Framework Name",
+          minWidth: 300,
+          flex: 1,
+          renderCell: renderCellValue,
+
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "name",
+          headerName: "Framework Section Name",
+          minWidth: 300,
+          flex: 1,
+          renderCell: renderCellValue,
+
+          sortComparator: genericSortComparator,
+        },
+
+        {
+          field: "privileges",
+          headerName: "Privileges",
+          minWidth: 300,
+          flex: 1,
+          renderCell: renderCellValue,
+
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "status",
+          headerName: "Status",
+          width: 100,
+          sortComparator: genericSortComparator,
+        },
+        getActionsColumn(actionsConfig),
+      ]);
+    case "dynamicMenu":
+      return applyCustomLogic([
+        {
+          field: "serial",
+          headerName: "S.No",
+          width: 80,
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "name",
+          headerName: "Dynamic Menu Name",
+          minWidth: 300,
+          flex: 1,
+          renderCell: renderCellValue,
+
+          sortComparator: genericSortComparator,
+        },
+
+        {
+          field: "menuUrl",
+          headerName: "Menu URL Name",
+          minWidth: 300,
+          flex: 1,
+          renderCell: renderCellValue,
+
+          sortComparator: genericSortComparator,
+        },
+
+        {
+          field: "frameworkSection",
+          headerName: "Framework Section",
+          minWidth: 300,
+          flex: 1,
+          renderCell: renderCellValue,
+
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "parentMenu",
+          headerName: "Parent Menu Name",
+          minWidth: 300,
+          flex: 1,
+          renderCell: renderCellValue,
+
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "framework",
+          headerName: "Framework Name",
+          minWidth: 300,
+          flex: 1,
+          renderCell: renderCellValue,
+
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "status",
+          headerName: "Status",
+          width: 100,
+          sortComparator: genericSortComparator,
+        },
+        getActionsColumn(actionsConfig),
+      ]);
+    case "sectionModal":
+      return applyCustomLogic([
+        {
+          field: "serial",
+          headerName: "S.No",
+          width: 80,
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "name",
+          headerName: "Section Modal Name",
+          minWidth: 300,
+          flex: 1,
+          renderCell: renderCellValue,
+
+          sortComparator: genericSortComparator,
+        },
+
+        {
+          field: "shortUrl",
+          headerName: "Short URL Name",
+          minWidth: 300,
+          flex: 1,
+          renderCell: renderCellValue,
+
+          sortComparator: genericSortComparator,
+        },
+
+        {
+          field: "frameworkSection",
+          headerName: "Framework Section",
+          minWidth: 300,
+          flex: 1,
+          renderCell: renderCellValue,
+
+          sortComparator: genericSortComparator,
+        },
+        getActionsColumn(actionsConfig),
+      ]);
+    case "documentCategory":
+      return applyCustomLogic([
+        {
+          field: "serial",
+          headerName: "S.No",
+          width: 80,
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "name",
+          headerName: "Document Category Name",
+          minWidth: 300,
+          flex: 1,
+          renderCell: renderCellValue,
+
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "abbr",
+          headerName: "Document Category Abbreviation",
+          minWidth: 300,
+          flex: 1,
+          renderCell: renderCellValue,
+
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "orgTypes",
+          headerName: "Organization Types",
+          minWidth: 300,
+          flex: 1,
+          renderCell: renderCellValue,
+
+          sortComparator: genericSortComparator,
+        },
+        {
+          field: "frameworks",
+          headerName: "Associated Frameworks",
+          minWidth: 300,
+          flex: 1,
+          renderCell: renderCellValue,
+
+          sortComparator: genericSortComparator,
+        },
+
+        {
+          field: "status",
+          headerName: "Status",
+          width: 100,
+          sortComparator: genericSortComparator,
+        },
+        getActionsColumn(actionsConfig),
+      ]);
+    default:
+      return [];
+  }
+};
