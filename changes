@@ -1,297 +1,155 @@
-import * as React from "react";
-import { DataGrid, GridToolbar, GridRowIdGetter } from "@mui/x-data-grid";
-import {
-  Typography,
-  Box,
-  Link,
-  Card,
-  CardContent,
-  Button,
-  Tooltip,
-  IconButton,
-  Grid,
-  TextField,
-  InputAdornment,
-  Checkbox
-} from "@mui/material";
-import {
-  GridToolbarContainer,
-  GridToolbarColumnsButton,
-  GridToolbarFilterButton,
-  GridToolbarExport,
-  GridToolbarDensitySelector,
-} from "@mui/x-data-grid";
-import SwapHorizIcon from "@mui/icons-material/SwapHoriz";
-import FileDownloadIcon from "@mui/icons-material/FileDownload";
-import { useState } from "react";
-import { SearchIcon } from "lucide-react";
-import ExportCsvButton from "./superadmin/ExportCSV";
-import { useMemo } from "react";
-import { useEffect } from "react";
-import dayjs from "dayjs";
-import { genericSortComparator } from "@/utils/customSortingFunc";
-import { applyCustomLogic } from "@/utils/niti/datagridUtils";
+const STORAGE_KEY = "individual_bulk_forward_drafts";
 
-export default function DataTable({
-  columns,
-  data,
-  isCheckbox,
-  isRowSelectable,
-  isHideDensity,
-  isHideExport = false,
-  isHideFilter,
-  isHideColumn,
-  isHidePaging,
-  isHideReordercolumn = false,
-  name,
-  columnVisibilityModel, // added
-  onColumnVisibilityModelChange,
-  handleOpenReorder,
-  fileName = "Data_Table",
-  maxHeight = 600,
-  marginTop = 3,
-  rowSelectionModel =[],
-  onRowSelectionModelChange,
-}) {
-  const flag = isCheckbox;
-  const [filteredData, setFilteredData] = useState([]);
-  const flagDen = isHideDensity;
-  const flagExp = isHideExport;
-  const flagFilter = isHideFilter;
-  const flagColumn = isHideColumn;
-  const [searchText, setSearchText] = useState("");
+export const getIndividualBulkForwardDrafts = () => {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch (err) {
+    console.error("Failed to parse individual bulk forward drafts", err);
+    return {};
+  }
+};
 
-  useEffect(() => {
-    if (data.length > 0) setFilteredData(data);
-  }, [data]);
-
-  const formatDisplayDate = (dateString) => {
-    const d = dayjs(dateString);
-    return d.isValid() ? d.format("DD-MMM-YYYY hh:mm A").toLowerCase() : "";
-  };
-
-  useEffect(() => {
-    const trimmedSearch = (searchText || "").trim().toLowerCase();
-
-    if (!trimmedSearch) {
-      setFilteredData(data);
-      return;
-    }
-
-    const ignoredKeys = ["id", "uuid", "raw"];
-
-    const searchObject = (obj) => {
-      if (!obj || typeof obj !== "object") return false;
-
-      // 🧩 Shallow search
-      const shallowMatch = Object.entries(obj).some(([key, val]) => {
-        if (ignoredKeys.includes(key.toLowerCase()) || val == null)
-          return false;
-
-        // ✅ Handle boolean is_active
-        if (key === "is_active" && typeof val === "boolean") {
-          const statusText = val ? "active" : "inactive";
-          return statusText.startsWith(trimmedSearch);
-        }
-
-        // ✅ Handle ISO date strings like 2025-11-01T07:37:06.863Z
-        if (typeof val === "string" && /^\d{4}-\d{2}-\d{2}T/.test(val)) {
-          const formattedDate = formatDisplayDate(val);
-          const dateOnly = dayjs(val).format("DD-MMM-YYYY").toLowerCase();
-          return (
-            formattedDate.includes(trimmedSearch) ||
-            dateOnly.includes(trimmedSearch)
-          );
-        }
-
-        // ✅ Regular string or number
-        if (typeof val === "string" || typeof val === "number") {
-          return val.toString().toLowerCase().includes(trimmedSearch);
-        }
-
-        return false;
-      });
-
-      if (shallowMatch) return true;
-
-      // 🔍 Deep recursive search
-      return Object.entries(obj).some(([key, val]) => {
-        if (ignoredKeys.includes(key.toLowerCase()) || val == null)
-          return false;
-
-        if (typeof val === "object") {
-          if (Array.isArray(val)) {
-            return val.some((item) => searchObject(item));
-          } else {
-            return searchObject(val);
-          }
-        }
-
-        return false;
-      });
+export const saveIndividualBulkForwardDraft = (submissionId, data) => {
+  try {
+    const drafts = getIndividualBulkForwardDrafts();
+    drafts[submissionId] = {
+      ...(drafts[submissionId] || {}),
+      ...data,
     };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(drafts));
+    return drafts;
+  } catch (err) {
+    console.error("Failed to save individual bulk forward draft", err);
+    return {};
+  }
+};
 
-    const filtered = data.filter((item) => searchObject(item));
-    setFilteredData(filtered);
-  }, [searchText, data]);
+export const getIndividualBulkForwardDraftById = (submissionId) => {
+  const drafts = getIndividualBulkForwardDrafts();
+  return drafts?.[submissionId] || null;
+};
 
-  function CustomToolbar() {
-    return (
-      <GridToolbarContainer>
-        {flagColumn ? <GridToolbarColumnsButton /> : null}
-        {flagFilter ? <GridToolbarFilterButton /> : null}
-        {flagDen ? <GridToolbarDensitySelector /> : null}
-        {flagExp ? <GridToolbarExport /> : null}
-      </GridToolbarContainer>
-    );
+export const removeIndividualBulkForwardDraft = (submissionId) => {
+  try {
+    const drafts = getIndividualBulkForwardDrafts();
+    delete drafts[submissionId];
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(drafts));
+    return drafts;
+  } catch (err) {
+    console.error("Failed to remove draft", err);
+    return {};
+  }
+};
+
+export const clearIndividualBulkForwardDrafts = () => {
+  localStorage.removeItem(STORAGE_KEY);
+};
+
+export const validateCreatorDraft = ({ uploadedFiles = [], remarks = "" }) => {
+  const errors = [];
+
+  if (!uploadedFiles?.[0]?.uploadedFile) {
+    errors.push("Framework attachment is required.");
   }
 
-  return (
-    <Box sx={{ overflow: "auto" }}>
-      <Grid container spacing={2} sx={{ mb: 2, mt: marginTop }}>
-        <Grid size={4}>
-          <TextField
-            variant="outlined"
-            size="small"
-            fullWidth
-            placeholder="Search using keywords"
-            onChange={(e) => setSearchText(e.target.value)}
-            slotProps={{
-              input: {
-                startAdornment: (
-                  <InputAdornment position="start">
-                    <SearchIcon sx={{ color: "#5f6368", mr: 1 }} />
-                  </InputAdornment>
-                ),
-              },
-            }}
-          />
-        </Grid>
-        <Grid size={4}>
-          {/* <Button variant="contained" color="primary">
-            <FileDownloadIcon /> Export CSV
-          </Button> */}
+  if (!remarks?.trim()) {
+    errors.push("Remarks are required.");
+  }
 
-          {!isHideFilter && (
-            <>
-              <ExportCsvButton
-                modal="DataTable"
-                columns={columns.filter(
-                  (col) => !["action", "attachments"].includes(col.field),
-                )}
-                rows={filteredData}
-                fileName={fileName}
-                columnVisibilityModel={columnVisibilityModel}
-              />
-            </>
-          )}
-        </Grid>
-        <Grid size={2}></Grid>
-        <Grid size={2}>
-          <Box
-            sx={{
-              display: "block",
-              float: "right",
-            }}
-          >
-            <Tooltip title="Reorder Columns">
-              {!isHideReordercolumn && (
-                <>
-                  <IconButton
-                    onClick={handleOpenReorder}
-                    size="medium"
-                    color="primary"
-                  >
-                    <SwapHorizIcon fontSize="large" />
-                  </IconButton>
-                </>
-              )}
-            </Tooltip>
-          </Box>
-        </Grid>
-      </Grid>
+  return {
+    isValid: errors.length === 0,
+    errors,
+  };
+};
 
-      <Box>
-        <DataGrid
-          rows={filteredData}
-          sortingOrder={["asc", "desc"]}
-          columns={applyCustomLogic(
-            columns.map((col) =>
-              col.sortable !== false
-                ? { ...col, sortComparator: genericSortComparator }
-                : col,
-            ),
-          )}
-          getRowId={(rows) => rows?.id}
-          hideFooter={isHidePaging}
-          autoHeight={false} // 🔥 MUST DISABLE autoHeight
-          sx={{
-            width: "100%",
-            maxHeight: "100%", // 🔥 height on DataGrid, not wrapper
-            "& .super-app-theme--header": {
-              fontFamily: "Franklin Gothic Medium",
-              fontSize: "15px",
-              color: "#fff",
-              backgroundColor: "#45154F",
-            },
-            //  Header checkbox white
-            "& .MuiDataGrid-columnHeaderCheckbox .MuiCheckbox-root": {
-              color: "#fff !important",
-            },
+export const validateNonCreatorDraft = ({
+  revisedFrameworkFiles = [],
+  hindiFiles = [],
+  snippetFiles = [],
+  remarks = "",
+  uniqueFlag = "No",
+}) => {
+  const errors = [];
 
-            //  Header checkbox checked white
-            "& .MuiDataGrid-columnHeaderCheckbox .MuiCheckbox-root.Mui-checked":
-              {
-                color: "#fff !important",
-              },
+  if (!revisedFrameworkFiles?.[0]?.uploadedFile) {
+    errors.push("Revised Framework is required.");
+  }
 
-            //  Optional: row checkbox color
-            "& .MuiDataGrid-cellCheckbox .MuiCheckbox-root": {
-              color: "#45154F",
-            },
+  if (uniqueFlag === "No") {
+    if (!hindiFiles?.[0]?.uploadedFile) {
+      errors.push("Hindi Document is required.");
+    }
 
-            //  Optional: row checkbox checked color
-            "& .MuiDataGrid-cellCheckbox .MuiCheckbox-root.Mui-checked": {
-              color: "#45154F",
-            },
-          }}
-          pageSizeOptions={[10, 20, 30, 40, 50, 100]}
-          initialState={{
-            pagination: {
-              paginationModel: { pageSize: 10, page: 0 },
-            },
-          }}
-          disableRowSelectionOnClick
-          checkboxSelection={flag}
-          isRowSelectable={isRowSelectable}
-          slots={{
-            baseCheckbox: (props) => {
-              console.log("P::",props)
-              const isDisabled = props?.row?.status === "Mapping Pending";
+    if (!snippetFiles?.[0]?.uploadedFile) {
+      errors.push("Snippet of e file is required.");
+    }
 
-              return (
-                <Tooltip
-                  title={
-                    isDisabled ? "Cannot select: Mapping Pending" : "Select row"
-                  }
-                >
-                  <span>
-                    <Checkbox {...props} disabled={isDisabled} />
-                  </span>
-                </Tooltip>
-              );
-            },
-          }}
-          columnVisibilityModel={columnVisibilityModel}
-          onColumnVisibilityModelChange={onColumnVisibilityModelChange}
-          localeText={{
-            columnMenuSortAsc: "Sort as A to Z",
-            columnMenuSortDesc: "Sort as Z to A",
-          }}
-          rowSelectionModel={rowSelectionModel}
-          onRowSelectionModelChange={onRowSelectionModelChange}
-        />
-      </Box>
-    </Box>
-  );
-}
+    if (!remarks?.trim()) {
+      errors.push("Remarks are required.");
+    }
+  }
+
+  return {
+    isValid: errors.length === 0,
+    errors,
+  };
+};
+
+export const areAllSelectedRecordsValidated = (selectedSubmissionIds = []) => {
+  const drafts = getIndividualBulkForwardDrafts();
+
+  if (!selectedSubmissionIds?.length) {
+    return false;
+  }
+
+  return selectedSubmissionIds.every((id) => drafts?.[id]?.isValid === true);
+};
+
+export const getValidationSummaryForRows = (selectedSubmissionIds = []) => {
+  const drafts = getIndividualBulkForwardDrafts();
+
+  return selectedSubmissionIds.map((id) => ({
+    submissionId: id,
+    isValid: drafts?.[id]?.isValid === true,
+    errors: drafts?.[id]?.errors || [],
+    payload: drafts?.[id]?.payload || null,
+  }));
+};
+//final payload
+export const buildBulkForwardIndividualPayload = ({
+  selectedSubmissionIds = [],
+  orgTypeId,
+  subRoleId,
+  createdBy,
+}) => {
+  console.log({selectedSubmissionIds,
+  orgTypeId,
+  subRoleId,
+  createdBy})
+  const drafts = getIndividualBulkForwardDrafts();
+
+  const validSubmissionIds = [];
+  const fromDocumentIds = {};
+  const fromRemarks = {};
+
+  selectedSubmissionIds.forEach((id) => {
+    const draft = drafts?.[id];
+
+    if (draft?.isValid && draft?.payload) {
+      validSubmissionIds.push(Number(id));
+
+      fromDocumentIds[id] = draft?.payload?.fromDocumentIds || [];
+      fromRemarks[id] = draft?.payload?.fromRemarks || "";
+    }
+  });
+
+  return {
+    submissionIds: validSubmissionIds,
+    orgTypeId,
+    subRoleId,
+    fromRemarks, // recommended object-based remarks
+    fromDocumentIds,
+    createdBy,
+  };
+};
