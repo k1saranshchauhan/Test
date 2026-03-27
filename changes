@@ -2,131 +2,149 @@ import {
   Dialog,
   DialogTitle,
   DialogContent,
-  IconButton,
-  Tooltip,
-  Box,
-  Button,
-  Typography,
   DialogActions,
+  Button,
 } from "@mui/material";
-import CloseIcon from "@mui/icons-material/Close";
-import SearchTable from "../../SearchTable";
-import ArrowForwardIosIcon from "@mui/icons-material/ArrowForwardIos";
-import BulkForwardDialog from "../../nitiAyog/oomfForm/BulkForwardDialog";
 import { useEffect, useState } from "react";
-import IndividualBulkForwardDialog from "./IndividualBulkForwardDialog";
+import { useDispatch } from "react-redux";
+import { setError, startLoader, stopLoader } from "@/store/slices/errorSlice";
+import apiClient from "@/utils/apiClient";
+import IndividualBulkForwardStepper from "../IndividualBulkForwardStepper";
+import IndividualBulkForwardStepperForCreater from "../IndividualBulkForwardStepperForCreater";
+import TelegramIcon from "@mui/icons-material/Telegram";
 
-const BulkForwardSelectionDialog = ({
+export default function IndividualBulkForwardDialog({
   open,
   onClose,
-  rows,
-  columns,
-}) => {
-  // Add Action column dynamically
-  console.log("Row::",rows);
+  submissionId,
+  mode,
+  isCreator = false,
+  type = "",
+  canForward,
+  selectedRow,
+}) {
+  const dispatch = useDispatch();
+  const [isValidated, setIsValidated] = useState(false);
+  const [successDialogParams, setSuccessDialogParams] = useState(null);
 
-  const submissionIds=rows?.map(item=>item?.submissionId);
-  const [openBulkForwardDialog, setOpenBulkForwardDialog] = useState(false);
-  const [openForwardDialog, setOpenForwardDialog] = useState(false);
-  const [selectedRow, setSelectedRow] = useState(null);
+  // ---------- Frequency validation helper ----------
+  const isEmptyFrequency = (freq) => {
+    if (!freq) return true;
+    if (typeof freq === "object" && Object.keys(freq).length === 0) return true;
+    if (Array.isArray(freq) && freq.length === 0) return true;
+    if (typeof freq === "string" && freq.trim() === "") return true;
+    return false;
+  };
 
-  const updatedColumns = [
-    ...columns.filter((col) => col.field !== "action"),
-    {
-      field: "bulkAction",
-      headerName: "Action",
-      width: 220,
-      renderCell: (params) => (
-        <Tooltip title="Make ready for individual forward">
-          <IconButton
-            color="primary"
-            onClick={() => handleMakeReady(params.row)}
-          >
-            <ArrowForwardIosIcon />
-          </IconButton>
-        </Tooltip>
-      ),
-    },
-  ];
+  // ---------- Targets validation helper ----------
+  const isEmptyTargets = (targets) => {
+    if (!targets) return true;
+    if (typeof targets === "object" && Object.keys(targets).length === 0)
+      return true;
+    if (Array.isArray(targets) && targets.length === 0) return true;
+    if (typeof targets === "string" && targets.trim() === "") return true;
+    return false;
+  };
 
-    const handleMakeReady = (row) => {
-      console.log("Make ready clicked:", row);
+  // ---------- Validate frequency and targets ----------
+  const validateFrequencyAndTargets = (data) => {
+    if (!data?.form_values?.indicatorData)
+      return { valid: false, message: "No indicator data found." };
 
-      // 👉 You will handle dialog open here
-      // Example:
-      setSelectedRow(row);
-       setOpenForwardDialog(true);
-      console.log("selected row::",row);
-      // setOpenBulkForwardDialog(true);
+    for (const item of data.form_values.indicatorData) {
+      for (const section of item.sections || []) {
+        for (const ind of section.indicators || []) {
+          // Frequency validation
+          if (isEmptyFrequency(ind.frequency)) {
+            return {
+              valid: false,
+              message:
+                "Please select the frequency for all indicators in the framework before forwarding.",
+            };
+          }
+
+          // Targets validation
+          if (isEmptyTargets(ind.targets)) {
+            return {
+              valid: false,
+              message:
+                "Please fill the frequency value for all indicators in the framework before forwarding.",
+            };
+          }
+        }
+      }
+    }
+
+    return { valid: true, message: "Validation passed." };
+  };
+
+  // ---------- Fetch & validate on open ----------
+  useEffect(() => {
+    if (!open || !submissionId) return;
+
+    const fetchAndValidate = async () => {
+      dispatch(startLoader());
+      try {
+        const res = await apiClient.get(
+          `api/oomf/submissions/applicationDetailsById/${submissionId}`,
+        );
+        const data = res.data?.data;
+        const successParams = {
+          ministry: data?.form_values?.ministryId?.name,
+          department: data?.form_values?.departmentId?.name,
+          scheme: data?.form_values?.schemeId?.name,
+        };
+        setSuccessDialogParams(successParams);
+        if (type === "addFrequency") {
+          const validationResult = validateFrequencyAndTargets(data);
+          setIsValidated(validationResult.valid);
+
+          if (!validationResult.valid) {
+            dispatch(setError(validationResult.message));
+            onClose();
+          }
+        }
+      } catch (err) {
+        dispatch(setError("Failed to validate submission data."));
+        onClose();
+      } finally {
+        dispatch(stopLoader());
+      }
     };
+
+    fetchAndValidate();
+  }, [open, submissionId, type, dispatch, onClose]);
 
   return (
     <Dialog open={open} onClose={onClose} fullWidth maxWidth="lg">
-      <DialogTitle
-        sx={{
-          backgroundColor: "#45154f",
-          display: "flex",
-          justifyContent: "space-between",
-        }}
-      >
-        <Box sx={{ display: "flex" }}>
-          <Typography variant="h6" sx={{ color: "#fff" }}>
-            Selected Records for Bulk Forward
-          </Typography>
-        </Box>
-        <Button
-          variant="contained"
-          color="success"
-          onClick={() => setOpenBulkForwardDialog(true)}
-          endIcon={<ArrowForwardIosIcon />}
-          disabled={submissionIds?.length < 2}
-        >
-          Bulk Forward at once
-        </Button>
+      <DialogTitle sx={{ backgroundColor: "#45154f", color: "#fff" }}>
+        <TelegramIcon /> Make individual framework ready for Bulk forward
       </DialogTitle>
 
-      <DialogContent>
-        <Box mt={2}>
-          <SearchTable
-            columns={updatedColumns}
-            data={rows}
-            isCheckbox={false}
-            isHideDensity={false}
-            isHideExport={true}
-            isHideFilter={false}
-            isHideColumn={true}
-            isHidePaging={false}
+      <DialogContent dividers>
+        {type === "addFrequency" && !isValidated ? (
+          <div>Validating frequency...</div>
+        ) : isCreator ? (
+          <IndividualBulkForwardStepperForCreater
+            submissionId={submissionId}
+            successDialogParams={successDialogParams}
           />
-        </Box>
-        <BulkForwardDialog
-          open={openBulkForwardDialog}
-          onClose={() => setOpenBulkForwardDialog(false)}
-          mode={"edit"}
-          submissionIds={submissionIds}
-          isCreator={false} // true only when creator is submitting first time
-          type={""}
-          canForward={true}
-        />
-        <IndividualBulkForwardDialog
-          open={openForwardDialog}
-          onClose={() => setOpenForwardDialog(false)}
-          mode={"edit"}
-          submissionId={selectedRow?.submissionId}
-          isCreator={Number(selectedRow?.permission?.orderIndex) === 1} // true only when creator is submitting first time
-          type={
-            selectedRow?.permission?.isPostBudget == true ? "addFrequency" : ""
-          }
-          canForward={true}
-          selectedRow={selectedRow}
-        />
+        ) : (
+          <IndividualBulkForwardStepper
+            mode={mode}
+            canForward={canForward}
+            submissionId={submissionId}
+            successDialogParams={successDialogParams}
+            documents={selectedRow?.documents}
+          />
+        )}
       </DialogContent>
+
       <DialogActions>
         <Button onClick={onClose} variant="contained">
-          Close
+          Cancel
         </Button>
       </DialogActions>
     </Dialog>
   );
-};
-
-export default BulkForwardSelectionDialog;
+}
