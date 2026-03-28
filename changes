@@ -1,322 +1,238 @@
-import {
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  IconButton,
-  Tooltip,
-  Box,
-  Button,
-  Typography,
-  DialogActions,
-} from "@mui/material";
-import CloseIcon from "@mui/icons-material/Close";
-import SearchTable from "../../SearchTable";
-import ArrowForwardIosIcon from "@mui/icons-material/ArrowForwardIos";
-import BulkForwardDialog from "../../nitiAyog/oomfForm/BulkForwardDialog";
-import { useEffect, useState } from "react";
-import IndividualBulkForwardDialog from "./IndividualBulkForwardDialog";
-import { useRouter } from "next/router";
-// import {
-//   areAllSelectedRecordsValidated,
-//   buildBulkForwardIndividualPayload,
-//   getValidationSummaryForRows,
-//   clearIndividualBulkForwardDrafts,
-// } from "@/utils/oomf/individualBulkForwardDraft";
-import {
-  areAllSelectedRecordsValidated,
-  buildBulkForwardIndividualPayload,
-  getValidationSummaryForRows,
-  clearIndividualBulkForwardDrafts,
-} from "@/utils/oomf/individualBulkForwardDraft";
-import { useDispatch, useSelector } from "react-redux";
-import {
-  setError,
-  setSuccess,
-  startLoader,
-  stopLoader,
-} from "@/store/slices/errorSlice";
-import apiClient from "@/utils/apiClient";
-import DoubleArrowIcon from "@mui/icons-material/DoubleArrow";
-import BulkForwardSuccessDialog from "../../oomf/oomfWorkflow/BulkForwardSuccessDialog";
-const BulkForwardSelectionDialog = ({
-  open,
-  onClose,
-  onSuccess,
-  rows,
-  columns,
-}) => {
-  // Add Action column dynamically
-  const submissionIds = rows?.map((item) => item?.submissionId);
-  const [openBulkForwardDialog, setOpenBulkForwardDialog] = useState(false);
-  const [openForwardDialog, setOpenForwardDialog] = useState(false);
-  const [selectedRow, setSelectedRow] = useState(null);
-  const dispatch = useDispatch();
-  const [isAllValidated, setIsAllValidated] = useState(false);
-  const [validationSummary, setValidationSummary] = useState([]);
-  const [openSuccessDialog, setOpenSuccessDialog] = useState(false);
-  const [successDialogParams, setSuccessDialogParams] = useState(null);
-  const userData = useSelector((state) => state.config.userData);
-  const orgTypeId = userData?.OrganizationType?.id;
-  const createdBy = userData?.id;
-  const router = useRouter();
+const STORAGE_KEY = "individual_bulk_forward_drafts";
 
-  const uniqueRoleIds = [
-    ...new Set(
-      userData?.privileges?.flatMap((item) =>
-        item.frameworkId === 3 && Array.isArray(item.accessRights?.oomfSubRoles)
-          ? item.accessRights.oomfSubRoles.map((role) => role.id)
-          : [],
-      ),
-    ),
-  ];
+export const getIndividualBulkForwardDrafts = () => {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch (err) {
+    console.error("Failed to parse individual bulk forward drafts", err);
+    return {};
+  }
+};
 
-  const updatedColumns = [
-    ...columns.filter((col) => col.field !== "action"),
-    {
-      field: "validationStatus",
-      headerName: "Bulk forward Status",
-      width: 190,
-      renderCell: (params) => {
-        const record = validationSummary?.find(
-          (item) =>
-            Number(item.submissionId) === Number(params.row.submissionId),
-        );
+export const saveIndividualBulkForwardDraft = (submissionId, data) => {
+  try {
+    const drafts = getIndividualBulkForwardDrafts();
+    drafts[submissionId] = {
+      ...(drafts[submissionId] || {}),
+      ...data,
+    };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(drafts));
+    return drafts;
+  } catch (err) {
+    console.error("Failed to save individual bulk forward draft", err);
+    return {};
+  }
+};
 
-        const isValid = record?.isValid;
+export const getIndividualBulkForwardDraftById = (submissionId) => {
+  const drafts = getIndividualBulkForwardDrafts();
+  return drafts?.[submissionId] || null;
+};
 
-        return (
-          <Typography
-            sx={{
-              fontSize: "14px",
-              fontWeight: 600,
-              color: isValid ? "green" : "orange",
-              mt: 2,
-            }}
-          >
-            {isValid ? "Ready" : "Not Ready"}
-          </Typography>
-        );
-      },
-    },
-    {
-      field: "bulkAction",
-      headerName: "Action",
-      width: 200,
-      renderCell: (params) => (
-        <Tooltip title="Review">
-          <Button
-            variant="contained"
-            color="primary"
-            onClick={() => handleMakeReady(params.row)}
-          >
-            Review
-          </Button>
-        </Tooltip>
-      ),
-    },
-  ];
+export const removeIndividualBulkForwardDraft = (submissionId) => {
+  try {
+    const drafts = getIndividualBulkForwardDrafts();
+    delete drafts[submissionId];
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(drafts));
+    return drafts;
+  } catch (err) {
+    console.error("Failed to remove draft", err);
+    return {};
+  }
+};
 
-  const refreshValidationState = () => {
-    const allValid = areAllSelectedRecordsValidated(rows || []);
-    const summary = getValidationSummaryForRows(rows || []);
+export const clearIndividualBulkForwardDrafts = () => {
+  localStorage.removeItem(STORAGE_KEY);
+};
 
-    setIsAllValidated(allValid);
-    setValidationSummary(summary);
-  };
+/* -------------------------------
+   Generic helpers
+-------------------------------- */
+export const isNonEmptyText = (value = "") => {
+  return typeof value === "string" && value.trim() !== "";
+};
 
-  useEffect(() => {
-    if (open) {
-      refreshValidationState();
-    }
-  }, [open, rows]);
-
-  const handleMakeReady = (row) => {
-    setSelectedRow(row);
-    setOpenForwardDialog(true);
-    console.log("selected row::", row);
-  };
-
-  const handleBulkForwardIndividualRecords = async () => {
-    dispatch(startLoader());
-    try {
-      const validationPayload = {
-        orgTypeId: userData?.OrganizationType?.id,
-        subRoleIds: uniqueRoleIds,
-        submissionIds: submissionIds,
-      };
-      const validateUserPrivileges = await apiClient.post(
-        `/api/oomf/step/bulk-validate-submission`,
-        validationPayload,
-      );
-
-      const validationResults = validateUserPrivileges?.data?.data || [];
-      const subRoleId =
-        validateUserPrivileges?.data?.data[0]?.latestStep?.subRoleId ||
-        validateUserPrivileges?.data?.data[0]?.subRoleId;
-
-      //Check if ANY submission is invalid
-      const anyInvalid = validationResults.some((item) => !item.valid);
-
-      if (anyInvalid) {
-        dispatch(setError("No action found for this role!"));
-        return;
-      }
-      const ids = rows?.map((item) => item?.submissionId) || [];
-      const selectedSubmissionIds = rows?.map((item) => item?.submissionId);
-      const finalPayload = buildBulkForwardIndividualPayload({
-        selectedSubmissionIds,
-        orgTypeId,
-        subRoleId,
-        createdBy,
-      });
-
-      if (!Object.keys(finalPayload).length) {
-        dispatch(setError("No valid individual records found."));
-        return;
-      }
-
-      await apiClient.post(
-        "/api/oomf/step/bulk-forward-application",
-        finalPayload,
-      );
-
-      dispatch(setSuccess("All individual records forwarded successfully."));
-      clearIndividualBulkForwardDrafts();
-      setOpenBulkForwardDialog(false);
-      setOpenSuccessDialog(true);
-      if (onSuccess) {
-        onSuccess();
-      } else {
-        onClose();
-      }
-      onClose();
-    } catch (error) {
-      dispatch(setError("Failed to bulk forward individual records."));
-    } finally {
-      dispatch(stopLoader());
-    }
-  };
-
+export const hasDocuments = (docs = []) => {
   return (
-    <>
-      <Dialog open={open} onClose={onClose} fullWidth maxWidth="lg">
-        <DialogTitle
-          sx={{
-            backgroundColor: "#45154f",
-            display: "flex",
-            justifyContent: "space-between",
-          }}
-        >
-          <Box sx={{ display: "flex" }}>
-            <Typography variant="h6" sx={{ color: "#fff" }}>
-              Selected Records for Bulk Forward
-            </Typography>
-          </Box>
-          {/* <Button
-          variant="contained"
-          color="success"
-          onClick={() => setOpenBulkForwardDialog(true)}
-          endIcon={<ArrowForwardIosIcon />}
-          disabled={submissionIds?.length < 2}
-        >
-          Bulk Forward at once
-        </Button> */}
-          <Box sx={{ display: "flex", gap: 2 }}>
-            <Tooltip
-              title={
-                isAllValidated
-                  ? "All individual records are validated and ready."
-                  : "Please ensure bulk forward status for every record should be ready."
-              }
-            >
-              <span>
-                <Button
-                  variant="contained"
-                  color="warning"
-                  onClick={handleBulkForwardIndividualRecords}
-                  endIcon={<ArrowForwardIosIcon />}
-                  disabled={!isAllValidated}
-                  sx={{
-                    "&.Mui-disabled": {
-                      backgroundColor: "#d9913f",
-                      color: "#fff",
-                      opacity: 0.6,
-                    },
-                  }}
-                >
-                  Bulk Forward Individual Records
-                </Button>
-              </span>
-            </Tooltip>
-
-            <Button
-              variant="contained"
-              color="success"
-              onClick={() => setOpenBulkForwardDialog(true)}
-              endIcon={<DoubleArrowIcon />}
-              disabled={submissionIds?.length < 2}
-            >
-              Bulk Forward at once
-            </Button>
-          </Box>
-        </DialogTitle>
-
-        <DialogContent>
-          <Box mt={2}>
-            <SearchTable
-              columns={updatedColumns}
-              data={rows}
-              isCheckbox={false}
-              isHideDensity={false}
-              isHideExport={true}
-              isHideFilter={false}
-              isHideColumn={true}
-              isHidePaging={false}
-            />
-          </Box>
-          <BulkForwardDialog
-            open={openBulkForwardDialog}
-            onClose={() => setOpenBulkForwardDialog(false)}
-            mode={"edit"}
-            submissionIds={submissionIds}
-            isCreator={false} // true only when creator is submitting first time
-            type={""}
-            canForward={true}
-          />
-          <IndividualBulkForwardDialog
-            open={openForwardDialog}
-            onClose={() => {
-              setOpenForwardDialog(false);
-              refreshValidationState();
-            }}
-            mode={"edit"}
-            submissionId={selectedRow?.submissionId}
-            isCreator={Number(selectedRow?.permission?.orderIndex) === 1} // true only when creator is submitting first time
-            type={
-              selectedRow?.permission?.isPostBudget == true
-                ? "addFrequency"
-                : ""
-            }
-            canForward={true}
-            selectedRow={selectedRow}
-          />
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={onClose} variant="contained">
-            Close
-          </Button>
-        </DialogActions>
-      </Dialog>
-      <BulkForwardSuccessDialog
-        open={openSuccessDialog}
-        successDialogParams={successDialogParams}
-        onClose={() => {
-          setOpenSuccessDialog(false);
-          router.push("/niti/oomf-dashboard");
-        }}
-      />
-    </>
+    Array.isArray(docs) &&
+    docs.some(
+      (doc) =>
+        doc &&
+        (
+          doc.uploadedFile ||
+          doc.id ||
+          doc.filePath ||
+          doc.fileName ||
+          doc.name
+        )
+    )
   );
 };
 
-export default BulkForwardSelectionDialog;
+/* -------------------------------
+   Draft validation
+-------------------------------- */
+export const validateCreatorDraft = ({ uploadedFiles = [], remarks = "" }) => {
+  const errors = [];
+
+  if (!hasDocuments(uploadedFiles)) {
+    errors.push("Framework attachment is required.");
+  }
+
+  if (!isNonEmptyText(remarks)) {
+    errors.push("Remarks are required.");
+  }
+
+  return {
+    isValid: errors.length === 0,
+    errors,
+  };
+};
+
+export const validateNonCreatorDraft = ({
+  revisedFrameworkFiles = [],
+  hindiFiles = [],
+  snippetFiles = [],
+  remarks = "",
+  uniqueFlag = "No",
+}) => {
+  const errors = [];
+
+  if (!hasDocuments(revisedFrameworkFiles)) {
+    errors.push("Revised Framework is required.");
+  }
+
+  if (uniqueFlag === "No") {
+    if (!hasDocuments(hindiFiles)) {
+      errors.push("Hindi Document is required.");
+    }
+
+    if (!hasDocuments(snippetFiles)) {
+      errors.push("Snippet of e file is required.");
+    }
+
+    if (!isNonEmptyText(remarks)) {
+      errors.push("Remarks are required.");
+    }
+  }
+
+  return {
+    isValid: errors.length === 0,
+    errors,
+  };
+};
+
+/* -------------------------------
+   Row-level validation
+   (draft OR prepopulated row data)
+-------------------------------- */
+export const validateRowForBulkForward = (row) => {
+  const submissionId = row?.submissionId;
+  const drafts = getIndividualBulkForwardDrafts();
+  const draft = drafts?.[submissionId];
+
+  // 1. If draft exists, validate from draft
+  if (draft) {
+    if (draft?.isCreator) {
+      return validateCreatorDraft({
+        uploadedFiles: draft?.documents || [],
+        remarks: draft?.remarks || "",
+      });
+    }
+
+    const docs = draft?.documents || [];
+
+    return validateNonCreatorDraft({
+      revisedFrameworkFiles: docs.filter(
+        (doc) => doc?.name === "Revised framework" || doc?.name === "Framework"
+      ),
+      hindiFiles: docs.filter((doc) => doc?.name === "Hindi Document"),
+      snippetFiles: docs.filter((doc) => doc?.name === "Snippet of e file "),
+      remarks: draft?.remarks || "",
+      uniqueFlag: row?.uniqueFlag || "No",
+    });
+  }
+
+  // 2. Otherwise validate from backend/prepopulated row documents
+  const docs = row?.documents || [];
+  const remarks = row?.remarks || row?.fromRemarks || "";
+
+  const isCreator = Number(row?.permission?.orderIndex) === 1;
+
+  if (isCreator) {
+    return validateCreatorDraft({
+      uploadedFiles: docs.filter(
+        (doc) => doc?.name === "Framework" || doc?.name === "Revised framework"
+      ),
+      remarks,
+    });
+  }
+
+  return validateNonCreatorDraft({
+    revisedFrameworkFiles: docs.filter(
+      (doc) => doc?.name === "Revised framework" || doc?.name === "Framework"
+    ),
+    hindiFiles: docs.filter((doc) => doc?.name === "Hindi Document"),
+    snippetFiles: docs.filter((doc) => doc?.name === "Snippet of e file "),
+    remarks,
+    uniqueFlag: row?.uniqueFlag || "No",
+  });
+};
+
+/* -------------------------------
+   Bulk-level validation
+-------------------------------- */
+export const areAllSelectedRecordsValidated = (rows = []) => {
+  if (!rows?.length) return false;
+
+  return rows.every((row) => validateRowForBulkForward(row).isValid);
+};
+
+export const getValidationSummaryForRows = (rows = []) => {
+  return rows.map((row) => {
+    const validation = validateRowForBulkForward(row);
+
+    return {
+      submissionId: row?.submissionId,
+      isValid: validation.isValid,
+      errors: validation.errors,
+    };
+  });
+};
+
+/* -------------------------------
+   Final payload
+-------------------------------- */
+export const buildBulkForwardIndividualPayload = ({
+  selectedSubmissionIds = [],
+  orgTypeId,
+  subRoleId,
+  createdBy,
+}) => {
+  console.log("d;::",selectedSubmissionIds)
+  const drafts = getIndividualBulkForwardDrafts();
+
+  const validSubmissionIds = [];
+  const fromDocumentIds = {};
+  const fromRemarks = {};
+
+  selectedSubmissionIds?.forEach((id) => {
+    const draft = drafts?.[id];
+
+    if (draft?.payload) {
+      validSubmissionIds.push(Number(id));
+      fromDocumentIds[id] = draft?.payload?.fromDocumentIds || [];
+      fromRemarks[id] = draft?.payload?.fromRemarks || "";
+    }
+  });
+
+  return {
+    submissionIds: validSubmissionIds,
+    orgTypeId,
+    subRoleId,
+    fromRemarks,
+    fromDocumentIds,
+    createdBy,
+  };
+};
