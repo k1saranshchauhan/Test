@@ -2,14 +2,12 @@ import {
   Dialog,
   DialogTitle,
   DialogContent,
-  IconButton,
   Tooltip,
   Box,
   Button,
   Typography,
   DialogActions,
 } from "@mui/material";
-import CloseIcon from "@mui/icons-material/Close";
 import SearchTable from "../../SearchTable";
 import ArrowForwardIosIcon from "@mui/icons-material/ArrowForwardIos";
 import BulkForwardDialog from "../../nitiAyog/oomfForm/BulkForwardDialog";
@@ -20,7 +18,6 @@ import {
   areAllSelectedRecordsValidated,
   buildBulkForwardIndividualPayload,
   getValidationSummaryForRows,
-  clearIndividualBulkForwardDrafts,
 } from "@/utils/oomf/individualBulkForwardDraft";
 import { useDispatch, useSelector } from "react-redux";
 import {
@@ -40,24 +37,26 @@ const BulkForwardSelectionDialog = ({
   rows,
   columns,
 }) => {
-  // Add Action column dynamically
   const submissionIds = rows?.map((item) => item?.submissionId);
+
   const [openBulkForwardDialog, setOpenBulkForwardDialog] = useState(false);
   const [openForwardDialog, setOpenForwardDialog] = useState(false);
   const [selectedRow, setSelectedRow] = useState(null);
-  const dispatch = useDispatch();
+
   const [isAllValidated, setIsAllValidated] = useState(false);
   const [validationSummary, setValidationSummary] = useState([]);
   const [openSuccessDialog, setOpenSuccessDialog] = useState(false);
   const [successDialogParams, setSuccessDialogParams] = useState(null);
-  const [columnVisibilityModel, setColumnVisibilityModel] = useState({
-    remarks: false,
-    documents: false,
-  });
+
+  // ✅ central React state for all row drafts
+  const [drafts, setDrafts] = useState({});
+
+  const dispatch = useDispatch();
+  const router = useRouter();
+
   const userData = useSelector((state) => state.config.userData);
   const orgTypeId = userData?.OrganizationType?.id;
   const createdBy = userData?.id;
-  const router = useRouter();
 
   const uniqueRoleIds = [
     ...new Set(
@@ -78,7 +77,6 @@ const BulkForwardSelectionDialog = ({
         }
         return col;
       }),
-    ,
     {
       field: "validationStatus",
       headerName: "Bulk forward Status",
@@ -124,33 +122,32 @@ const BulkForwardSelectionDialog = ({
   ];
 
   const refreshValidationState = () => {
-    const allValid = areAllSelectedRecordsValidated(rows || []);
-    const summary = getValidationSummaryForRows(rows || []);
+    const allValid = areAllSelectedRecordsValidated(rows || [], drafts);
+    const summary = getValidationSummaryForRows(rows || [], drafts);
 
     setIsAllValidated(allValid);
     setValidationSummary(summary);
   };
 
-  useEffect(()=>{
+  useEffect(() => {
     if (rows?.length > 0) {
       setSuccessDialogParams({
-        ministry: rows[0].ministry,
+        ministry: rows[0]?.ministry,
         department: rows[0]?.department,
         scheme: "-",
       });
     }
-  },[])
+  }, [rows]);
 
   useEffect(() => {
     if (open) {
       refreshValidationState();
     }
-  }, [open, rows]);
+  }, [open, rows, drafts]);
 
   const handleMakeReady = (row) => {
     setSelectedRow(row);
     setOpenForwardDialog(true);
-    console.log("selected row::", row);
   };
 
   const handleBulkForwardIndividualRecords = async () => {
@@ -161,33 +158,34 @@ const BulkForwardSelectionDialog = ({
         subRoleIds: uniqueRoleIds,
         submissionIds: submissionIds,
       };
+
       const validateUserPrivileges = await apiClient.post(
         `/api/oomf/step/bulk-validate-submission`,
         validationPayload,
       );
 
       const validationResults = validateUserPrivileges?.data?.data || [];
-      const subRoleId =
-        validateUserPrivileges?.data?.data[0]?.latestStep?.subRoleId ||
-        validateUserPrivileges?.data?.data[0]?.subRoleId;
 
-      //Check if ANY submission is invalid
+      const subRoleId =
+        validationResults?.[0]?.latestStep?.subRoleId ||
+        validationResults?.[0]?.subRoleId;
+
       const anyInvalid = validationResults.some((item) => !item.valid);
 
       if (anyInvalid) {
         dispatch(setError("No action found for this role!"));
         return;
       }
-      const selectedSubmissionIds = rows?.map((item) => item?.submissionId);
-      const selectedRows=rows;
+
       const finalPayload = buildBulkForwardIndividualPayload({
-        selectedRows,
+        selectedRows: rows,
+        drafts,
         orgTypeId,
         subRoleId,
         createdBy,
       });
 
-      if (!Object.keys(finalPayload).length) {
+      if (!finalPayload?.submissionIds?.length) {
         dispatch(setError("No valid individual records found."));
         return;
       }
@@ -198,14 +196,19 @@ const BulkForwardSelectionDialog = ({
       );
 
       dispatch(setSuccess("All individual records forwarded successfully."));
-      clearIndividualBulkForwardDrafts();
+
+      // ✅ clear only React state drafts after successful forward
+      setDrafts({});
+
       setOpenBulkForwardDialog(false);
       setOpenSuccessDialog(true);
+
       if (onSuccess) {
         onSuccess();
       } else {
         onClose();
       }
+
       onClose();
     } catch (error) {
       dispatch(setError("Failed to bulk forward individual records."));
@@ -213,7 +216,7 @@ const BulkForwardSelectionDialog = ({
       dispatch(stopLoader());
     }
   };
-  
+
   return (
     <>
       <Dialog open={open} onClose={onClose} fullWidth maxWidth="lg">
@@ -229,15 +232,7 @@ const BulkForwardSelectionDialog = ({
               Selected Records for Bulk Forward
             </Typography>
           </Box>
-          {/* <Button
-          variant="contained"
-          color="success"
-          onClick={() => setOpenBulkForwardDialog(true)}
-          endIcon={<ArrowForwardIosIcon />}
-          disabled={submissionIds?.length < 2}
-        >
-          Bulk Forward at once
-        </Button> */}
+
           <Box sx={{ display: "flex", gap: 2 }}>
             <Tooltip
               title={
@@ -289,22 +284,22 @@ const BulkForwardSelectionDialog = ({
               isHideFilter={false}
               isHideColumn={true}
               isHidePaging={false}
-              // columnVisibilityModel={columnVisibilityModel}
-              // onColumnVisibilityModelChange={setColumnVisibilityModel}
             />
           </Box>
+
           <BulkForwardDialog
             open={openBulkForwardDialog}
             onClose={() => setOpenBulkForwardDialog(false)}
             mode={"edit"}
             submissionIds={submissionIds}
-            isCreator={false} // true only when creator is submitting first time
+            isCreator={false}
             type={""}
             canForward={true}
             successDialogParams={successDialogParams}
             onCloseBulkForwardSelectionDialog={onClose}
             onSuccess={onSuccess}
           />
+
           <IndividualBulkForwardDialog
             open={openForwardDialog}
             onClose={() => {
@@ -313,22 +308,26 @@ const BulkForwardSelectionDialog = ({
             }}
             mode={"edit"}
             submissionId={selectedRow?.submissionId}
-            isCreator={Number(selectedRow?.permission?.orderIndex) === 1} // true only when creator is submitting first time
+            isCreator={Number(selectedRow?.permission?.orderIndex) === 1}
             type={
-              selectedRow?.permission?.isPostBudget == true
+              selectedRow?.permission?.isPostBudget === true
                 ? "addFrequency"
                 : ""
             }
             canForward={true}
             selectedRow={selectedRow}
+            drafts={drafts}
+            setDrafts={setDrafts}
           />
         </DialogContent>
+
         <DialogActions>
           <Button onClick={onClose} variant="contained">
             Close
           </Button>
         </DialogActions>
       </Dialog>
+
       <BulkForwardSuccessDialog
         open={openSuccessDialog}
         successDialogParams={successDialogParams}
