@@ -1,311 +1,322 @@
-import React, { useEffect, useState } from "react";
-import { Box, Typography, Button, TextField } from "@mui/material";
-import SingleUpload from "./SingleUpload";
-import apiClient from "@/utils/apiClient";
-import ArrowRightAltIcon from "@mui/icons-material/ArrowRightAlt";
-import { useDispatch, useSelector } from "react-redux";
-import { setError, setSuccess } from "@/store/slices/errorSlice";
-import { useRouter } from "next/router";
-import SendIcon from "@mui/icons-material/Send";
-import BulkForwardSuccessDialog from "../oomf/oomfWorkflow/BulkForwardSuccessDialog";
-import { startLoader, stopLoader } from "@/store/slices/errorSlice";
 import {
-  saveIndividualBulkForwardDraft,
-  validateCreatorDraft,
-  getIndividualBulkForwardDraftById,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  IconButton,
+  Tooltip,
+  Box,
+  Button,
+  Typography,
+  DialogActions,
+} from "@mui/material";
+import CloseIcon from "@mui/icons-material/Close";
+import SearchTable from "../../SearchTable";
+import ArrowForwardIosIcon from "@mui/icons-material/ArrowForwardIos";
+import BulkForwardDialog from "../../nitiAyog/oomfForm/BulkForwardDialog";
+import { useEffect, useState } from "react";
+import IndividualBulkForwardDialog from "./IndividualBulkForwardDialog";
+import { useRouter } from "next/router";
+// import {
+//   areAllSelectedRecordsValidated,
+//   buildBulkForwardIndividualPayload,
+//   getValidationSummaryForRows,
+//   clearIndividualBulkForwardDrafts,
+// } from "@/utils/oomf/individualBulkForwardDraft";
+import {
+  areAllSelectedRecordsValidated,
+  buildBulkForwardIndividualPayload,
+  getValidationSummaryForRows,
+  clearIndividualBulkForwardDrafts,
 } from "@/utils/oomf/individualBulkForwardDraft";
-
-const IndividualBulkForwardStepperForCreater = ({ submissionId, successDialogParams, remarks:initialRemarks= "", onClose }) => {
+import { useDispatch, useSelector } from "react-redux";
+import {
+  setError,
+  setSuccess,
+  startLoader,
+  stopLoader,
+} from "@/store/slices/errorSlice";
+import apiClient from "@/utils/apiClient";
+import DoubleArrowIcon from "@mui/icons-material/DoubleArrow";
+import BulkForwardSuccessDialog from "../../oomf/oomfWorkflow/BulkForwardSuccessDialog";
+const BulkForwardSelectionDialog = ({
+  open,
+  onClose,
+  onSuccess,
+  rows,
+  columns,
+}) => {
+  // Add Action column dynamically
+  const submissionIds = rows?.map((item) => item?.submissionId);
+  const [openBulkForwardDialog, setOpenBulkForwardDialog] = useState(false);
+  const [openForwardDialog, setOpenForwardDialog] = useState(false);
+  const [selectedRow, setSelectedRow] = useState(null);
   const dispatch = useDispatch();
-  const router = useRouter();
-  const [revisedFrameworkData, setRevisedFrameworkData] = useState({
-    uploadedFiles: [],
-  });
-  const [remarks, setRemarks] = useState("");
+  const [isAllValidated, setIsAllValidated] = useState(false);
+  const [validationSummary, setValidationSummary] = useState([]);
   const [openSuccessDialog, setOpenSuccessDialog] = useState(false);
+  const [successDialogParams, setSuccessDialogParams] = useState(null);
   const userData = useSelector((state) => state.config.userData);
+  const orgTypeId = userData?.OrganizationType?.id;
+  const createdBy = userData?.id;
+  const router = useRouter();
 
   const uniqueRoleIds = [
     ...new Set(
       userData?.privileges?.flatMap((item) =>
         item.frameworkId === 3 && Array.isArray(item.accessRights?.oomfSubRoles)
-          ? item.accessRights.oomfSubRoles.map((role) => Number(role.id))
+          ? item.accessRights.oomfSubRoles.map((role) => role.id)
           : [],
       ),
     ),
   ];
 
-  const subRoleId = uniqueRoleIds.includes(1) ? 1 : null;
+  const updatedColumns = [
+    ...columns.filter((col) => col.field !== "action"),
+    {
+      field: "validationStatus",
+      headerName: "Bulk forward Status",
+      width: 190,
+      renderCell: (params) => {
+        const record = validationSummary?.find(
+          (item) =>
+            Number(item.submissionId) === Number(params.row.submissionId),
+        );
+
+        const isValid = record?.isValid;
+
+        return (
+          <Typography
+            sx={{
+              fontSize: "14px",
+              fontWeight: 600,
+              color: isValid ? "green" : "orange",
+              mt: 2,
+            }}
+          >
+            {isValid ? "Ready" : "Not Ready"}
+          </Typography>
+        );
+      },
+    },
+    {
+      field: "bulkAction",
+      headerName: "Action",
+      width: 200,
+      renderCell: (params) => (
+        <Tooltip title="Review">
+          <Button
+            variant="contained"
+            color="primary"
+            onClick={() => handleMakeReady(params.row)}
+          >
+            Review
+          </Button>
+        </Tooltip>
+      ),
+    },
+  ];
+
+  const refreshValidationState = () => {
+    const allValid = areAllSelectedRecordsValidated(rows || []);
+    const summary = getValidationSummaryForRows(rows || []);
+
+    setIsAllValidated(allValid);
+    setValidationSummary(summary);
+  };
 
   useEffect(() => {
-  if (!submissionId) return;
+    if (open) {
+      refreshValidationState();
+    }
+  }, [open, rows]);
 
-  const savedDraft = getIndividualBulkForwardDraftById(submissionId);
+  const handleMakeReady = (row) => {
+    setSelectedRow(row);
+    setOpenForwardDialog(true);
+    console.log("selected row::", row);
+  };
 
-  if (savedDraft) {
-    setRevisedFrameworkData({
-      uploadedFiles: savedDraft?.documents || [],
-    });
-
-    setRemarks(savedDraft?.remarks || "");
-  }
-}, [submissionId]);
-
-  const uploadMultipleFiles = async (files, titles = [], docDescription) => {
-    const formData = new FormData();
-    files.forEach((file) => {
-      formData.append("files", file);
-      formData.append("titles[]", "Snippet");
-    });
-    formData.append("reference_type", "oomf");
-    formData.append("user_id", userData?.id);
-    formData.append("remarks", docDescription);
-
+  const handleBulkForwardIndividualRecords = async () => {
+    dispatch(startLoader());
     try {
-      const response = await apiClient.post(
-        "api/document/upload-files",
-        formData,
+      const validationPayload = {
+        orgTypeId: userData?.OrganizationType?.id,
+        subRoleIds: uniqueRoleIds,
+        submissionIds: submissionIds,
+      };
+      const validateUserPrivileges = await apiClient.post(
+        `/api/oomf/step/bulk-validate-submission`,
+        validationPayload,
       );
-      return response.data.files;
-    } catch (err) {
-      console.error("Upload failed:", err);
-      return [];
+
+      const validationResults = validateUserPrivileges?.data?.data || [];
+      const subRoleId =
+        validateUserPrivileges?.data?.data[0]?.latestStep?.subRoleId ||
+        validateUserPrivileges?.data?.data[0]?.subRoleId;
+
+      //Check if ANY submission is invalid
+      const anyInvalid = validationResults.some((item) => !item.valid);
+
+      if (anyInvalid) {
+        dispatch(setError("No action found for this role!"));
+        return;
+      }
+      const ids = rows?.map((item) => item?.submissionId) || [];
+      const selectedSubmissionIds = rows?.map((item) => item?.submissionId);
+      const finalPayload = buildBulkForwardIndividualPayload({
+        selectedSubmissionIds,
+        orgTypeId,
+        subRoleId,
+        createdBy,
+      });
+
+      if (!Object.keys(finalPayload).length) {
+        dispatch(setError("No valid individual records found."));
+        return;
+      }
+
+      await apiClient.post(
+        "/api/oomf/step/bulk-forward-application",
+        finalPayload,
+      );
+
+      dispatch(setSuccess("All individual records forwarded successfully."));
+      clearIndividualBulkForwardDrafts();
+      setOpenBulkForwardDialog(false);
+      setOpenSuccessDialog(true);
+      if (onSuccess) {
+        onSuccess();
+      } else {
+        onClose();
+      }
+      onClose();
+    } catch (error) {
+      dispatch(setError("Failed to bulk forward individual records."));
+    } finally {
+      dispatch(stopLoader());
     }
   };
 
-  // const handleForward = async () => {
-  //   dispatch(startLoader());
-  //   try {
-  //     // validation: check if all documents exist
-  //     // if (revisedFrameworkData.uploadedFiles.length === 0) {
-  //     //   dispatch(
-  //     //     setError("Please upload all mandatory attachments before forwarding.")
-  //     //   );
-  //     //   return;
-  //     // }
-  //     if (!revisedFrameworkData?.uploadedFiles?.[0]?.uploadedFile) {
-  //       dispatch(
-  //         setError("Please upload mandatory attachment before forwarding."),
-  //       );
-  //       return;
-  //     }
-  //     if (!remarks.trim()) {
-  //       dispatch(setError("Please fill Remarks."));
-  //       return;
-  //     }
-
-  //     const allDocumentIds = [...(revisedFrameworkData.uploadedFiles || [])];
-  //     const payload = {
-  //       orgTypeId: userData?.OrganizationType?.id,
-  //       subRoleId: subRoleId,
-  //       submissionId: Number(submissionId),
-  //       fromRemarks: remarks,
-  //       fromDocumentIds: allDocumentIds,
-  //       createdBy: userData?.id,
-  //     };
-  //     const res = await apiClient.post(
-  //       `/api/oomf/step/forward-application`,
-  //       payload,
-  //     );
-  //     dispatch(setSuccess("Application forwarded successfully"));
-  //     // router.push("/niti/oomf-dashboard");
-  //     // OPEN SUCCESS POPUP
-  //     setOpenSuccessDialog(true);
-  //   } catch (error) {
-  //     dispatch(setError("Failed to forward application"));
-  //   } finally {
-  //     dispatch(stopLoader());
-  //   }
-  // };
-const handleSaveDraft = async () => {
-  try {
-    const validation = validateCreatorDraft({
-      uploadedFiles: revisedFrameworkData?.uploadedFiles || [],
-      remarks,
-    });
-
-    if (!validation.isValid) {
-      dispatch(setError(validation.errors[0]));
-      return;
-    }
-
-    const allDocumentIds = [...(revisedFrameworkData.uploadedFiles || [])];
-
-    const draftPayload = {
-      orgTypeId: userData?.OrganizationType?.id,
-      subRoleId: subRoleId,
-      submissionId: Number(submissionId),
-      fromRemarks: remarks,
-      fromDocumentIds: allDocumentIds,
-      createdBy: userData?.id,
-    };
-
-    saveIndividualBulkForwardDraft(submissionId, {
-      submissionId: Number(submissionId),
-      isCreator: true,
-      type: "creator",
-      documents: allDocumentIds,
-      remarks,
-      isValid: validation.isValid,
-      errors: validation.errors,
-      payload: draftPayload,
-    });
-
-    dispatch(setSuccess("Record saved successfully for Bulk Forward."));
-    onClose()
-  } catch (error) {
-    dispatch(setError("Failed to save record."));
-  }
-};
   return (
     <>
-      <Box sx={{ mt: 3 }}>
-          <Box
-            sx={{
-              backgroundColor: "#FFF3CD",
-              border: "1px solid #FFEEBA",
-              padding: "12px 16px",
-              borderRadius: "6px",
-              mb: 2,
-            }}
-          >
-            <Typography sx={{ color: "#856404", fontSize: "14px" }}>
-              <strong>Note:</strong> When making individual framework ready for Bulk forward, the
-              documents and remarks previously uploaded for individual schemes
-              will be replaced by the documents and remarks submitted here. 
-            </Typography>
-          </Box>
-        <Box
+      <Dialog open={open} onClose={onClose} fullWidth maxWidth="lg">
+        <DialogTitle
           sx={{
-            color: "#fff",
             backgroundColor: "#45154f",
-            borderRadius: "5px",
-            p: "8px 20px 8px 20px",
+            display: "flex",
+            justifyContent: "space-between",
           }}
         >
-          <Typography variant="h6">
-            Mandatory Attachments <span style={{ color: "#E43636" }}>*</span>
-          </Typography>
-        </Box>
-        <Box
-          sx={{
-            border: "1px solid lightgray",
-            borderRadius: "5px",
-            px: 3,
-            pt: 2,
-            pb: 1,
-            mt: 2,
-          }}
-        >
-          <Box sx={{ mt: 2 }}>
-            <SingleUpload
-              initialDocuments={revisedFrameworkData.uploadedFiles || []}
-              handleJsonDataChange={(fieldName) => (e) => {
-                if (fieldName === "supportingDocuments") {
-                  setRevisedFrameworkData((prev) => ({
-                    ...prev,
-                    uploadedFiles: e.target.value,
-                  }));
-                }
-              }}
-              uploadMultipleFiles={uploadMultipleFiles}
-              documentName={"Framework"}
-              deleteFunctionality={false}
-              // isViewing={isReadOnly}
-            />
-          </Box>
-        </Box>
-
-        {/* Remarks */}
-        <Box sx={{ mt: 2 }}>
-          <Box
-            sx={{
-              color: "#fff",
-              backgroundColor: "#45154f",
-              borderRadius: "5px",
-              p: "8px 20px 8px 20px",
-            }}
-          >
-            <Typography variant="h6">
-              Remarks <span style={{ color: "#E43636" }}>*</span>
+          <Box sx={{ display: "flex" }}>
+            <Typography variant="h6" sx={{ color: "#fff" }}>
+              Selected Records for Bulk Forward
             </Typography>
           </Box>
-          {/* <TextField
-            required
-            placeholder="Kindly add Remarks"
-            multiline
-            minRows={3}
-            fullWidth
-            variant="outlined"
-            value={remarks}
-            onChange={(e) => setRemarks(e.target.value)}
-            sx={{ mt: 1 }}
-          /> */}
-          <Box position="relative">
-            <TextField
-              required
-              placeholder="Kindly add Remarks"
-              multiline
-              minRows={3}
-              fullWidth
-              variant="outlined"
-              value={remarks}
-              onChange={(e) => {
-                const value = e.target.value;
-                if (value.length <= 1000) {
-                  setRemarks(value);
-                }
-              }}
-              sx={{ mt: 1 }}
-              // inputProps={{ style: { paddingBottom: "25px" } }}
-              inputProps={{
-                style: { paddingBottom: "25px" },
-                pattern: "[a-zA-Z0-9\\-_,.() ]*",
-                onInput: (e) => {
-                  e.target.value = e.target.value.replace(
-                    /[^a-zA-Z0-9\-_,.() ]/g,
-                    "",
-                  );
-                },
-              }}
-            />
-
-            {/* Counter */}
-            <Box
-              sx={{
-                position: "absolute",
-                bottom: 4,
-                right: 8,
-                fontSize: "11px",
-                color: "#666",
-              }}
+          {/* <Button
+          variant="contained"
+          color="success"
+          onClick={() => setOpenBulkForwardDialog(true)}
+          endIcon={<ArrowForwardIosIcon />}
+          disabled={submissionIds?.length < 2}
+        >
+          Bulk Forward at once
+        </Button> */}
+          <Box sx={{ display: "flex", gap: 2 }}>
+            <Tooltip
+              title={
+                isAllValidated
+                  ? "All individual records are validated and ready."
+                  : "Please ensure bulk forward status for every record should be ready."
+              }
             >
-              {remarks.length}/1000
-            </Box>
+              <span>
+                <Button
+                  variant="contained"
+                  color="warning"
+                  onClick={handleBulkForwardIndividualRecords}
+                  endIcon={<ArrowForwardIosIcon />}
+                  disabled={!isAllValidated}
+                  sx={{
+                    "&.Mui-disabled": {
+                      backgroundColor: "#d9913f",
+                      color: "#fff",
+                      opacity: 0.6,
+                    },
+                  }}
+                >
+                  Bulk Forward Individual Records
+                </Button>
+              </span>
+            </Tooltip>
+
+            <Button
+              variant="contained"
+              color="success"
+              onClick={() => setOpenBulkForwardDialog(true)}
+              endIcon={<DoubleArrowIcon />}
+              disabled={submissionIds?.length < 2}
+            >
+              Bulk Forward at once
+            </Button>
           </Box>
-        </Box>
-        <Box textAlign="right" mt={3}>
-          <Button
-            variant="contained"
-            size="large"
-            color="success"
-            onClick={handleSaveDraft}
-            // endIcon={<SendIcon />}
-          >
-            Save
+        </DialogTitle>
+
+        <DialogContent>
+          <Box mt={2}>
+            <SearchTable
+              columns={updatedColumns}
+              data={rows}
+              isCheckbox={false}
+              isHideDensity={false}
+              isHideExport={true}
+              isHideFilter={false}
+              isHideColumn={true}
+              isHidePaging={false}
+            />
+          </Box>
+          <BulkForwardDialog
+            open={openBulkForwardDialog}
+            onClose={() => setOpenBulkForwardDialog(false)}
+            mode={"edit"}
+            submissionIds={submissionIds}
+            isCreator={false} // true only when creator is submitting first time
+            type={""}
+            canForward={true}
+          />
+          <IndividualBulkForwardDialog
+            open={openForwardDialog}
+            onClose={() => {
+              setOpenForwardDialog(false);
+              refreshValidationState();
+            }}
+            mode={"edit"}
+            submissionId={selectedRow?.submissionId}
+            isCreator={Number(selectedRow?.permission?.orderIndex) === 1} // true only when creator is submitting first time
+            type={
+              selectedRow?.permission?.isPostBudget == true
+                ? "addFrequency"
+                : ""
+            }
+            canForward={true}
+            selectedRow={selectedRow}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={onClose} variant="contained">
+            Close
           </Button>
-        </Box>
-      </Box>
-      {/* <BulkForwardSuccessDialog
+        </DialogActions>
+      </Dialog>
+      <BulkForwardSuccessDialog
         open={openSuccessDialog}
         successDialogParams={successDialogParams}
         onClose={() => {
           setOpenSuccessDialog(false);
           router.push("/niti/oomf-dashboard");
         }}
-      /> */}
+      />
     </>
   );
 };
 
-export default IndividualBulkForwardStepperForCreater;
+export default BulkForwardSelectionDialog;
