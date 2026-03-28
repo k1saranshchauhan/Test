@@ -22,10 +22,13 @@ export default function IndividualBulkForwardDialog({
   type = "",
   canForward,
   selectedRow,
+  drafts = {},
+  setDrafts,
 }) {
   const dispatch = useDispatch();
   const [isValidated, setIsValidated] = useState(false);
   const [successDialogParams, setSuccessDialogParams] = useState(null);
+  const [submissionDetails, setSubmissionDetails] = useState(null);
 
   // ---------- Frequency validation helper ----------
   const isEmptyFrequency = (freq) => {
@@ -86,15 +89,19 @@ export default function IndividualBulkForwardDialog({
       dispatch(startLoader());
       try {
         const res = await apiClient.get(
-          `api/oomf/submissions/applicationDetailsById/${submissionId}`,
+          `api/oomf/submissions/applicationDetailsById/${submissionId}`
         );
+
         const data = res.data?.data;
+        setSubmissionDetails(data);
+
         const successParams = {
           ministry: data?.form_values?.ministryId?.name,
           department: data?.form_values?.departmentId?.name,
           scheme: data?.form_values?.schemeId?.name,
         };
         setSuccessDialogParams(successParams);
+
         if (type === "addFrequency") {
           const validationResult = validateFrequencyAndTargets(data);
           setIsValidated(validationResult.valid);
@@ -103,6 +110,8 @@ export default function IndividualBulkForwardDialog({
             dispatch(setError(validationResult.message));
             onClose();
           }
+        } else {
+          setIsValidated(true);
         }
       } catch (err) {
         dispatch(setError("Failed to validate submission data."));
@@ -115,10 +124,26 @@ export default function IndividualBulkForwardDialog({
     fetchAndValidate();
   }, [open, submissionId, type, dispatch, onClose]);
 
+  const currentDraft = drafts?.[submissionId] || null;
+
+  // API docs fallback first, then selectedRow docs fallback
+  const apiDocuments =
+    submissionDetails?.documents ||
+    submissionDetails?.fromDocumentIds ||
+    selectedRow?.documents ||
+    [];
+
+  const apiRemarks =
+    submissionDetails?.remarks ||
+    submissionDetails?.fromRemarks ||
+    selectedRow?.remarks ||
+    "";
+
   return (
     <Dialog open={open} onClose={onClose} fullWidth maxWidth="lg">
       <DialogTitle sx={{ backgroundColor: "#45154f", color: "#fff" }}>
-        <TelegramIcon /> Review to make individual framework ready for Bulk forward
+        <TelegramIcon sx={{ mr: 1, verticalAlign: "middle" }} />
+        Review to make individual framework ready for Bulk forward
       </DialogTitle>
 
       <DialogContent dividers>
@@ -129,6 +154,10 @@ export default function IndividualBulkForwardDialog({
             submissionId={submissionId}
             successDialogParams={successDialogParams}
             onClose={onClose}
+            draftData={currentDraft}
+            setDrafts={setDrafts}
+            documents={apiDocuments}
+            remarks={apiRemarks}
           />
         ) : (
           <IndividualBulkForwardStepper
@@ -136,9 +165,12 @@ export default function IndividualBulkForwardDialog({
             canForward={canForward}
             submissionId={submissionId}
             successDialogParams={successDialogParams}
-            documents={selectedRow?.documents}
-            remarks={selectedRow?.remarks ?? ""}
+            documents={apiDocuments}
+            remarks={apiRemarks}
             onClose={onClose}
+            draftData={currentDraft}
+            setDrafts={setDrafts}
+            uniqueFlag={selectedRow?.uniqueFlag || "No"}
           />
         )}
       </DialogContent>
