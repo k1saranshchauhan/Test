@@ -1,51 +1,3 @@
-const STORAGE_KEY = "individual_bulk_forward_drafts";
-
-export const getIndividualBulkForwardDrafts = () => {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : {};
-  } catch (err) {
-    console.error("Failed to parse individual bulk forward drafts", err);
-    return {};
-  }
-};
-
-export const saveIndividualBulkForwardDraft = (submissionId, data) => {
-  try {
-    const drafts = getIndividualBulkForwardDrafts();
-    drafts[submissionId] = {
-      ...(drafts[submissionId] || {}),
-      ...data,
-    };
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(drafts));
-    return drafts;
-  } catch (err) {
-    console.error("Failed to save individual bulk forward draft", err);
-    return {};
-  }
-};
-
-export const getIndividualBulkForwardDraftById = (submissionId) => {
-  const drafts = getIndividualBulkForwardDrafts();
-  return drafts?.[submissionId] || null;
-};
-
-export const removeIndividualBulkForwardDraft = (submissionId) => {
-  try {
-    const drafts = getIndividualBulkForwardDrafts();
-    delete drafts[submissionId];
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(drafts));
-    return drafts;
-  } catch (err) {
-    console.error("Failed to remove draft", err);
-    return {};
-  }
-};
-
-export const clearIndividualBulkForwardDrafts = () => {
-  localStorage.removeItem(STORAGE_KEY);
-};
-
 /* -------------------------------
    Generic helpers
 -------------------------------- */
@@ -59,13 +11,11 @@ export const hasDocuments = (docs = []) => {
     docs.some(
       (doc) =>
         doc &&
-        (
-          doc.uploadedFile ||
+        (doc.uploadedFile ||
           doc.id ||
           doc.filePath ||
           doc.fileName ||
-          doc.name
-        )
+          doc.name)
     )
   );
 };
@@ -127,12 +77,11 @@ export const validateNonCreatorDraft = ({
    Row-level validation
    (draft OR prepopulated row data)
 -------------------------------- */
-export const validateRowForBulkForward = (row) => {
+export const validateRowForBulkForward = (row, drafts = {}) => {
   const submissionId = row?.submissionId;
-  const drafts = getIndividualBulkForwardDrafts();
   const draft = drafts?.[submissionId];
 
-  // 1. If draft exists, validate from draft
+  // 1. If React state draft exists, validate from that
   if (draft) {
     if (draft?.isCreator) {
       return validateCreatorDraft({
@@ -154,7 +103,7 @@ export const validateRowForBulkForward = (row) => {
     });
   }
 
-  // 2. Otherwise validate from backend/prepopulated row documents
+  // 2. Otherwise validate from backend/prepopulated row data
   const docs = row?.documents || [];
   const remarks = row?.remarks || row?.fromRemarks || "";
 
@@ -183,15 +132,15 @@ export const validateRowForBulkForward = (row) => {
 /* -------------------------------
    Bulk-level validation
 -------------------------------- */
-export const areAllSelectedRecordsValidated = (rows = []) => {
+export const areAllSelectedRecordsValidated = (rows = [], drafts = {}) => {
   if (!rows?.length) return false;
 
-  return rows.every((row) => validateRowForBulkForward(row).isValid);
+  return rows.every((row) => validateRowForBulkForward(row, drafts).isValid);
 };
 
-export const getValidationSummaryForRows = (rows = []) => {
+export const getValidationSummaryForRows = (rows = [], drafts = {}) => {
   return rows.map((row) => {
-    const validation = validateRowForBulkForward(row);
+    const validation = validateRowForBulkForward(row, drafts);
 
     return {
       submissionId: row?.submissionId,
@@ -206,12 +155,11 @@ export const getValidationSummaryForRows = (rows = []) => {
 -------------------------------- */
 export const buildBulkForwardIndividualPayload = ({
   selectedRows = [],
+  drafts = {},
   orgTypeId,
   subRoleId,
   createdBy,
 }) => {
-  const drafts = getIndividualBulkForwardDrafts();
-
   const validSubmissionIds = [];
   const fromDocumentIds = {};
   const fromRemarks = {};
@@ -220,20 +168,18 @@ export const buildBulkForwardIndividualPayload = ({
     const id = row?.submissionId;
     const draft = drafts?.[id];
 
-    // If user has overridden and saved draft, use that
-    if (draft?.payload) {
+    // 1. If user has overridden via React state, use that
+    if (draft) {
       validSubmissionIds.push(Number(id));
-      fromDocumentIds[id] = draft?.payload?.fromDocumentIds || [];
-      fromRemarks[id] = draft?.payload?.fromRemarks || "";
+      fromDocumentIds[id] = draft?.documents || [];
+      fromRemarks[id] = draft?.remarks || "";
       return;
     }
-    // Otherwise fallback to backend/prepopulated row data
-    const docs = row?.documents || [];
-    const remarks = row?.remarks || row?.fromRemarks || "";
 
+    // 2. Otherwise use backend/prepopulated row data
     validSubmissionIds.push(Number(id));
-    fromDocumentIds[id] = docs;
-    fromRemarks[id] = remarks;
+    fromDocumentIds[id] = row?.documents || [];
+    fromRemarks[id] = row?.remarks || row?.fromRemarks || "";
   });
 
   return {
