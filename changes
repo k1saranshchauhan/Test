@@ -1,27 +1,12 @@
 import React, { useEffect, useState } from "react";
-import {
-  Box,
-  Typography,
-  Button,
-  TextField,
-  Dialog,
-  DialogTitle,
-} from "@mui/material";
+import { Box, Typography, Button, TextField } from "@mui/material";
 import SingleUpload from "./SingleUpload";
 import apiClient from "@/utils/apiClient";
-import ArrowRightAltIcon from "@mui/icons-material/ArrowRightAlt";
-import SendIcon from "@mui/icons-material/Send";
 import { useDispatch, useSelector } from "react-redux";
 import { setError, setSuccess } from "@/store/slices/errorSlice";
-import { useRouter } from "next/router";
 import { setOomfWorkflowDocuments } from "@/store/slices/configSlice";
-import { decryptData } from "@/utils/niti/encryption";
-import { startLoader, stopLoader } from "@/store/slices/errorSlice";
-import BulkForwardSuccessDialog from "../oomf/oomfWorkflow/BulkForwardSuccessDialog";
 import {
-  saveIndividualBulkForwardDraft,
   validateNonCreatorDraft,
-  getIndividualBulkForwardDraftById,
 } from "@/utils/oomf/individualBulkForwardDraft";
 
 const IndividualBulkForwardStepper = ({
@@ -30,12 +15,16 @@ const IndividualBulkForwardStepper = ({
   submissionId,
   uniqueFlag = "No",
   successDialogParams,
-  documents,
-  remarks:initialRemarks= "",
+  documents = [],
+  remarks: initialRemarks = "",
   onClose,
+
+  // ✅ NEW PROPS FROM PARENT
+  draftData = {},
+  setDraftData,
 }) => {
   const dispatch = useDispatch();
-  const router = useRouter();
+
   const [revisedFrameworkData, setRevisedFrameworkData] = useState({
     uploadedFiles: [],
   });
@@ -46,7 +35,7 @@ const IndividualBulkForwardStepper = ({
     uploadedFiles: [],
   });
   const [remarks, setRemarks] = useState("");
-  const [openSuccessDialog, setOpenSuccessDialog] = useState(false);
+
   const userData = useSelector((state) => state.config.userData);
 
   const isReadOnly = mode === "view";
@@ -61,180 +50,76 @@ const IndividualBulkForwardStepper = ({
     ),
   ];
 
-  const subRoleId = uniqueRoleIds[0];
-
-
-
-  // useEffect(() => {
-  //   // If redux is empty (page refresh), restore from localStorage
-  //   if (!documents || documents.length === 0) {
-  //     try {
-  //       const savedDocs = localStorage.getItem("oomfDocs");
-  //       // if (savedDocs) {
-  //       //   const parsed = JSON.parse(savedDocs);
-  //       //   dispatch(setOomfWorkflowDocuments(parsed));
-  //       // }
-  //       try {
-  //         const encrypted = localStorage.getItem("oomfDocs");
-  //         if (encrypted) {
-  //           const decrypted = decryptData(encrypted);
-  //           if (decrypted) {
-  //             dispatch(setOomfWorkflowDocuments(decrypted));
-  //           }
-  //         }
-  //       } catch (err) {
-  //         console.error("Failed to decrypt saved documents", err);
-  //       }
-  //     } catch (err) {
-  //       console.error("Failed to load documents from localStorage", err);
-  //     }
-  //   }
-  // }, []);
-
   useEffect(() => {
     if (uniqueFlag === "Yes") {
       dispatch(setOomfWorkflowDocuments([]));
     }
-  }, []);
+  }, [dispatch, uniqueFlag]);
 
-  // useEffect(() => {
-  //   if (mode === "edit" || mode === "view") {
-  //     setRevisedFrameworkData({
-  //       uploadedFiles: documents?.filter(
-  //         (doc) => doc.name === "Revised framework" || doc.name === "Framework",
-  //       ),
-  //     });
+  // ✅ React-state draft first, then fallback to backend row data
+  useEffect(() => {
+    if (!submissionId) return;
 
-  //     setHindiDocumentData({
-  //       uploadedFiles: documents?.filter(
-  //         (doc) => doc.name === "Hindi Document",
-  //       ),
-  //     });
+    const savedDraft = draftData?.[submissionId];
 
-  //     setSnippetFileData({
-  //       uploadedFiles: documents?.filter(
-  //         (doc) => doc.name === "Snippet of e file ",
-  //       ),
-  //     });
-  //   }
-  // }, [documents, mode]);
+    if (savedDraft) {
+      const savedDocs = savedDraft?.documents || [];
 
-//     useEffect(() => {
-//   if (!submissionId) return;
+      setRevisedFrameworkData({
+        uploadedFiles: savedDocs.filter(
+          (doc) => doc?.name === "Revised framework" || doc?.name === "Framework"
+        ),
+      });
 
-//   const savedDraft = getIndividualBulkForwardDraftById(submissionId);
+      setHindiDocumentData({
+        uploadedFiles: savedDocs.filter(
+          (doc) => doc?.name === "Hindi Document"
+        ),
+      });
 
-//   // First priority = previously saved frontend draft
-//   if (savedDraft) {
-//     const savedDocs = savedDraft?.documents || [];
+      setSnippetFileData({
+        uploadedFiles: savedDocs.filter(
+          (doc) => doc?.name === "Snippet of e file "
+        ),
+      });
 
-//     setRevisedFrameworkData({
-//       uploadedFiles: savedDocs.filter(
-//         (doc) => doc.name === "Revised framework" || doc.name === "Framework"
-//       ),
-//     });
+      setRemarks(savedDraft?.remarks || "");
+      return;
+    }
 
-//     setHindiDocumentData({
-//       uploadedFiles: savedDocs.filter(
-//         (doc) => doc.name === "Hindi Document"
-//       ),
-//     });
-
-//     setSnippetFileData({
-//       uploadedFiles: savedDocs.filter(
-//         (doc) => doc.name === "Snippet of e file "
-//       ),
-//     });
-
-//     setRemarks(savedDraft?.remarks || "");
-//     return;
-//   }
-
-//   // Second priority = backend / passed documents prop
-//   if ((mode === "edit" || mode === "view") && documents?.length) {
-//     setRevisedFrameworkData({
-//       uploadedFiles: documents.filter(
-//         (doc) => doc.name === "Revised framework" || doc.name === "Framework"
-//       ),
-//     });
-
-//     setHindiDocumentData({
-//       uploadedFiles: documents.filter(
-//         (doc) => doc.name === "Hindi Document"
-//       ),
-//     });
-
-//     setSnippetFileData({
-//       uploadedFiles: documents.filter(
-//         (doc) => doc.name === "Snippet of e file "
-//       ),
-//     });
-//   }
-// }, [submissionId, documents, mode]);
-useEffect(() => {
-  if (!submissionId) return;
-
-  const savedDraft = getIndividualBulkForwardDraftById(submissionId);
-
-  // 1st priority = previously saved frontend draft
-  if (savedDraft) {
-    const savedDocs = savedDraft?.documents || [];
-
-    setRevisedFrameworkData({
-      uploadedFiles: savedDocs.filter(
-        (doc) => doc.name === "Revised framework" || doc.name === "Framework"
-      ),
-    });
-
-    setHindiDocumentData({
-      uploadedFiles: savedDocs.filter(
-        (doc) => doc.name === "Hindi Document"
-      ),
-    });
-
-    setSnippetFileData({
-      uploadedFiles: savedDocs.filter(
-        (doc) => doc.name === "Snippet of e file "
-      ),
-    });
-
-    setRemarks(savedDraft?.remarks || "");
-    return;
-  }
-
-  // 2nd priority = backend / passed row data
-  if (mode === "edit" || mode === "view") {
+    // fallback to backend row data
     const backendDocs = documents || [];
 
     setRevisedFrameworkData({
       uploadedFiles: backendDocs.filter(
-        (doc) => doc.name === "Revised framework" || doc.name === "Framework"
+        (doc) => doc?.name === "Revised framework" || doc?.name === "Framework"
       ),
     });
 
     setHindiDocumentData({
       uploadedFiles: backendDocs.filter(
-        (doc) => doc.name === "Hindi Document"
+        (doc) => doc?.name === "Hindi Document"
       ),
     });
 
     setSnippetFileData({
       uploadedFiles: backendDocs.filter(
-        (doc) => doc.name === "Snippet of e file "
+        (doc) => doc?.name === "Snippet of e file "
       ),
     });
 
     setRemarks(initialRemarks || "");
-  }
-}, [submissionId, documents, mode, initialRemarks]);
+  }, [submissionId, documents, mode, initialRemarks, draftData]);
 
   const uploadMultipleFiles = async (files, titles = [], docDescription) => {
     const formData = new FormData();
+
     files.forEach((file) => {
       formData.append("files", file);
       const title = file.name.replace(/[^a-zA-Z0-9]/g, "_");
       formData.append("titles[]", title);
     });
+
     formData.append("reference_type", "oomf");
     formData.append("user_id", userData?.id);
     formData.append("remarks", docDescription);
@@ -251,144 +136,74 @@ useEffect(() => {
     }
   };
 
-  // const handleForward = async () => {
-  //   dispatch(startLoader());
-  //   try {
-  //     // validation: check if all documents exist
-  //     // if (
-  //     //   revisedFrameworkData.uploadedFiles.length === 0 ||
-  //     //   (hindiDocumentData.uploadedFiles.length === 0 && uniqueFlag === "No") ||
-  //     //   (snippetFileData.uploadedFiles.length === 0 && uniqueFlag === "No")
-  //     // ) {
-  //     //   dispatch(
-  //     //     setError("Please upload all mandatory attachments before forwarding.")
-  //     //   );
-  //     //   return;
-  //     // }
-  //     if (
-  //       !revisedFrameworkData?.uploadedFiles[0]?.uploadedFile ||
-  //       (!hindiDocumentData?.uploadedFiles[0]?.uploadedFile &&
-  //         uniqueFlag === "No") ||
-  //       (!snippetFileData?.uploadedFiles[0]?.uploadedFile &&
-  //         uniqueFlag === "No")
-  //     ) {
-  //       dispatch(
-  //         setError(
-  //           "Please upload all mandatory attachments before forwarding.",
-  //         ),
-  //       );
-  //       return;
-  //     }
-  //     if (!remarks.trim() && uniqueFlag === "No") {
-  //       dispatch(setError("Please fill Remarks."));
-  //       return;
-  //     }
-
-  //     const allDocumentIds = [
-  //       ...(revisedFrameworkData.uploadedFiles || []),
-  //       ...(hindiDocumentData.uploadedFiles || []),
-  //       ...(snippetFileData.uploadedFiles || []),
-  //     ];
-  //     const validationPayload = {
-  //       orgTypeId: userData?.OrganizationType?.id,
-  //       subRoleIds: uniqueRoleIds,
-  //       submissionId: Number(submissionId),
-  //     };
-  //     const validateUserPrivileges = await apiClient.post(
-  //       `/api/oomf/step/validate-submission`,
-  //       validationPayload,
-  //     );
-  //     if (!validateUserPrivileges?.data?.data?.valid) {
-  //       dispatch(setError("No action found for this role!"));
-  //       return;
-  //     }
-  //     const payload = {
-  //       orgTypeId: userData?.OrganizationType?.id,
-  //       subRoleId: validateUserPrivileges?.data?.data?.latestStep?.subRoleId,
-  //       submissionId: Number(submissionId),
-  //       fromRemarks: remarks,
-  //       fromDocumentIds: allDocumentIds,
-  //       createdBy: userData?.id,
-  //     };
-  //     const res = await apiClient.post(
-  //       `/api/oomf/step/forward-application`,
-  //       payload,
-  //     );
-  //     dispatch(setSuccess("Application forwarded successfully"));
-  //     dispatch(setOomfWorkflowDocuments([]));
-  //     localStorage.removeItem("oomfDocs");
-  //     // router.push("/niti/oomf-dashboard");
-  //     // OPEN SUCCESS POPUP
-  //     setOpenSuccessDialog(true);
-  //   } catch (error) {
-  //     dispatch(setError("Failed to forward application"));
-  //   } finally {
-  //     dispatch(stopLoader());
-  //   }
-  // };
   const handleSaveDraft = async () => {
-  try {
-    const validation = validateNonCreatorDraft({
-      revisedFrameworkFiles: revisedFrameworkData?.uploadedFiles || [],
-      hindiFiles: hindiDocumentData?.uploadedFiles || [],
-      snippetFiles: snippetFileData?.uploadedFiles || [],
-      remarks,
-      uniqueFlag,
-    });
+    try {
+      const validation = validateNonCreatorDraft({
+        revisedFrameworkFiles: revisedFrameworkData?.uploadedFiles || [],
+        hindiFiles: hindiDocumentData?.uploadedFiles || [],
+        snippetFiles: snippetFileData?.uploadedFiles || [],
+        remarks,
+        uniqueFlag,
+      });
 
-    if (!validation.isValid) {
-      dispatch(setError(validation.errors[0]));
-      return;
+      if (!validation.isValid) {
+        dispatch(setError(validation.errors[0]));
+        return;
+      }
+
+      const allDocumentIds = [
+        ...(revisedFrameworkData.uploadedFiles || []),
+        ...(hindiDocumentData.uploadedFiles || []),
+        ...(snippetFileData.uploadedFiles || []),
+      ];
+
+      const validationPayload = {
+        orgTypeId: userData?.OrganizationType?.id,
+        subRoleIds: uniqueRoleIds,
+        submissionId: Number(submissionId),
+      };
+
+      const validateUserPrivileges = await apiClient.post(
+        `/api/oomf/step/validate-submission`,
+        validationPayload,
+      );
+
+      if (!validateUserPrivileges?.data?.data?.valid) {
+        dispatch(setError("No action found for this role!"));
+        return;
+      }
+
+      const draftPayload = {
+        orgTypeId: userData?.OrganizationType?.id,
+        subRoleId: validateUserPrivileges?.data?.data?.latestStep?.subRoleId,
+        submissionId: Number(submissionId),
+        fromRemarks: remarks,
+        fromDocumentIds: allDocumentIds,
+        createdBy: userData?.id,
+      };
+
+      // ✅ Save in React state only
+      setDraftData((prev) => ({
+        ...prev,
+        [submissionId]: {
+          submissionId: Number(submissionId),
+          isCreator: false,
+          type: "workflow",
+          documents: allDocumentIds,
+          remarks,
+          isValid: validation.isValid,
+          errors: validation.errors,
+          payload: draftPayload,
+        },
+      }));
+
+      dispatch(setSuccess("Record saved successfully for Bulk Forward."));
+      onClose();
+    } catch (error) {
+      dispatch(setError("Failed to save record."));
     }
+  };
 
-    const allDocumentIds = [
-      ...(revisedFrameworkData.uploadedFiles || []),
-      ...(hindiDocumentData.uploadedFiles || []),
-      ...(snippetFileData.uploadedFiles || []),
-    ];
-
-    const validationPayload = {
-      orgTypeId: userData?.OrganizationType?.id,
-      subRoleIds: uniqueRoleIds,
-      submissionId: Number(submissionId),
-    };
-
-    const validateUserPrivileges = await apiClient.post(
-      `/api/oomf/step/validate-submission`,
-      validationPayload,
-    );
-
-    if (!validateUserPrivileges?.data?.data?.valid) {
-      dispatch(setError("No action found for this role!"));
-      return;
-    }
-
-    const draftPayload = {
-      orgTypeId: userData?.OrganizationType?.id,
-      subRoleId: validateUserPrivileges?.data?.data?.latestStep?.subRoleId,
-      submissionId: Number(submissionId),
-      fromRemarks: remarks,
-      fromDocumentIds: allDocumentIds,
-      createdBy: userData?.id,
-    };
-
-    saveIndividualBulkForwardDraft(submissionId, {
-      submissionId: Number(submissionId),
-      isCreator: false,
-      type: "workflow",
-      documents: allDocumentIds,
-      remarks,
-      isValid: validation.isValid,
-      errors: validation.errors,
-      payload: draftPayload,
-    });
-
-    dispatch(setSuccess("Record saved successfully for Bulk Forward."));
-    onClose();
-  } catch (error) {
-    dispatch(setError("Failed to save record."));
-  }
-};
   return (
     <>
       <Box sx={{ mt: 3 }}>
@@ -409,6 +224,7 @@ useEffect(() => {
           </Typography>
         </Box>
       </Box>
+
       {(mode === "edit" || (mode === "view" && canForward)) && (
         <Box sx={{ mt: 3 }}>
           <Box
@@ -423,6 +239,7 @@ useEffect(() => {
               Mandatory Attachments <span style={{ color: "#E43636" }}>*</span>
             </Typography>
           </Box>
+
           <Box
             sx={{
               border: "1px solid lightgray",
@@ -494,7 +311,6 @@ useEffect(() => {
             )}
           </Box>
 
-          {/* Remarks */}
           {uniqueFlag === "No" && (
             <Box sx={{ mt: 2 }}>
               <Box
@@ -509,22 +325,10 @@ useEffect(() => {
                   Remarks <span style={{ color: "#E43636" }}>*</span>
                 </Typography>
               </Box>
-              {/* <TextField
-                required
-                disabled={isReadOnly}
-                placeholder="Kindly add Remarks"
-                multiline
-                minRows={3}
-                fullWidth
-                variant="outlined"
-                value={remarks}
-                onChange={(e) => setRemarks(e.target.value)}
-                sx={{ mt: 1 }}
-              /> */}
+
               <Box position="relative">
                 <TextField
                   required
-                  // disabled={isReadOnly}
                   disabled={
                     !(mode === "edit" || (mode === "view" && canForward))
                   }
@@ -541,7 +345,6 @@ useEffect(() => {
                     }
                   }}
                   sx={{ mt: 1 }}
-                  // inputProps={{ style: { paddingBottom: "25px" } }}
                   inputProps={{
                     style: { paddingBottom: "25px" },
                     pattern: "[a-zA-Z0-9\\-_,.() ]*",
@@ -554,7 +357,6 @@ useEffect(() => {
                   }}
                 />
 
-                {/* Counter */}
                 <Box
                   sx={{
                     position: "absolute",
@@ -569,27 +371,19 @@ useEffect(() => {
               </Box>
             </Box>
           )}
+
           <Box textAlign="right" mt={3}>
             <Button
               variant="contained"
               size="large"
               color="success"
               onClick={handleSaveDraft}
-              // endIcon={<SendIcon />}
             >
               Save
             </Button>
           </Box>
         </Box>
       )}
-      {/* <BulkForwardSuccessDialog
-        open={openSuccessDialog}
-        successDialogParams={successDialogParams}
-        onClose={() => {
-          setOpenSuccessDialog(false);
-          router.push("/niti/oomf-dashboard");
-        }}
-      /> */}
     </>
   );
 };
