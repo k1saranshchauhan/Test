@@ -1,161 +1,384 @@
-import {
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  Button,
-} from "@mui/material";
-import { useEffect, useState } from "react";
-import { useDispatch } from "react-redux";
-import { setError, startLoader, stopLoader } from "@/store/slices/errorSlice";
+import React, { useEffect, useState } from "react";
+import { Box, Typography, Button, TextField } from "@mui/material";
+import SingleUpload from "./SingleUpload";
 import apiClient from "@/utils/apiClient";
-import IndividualBulkForwardStepper from "../IndividualBulkForwardStepper";
-import IndividualBulkForwardStepperForCreater from "../IndividualBulkForwardStepperForCreater";
-import TelegramIcon from "@mui/icons-material/Telegram";
+import { useDispatch, useSelector } from "react-redux";
+import { setError, setSuccess } from "@/store/slices/errorSlice";
+import { setOomfWorkflowDocuments } from "@/store/slices/configSlice";
+import {
+  validateNonCreatorDraft,
+} from "@/utils/oomf/individualBulkForwardDraft";
 
-export default function IndividualBulkForwardDialog({
-  open,
-  onClose,
-  submissionId,
+const IndividualBulkForwardStepper = ({
   mode,
-  isCreator = false,
-  type = "",
   canForward,
-  selectedRow,
+  submissionId,
+  uniqueFlag = "No",
+  successDialogParams,
+  documents,
+  remarks: initialRemarks = "",
+  onClose,
   draftData,
   onSaveDraft,
-}) {
+}) => {
   const dispatch = useDispatch();
-  const [isValidated, setIsValidated] = useState(false);
-  const [successDialogParams, setSuccessDialogParams] = useState(null);
 
-  const isEmptyFrequency = (freq) => {
-    if (!freq) return true;
-    if (typeof freq === "object" && Object.keys(freq).length === 0) return true;
-    if (Array.isArray(freq) && freq.length === 0) return true;
-    if (typeof freq === "string" && freq.trim() === "") return true;
-    return false;
-  };
+  const [revisedFrameworkData, setRevisedFrameworkData] = useState({
+    uploadedFiles: [],
+  });
+  const [hindiDocumentData, setHindiDocumentData] = useState({
+    uploadedFiles: [],
+  });
+  const [snippetFileData, setSnippetFileData] = useState({
+    uploadedFiles: [],
+  });
+  const [remarks, setRemarks] = useState("");
 
-  const isEmptyTargets = (targets) => {
-    if (!targets) return true;
-    if (typeof targets === "object" && Object.keys(targets).length === 0)
-      return true;
-    if (Array.isArray(targets) && targets.length === 0) return true;
-    if (typeof targets === "string" && targets.trim() === "") return true;
-    return false;
-  };
+  const userData = useSelector((state) => state.config.userData);
+  const isReadOnly = mode === "view";
 
-  const validateFrequencyAndTargets = (data) => {
-    if (!data?.form_values?.indicatorData) {
-      return { valid: false, message: "No indicator data found." };
-    }
-
-    for (const item of data.form_values.indicatorData) {
-      for (const section of item.sections || []) {
-        for (const ind of section.indicators || []) {
-          if (isEmptyFrequency(ind.frequency)) {
-            return {
-              valid: false,
-              message:
-                "Please select the frequency for all indicators in the framework before forwarding.",
-            };
-          }
-
-          if (isEmptyTargets(ind.targets)) {
-            return {
-              valid: false,
-              message:
-                "Please fill the frequency value for all indicators in the framework before forwarding.",
-            };
-          }
-        }
-      }
-    }
-
-    return { valid: true, message: "Validation passed." };
-  };
+  const uniqueRoleIds = [
+    ...new Set(
+      userData?.privileges?.flatMap((item) =>
+        item.frameworkId === 3 && Array.isArray(item.accessRights?.oomfSubRoles)
+          ? item.accessRights.oomfSubRoles.map((role) => role.id)
+          : [],
+      ),
+    ),
+  ];
 
   useEffect(() => {
-    if (!open || !submissionId) return;
+    if (uniqueFlag === "Yes") {
+      dispatch(setOomfWorkflowDocuments([]));
+    }
+  }, [dispatch, uniqueFlag]);
 
-    const fetchAndValidate = async () => {
-      dispatch(startLoader());
-      try {
-        const res = await apiClient.get(
-          `api/oomf/submissions/applicationDetailsById/${submissionId}`,
-        );
+  useEffect(() => {
+    if (!submissionId) return;
 
-        const data = res.data?.data;
+    // 1st priority = reviewed in-memory draft
+    if (draftData) {
+      const savedDocs = draftData?.documents || [];
 
-        const successParams = {
-          ministry: data?.form_values?.ministryId?.name,
-          department: data?.form_values?.departmentId?.name,
-          scheme: data?.form_values?.schemeId?.name,
-        };
+      setRevisedFrameworkData({
+        uploadedFiles: savedDocs.filter(
+          (doc) => doc.name === "Revised framework" || doc.name === "Framework",
+        ),
+      });
 
-        setSuccessDialogParams(successParams);
+      setHindiDocumentData({
+        uploadedFiles: savedDocs.filter(
+          (doc) => doc.name === "Hindi Document",
+        ),
+      });
 
-        if (type === "addFrequency") {
-          const validationResult = validateFrequencyAndTargets(data);
-          setIsValidated(validationResult.valid);
+      setSnippetFileData({
+        uploadedFiles: savedDocs.filter(
+          (doc) => doc.name === "Snippet of e file ",
+        ),
+      });
 
-          if (!validationResult.valid) {
-            dispatch(setError(validationResult.message));
-            onClose();
-          }
-        } else {
-          setIsValidated(true);
-        }
-      } catch (err) {
-        dispatch(setError("Failed to validate submission data."));
-        onClose();
-      } finally {
-        dispatch(stopLoader());
+      setRemarks(draftData?.remarks || "");
+      return;
+    }
+
+    // 2nd priority = backend / row data
+    if (mode === "edit" || mode === "view") {
+      const backendDocs = documents || [];
+
+      setRevisedFrameworkData({
+        uploadedFiles: backendDocs.filter(
+          (doc) => doc.name === "Revised framework" || doc.name === "Framework",
+        ),
+      });
+
+      setHindiDocumentData({
+        uploadedFiles: backendDocs.filter(
+          (doc) => doc.name === "Hindi Document",
+        ),
+      });
+
+      setSnippetFileData({
+        uploadedFiles: backendDocs.filter(
+          (doc) => doc.name === "Snippet of e file ",
+        ),
+      });
+
+      setRemarks(initialRemarks || "");
+    }
+  }, [submissionId, documents, mode, initialRemarks, draftData]);
+
+  const uploadMultipleFiles = async (files, titles = [], docDescription) => {
+    const formData = new FormData();
+
+    files.forEach((file) => {
+      formData.append("files", file);
+      const title = file.name.replace(/[^a-zA-Z0-9]/g, "_");
+      formData.append("titles[]", title);
+    });
+
+    formData.append("reference_type", "oomf");
+    formData.append("user_id", userData?.id);
+    formData.append("remarks", docDescription);
+
+    try {
+      const response = await apiClient.post(
+        "api/document/upload-files",
+        formData,
+      );
+      return response.data.files;
+    } catch (err) {
+      console.error("Upload failed:", err);
+      return [];
+    }
+  };
+
+  const handleSaveDraft = async () => {
+    try {
+      const validation = validateNonCreatorDraft({
+        revisedFrameworkFiles: revisedFrameworkData?.uploadedFiles || [],
+        hindiFiles: hindiDocumentData?.uploadedFiles || [],
+        snippetFiles: snippetFileData?.uploadedFiles || [],
+        remarks,
+        uniqueFlag,
+      });
+
+      if (!validation.isValid) {
+        dispatch(setError(validation.errors[0]));
+        return;
       }
-    };
 
-    fetchAndValidate();
-  }, [open, submissionId, type, dispatch, onClose]);
+      const allDocumentIds = [
+        ...(revisedFrameworkData.uploadedFiles || []),
+        ...(hindiDocumentData.uploadedFiles || []),
+        ...(snippetFileData.uploadedFiles || []),
+      ];
+
+      const validationPayload = {
+        orgTypeId: userData?.OrganizationType?.id,
+        subRoleIds: uniqueRoleIds,
+        submissionId: Number(submissionId),
+      };
+
+      const validateUserPrivileges = await apiClient.post(
+        `/api/oomf/step/validate-submission`,
+        validationPayload,
+      );
+
+      if (!validateUserPrivileges?.data?.data?.valid) {
+        dispatch(setError("No action found for this role!"));
+        return;
+      }
+
+      const draftPayload = {
+        orgTypeId: userData?.OrganizationType?.id,
+        subRoleId: validateUserPrivileges?.data?.data?.latestStep?.subRoleId,
+        submissionId: Number(submissionId),
+        fromRemarks: remarks,
+        fromDocumentIds: allDocumentIds,
+        createdBy: userData?.id,
+      };
+
+      onSaveDraft?.(submissionId, {
+        submissionId: Number(submissionId),
+        isCreator: false,
+        type: "workflow",
+        documents: allDocumentIds,
+        remarks,
+        isValid: validation.isValid,
+        errors: validation.errors,
+        payload: draftPayload,
+      });
+
+      dispatch(setSuccess("Record saved successfully for Bulk Forward."));
+      onClose();
+    } catch (error) {
+      dispatch(setError("Failed to save record."));
+    }
+  };
 
   return (
-    <Dialog open={open} onClose={onClose} fullWidth maxWidth="lg">
-      <DialogTitle sx={{ backgroundColor: "#45154f", color: "#fff" }}>
-        <TelegramIcon /> Review to make individual framework ready for Bulk forward
-      </DialogTitle>
+    <>
+      <Box sx={{ mt: 3 }}>
+        <Box
+          sx={{
+            backgroundColor: "#FFF3CD",
+            border: "1px solid #FFEEBA",
+            padding: "12px 16px",
+            borderRadius: "6px",
+            mb: 2,
+          }}
+        >
+          <Typography sx={{ color: "#856404", fontSize: "14px" }}>
+            <strong>Note:</strong> When making individual framework ready for
+            Bulk forward, the documents and remarks previously uploaded for
+            individual schemes will be replaced by the documents and remarks
+            submitted here.
+          </Typography>
+        </Box>
+      </Box>
 
-      <DialogContent dividers>
-        {type === "addFrequency" && !isValidated ? (
-          <div>Validating frequency...</div>
-        ) : isCreator ? (
-          <IndividualBulkForwardStepperForCreater
-            submissionId={submissionId}
-            successDialogParams={successDialogParams}
-            onClose={onClose}
-            draftData={draftData}
-            onSaveDraft={onSaveDraft}
-          />
-        ) : (
-          <IndividualBulkForwardStepper
-            mode={mode}
-            canForward={canForward}
-            submissionId={submissionId}
-            successDialogParams={successDialogParams}
-            documents={selectedRow?.documents}
-            remarks={selectedRow?.remarks ?? ""}
-            onClose={onClose}
-            draftData={draftData}
-            onSaveDraft={onSaveDraft}
-            uniqueFlag={selectedRow?.uniqueFlag || "No"}
-          />
-        )}
-      </DialogContent>
+      {(mode === "edit" || (mode === "view" && canForward)) && (
+        <Box sx={{ mt: 3 }}>
+          <Box
+            sx={{
+              color: "#fff",
+              backgroundColor: "#45154f",
+              borderRadius: "5px",
+              p: "8px 20px 8px 20px",
+            }}
+          >
+            <Typography variant="h6">
+              Mandatory Attachments <span style={{ color: "#E43636" }}>*</span>
+            </Typography>
+          </Box>
 
-      <DialogActions>
-        <Button onClick={onClose} variant="contained">
-          Close
-        </Button>
-      </DialogActions>
-    </Dialog>
+          <Box
+            sx={{
+              border: "1px solid lightgray",
+              borderRadius: "5px",
+              px: 3,
+              pt: 2,
+              pb: 1,
+              mt: 2,
+            }}
+          >
+            <Box sx={{ mt: 2 }}>
+              <SingleUpload
+                initialDocuments={revisedFrameworkData.uploadedFiles || []}
+                handleJsonDataChange={(fieldName) => (e) => {
+                  if (fieldName === "supportingDocuments") {
+                    setRevisedFrameworkData((prev) => ({
+                      ...prev,
+                      uploadedFiles: e.target.value,
+                    }));
+                  }
+                }}
+                uploadMultipleFiles={uploadMultipleFiles}
+                documentName={
+                  uniqueFlag === "No" ? "Revised framework" : "Framework"
+                }
+                deleteFunctionality={false}
+                isViewing={isReadOnly}
+              />
+            </Box>
+
+            {uniqueFlag === "No" && (
+              <Box sx={{ mt: 2 }}>
+                <SingleUpload
+                  initialDocuments={hindiDocumentData.uploadedFiles || []}
+                  handleJsonDataChange={(fieldName) => (e) => {
+                    if (fieldName === "supportingDocuments") {
+                      setHindiDocumentData((prev) => ({
+                        ...prev,
+                        uploadedFiles: e.target.value,
+                      }));
+                    }
+                  }}
+                  uploadMultipleFiles={uploadMultipleFiles}
+                  documentName="Hindi Document"
+                  isViewing={isReadOnly}
+                  deleteFunctionality={false}
+                />
+              </Box>
+            )}
+
+            {uniqueFlag === "No" && (
+              <Box sx={{ mt: 2 }}>
+                <SingleUpload
+                  initialDocuments={snippetFileData.uploadedFiles || []}
+                  handleJsonDataChange={(fieldName) => (e) => {
+                    if (fieldName === "supportingDocuments") {
+                      setSnippetFileData((prev) => ({
+                        ...prev,
+                        uploadedFiles: e.target.value,
+                      }));
+                    }
+                  }}
+                  uploadMultipleFiles={uploadMultipleFiles}
+                  documentName="Snippet of e file "
+                  isViewing={isReadOnly}
+                  deleteFunctionality={false}
+                />
+              </Box>
+            )}
+          </Box>
+
+          {uniqueFlag === "No" && (
+            <Box sx={{ mt: 2 }}>
+              <Box
+                sx={{
+                  color: "#fff",
+                  backgroundColor: "#45154f",
+                  borderRadius: "5px",
+                  p: "8px 20px 8px 20px",
+                }}
+              >
+                <Typography variant="h6">
+                  Remarks <span style={{ color: "#E43636" }}>*</span>
+                </Typography>
+              </Box>
+
+              <Box position="relative">
+                <TextField
+                  required
+                  disabled={
+                    !(mode === "edit" || (mode === "view" && canForward))
+                  }
+                  placeholder="Kindly add Remarks"
+                  multiline
+                  minRows={3}
+                  fullWidth
+                  variant="outlined"
+                  value={remarks}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    if (value.length <= 1000) {
+                      setRemarks(value);
+                    }
+                  }}
+                  sx={{ mt: 1 }}
+                  inputProps={{
+                    style: { paddingBottom: "25px" },
+                    pattern: "[a-zA-Z0-9\\-_,.() ]*",
+                    onInput: (e) => {
+                      e.target.value = e.target.value.replace(
+                        /[^a-zA-Z0-9\-_,.() ]/g,
+                        "",
+                      );
+                    },
+                  }}
+                />
+
+                <Box
+                  sx={{
+                    position: "absolute",
+                    bottom: 4,
+                    right: 8,
+                    fontSize: "11px",
+                    color: "#666",
+                  }}
+                >
+                  {remarks?.length}/1000
+                </Box>
+              </Box>
+            </Box>
+          )}
+
+          <Box textAlign="right" mt={3}>
+            <Button
+              variant="contained"
+              size="large"
+              color="success"
+              onClick={handleSaveDraft}
+            >
+              Save
+            </Button>
+          </Box>
+        </Box>
+      )}
+    </>
   );
-}
+};
+
+export default IndividualBulkForwardStepper;
