@@ -1,153 +1,597 @@
+import React, { useEffect, useState } from "react";
 import {
+  Box,
+  Typography,
+  Button,
+  TextField,
   Dialog,
   DialogTitle,
-  DialogContent,
-  DialogActions,
-  Button,
 } from "@mui/material";
-import { useEffect, useState } from "react";
-import { useDispatch } from "react-redux";
-import { setError, startLoader, stopLoader } from "@/store/slices/errorSlice";
+import SingleUpload from "./SingleUpload";
 import apiClient from "@/utils/apiClient";
-import IndividualBulkForwardStepper from "../IndividualBulkForwardStepper";
-import IndividualBulkForwardStepperForCreater from "../IndividualBulkForwardStepperForCreater";
-import TelegramIcon from "@mui/icons-material/Telegram";
+import ArrowRightAltIcon from "@mui/icons-material/ArrowRightAlt";
+import SendIcon from "@mui/icons-material/Send";
+import { useDispatch, useSelector } from "react-redux";
+import { setError, setSuccess } from "@/store/slices/errorSlice";
+import { useRouter } from "next/router";
+import { setOomfWorkflowDocuments } from "@/store/slices/configSlice";
+import { decryptData } from "@/utils/niti/encryption";
+import { startLoader, stopLoader } from "@/store/slices/errorSlice";
+import BulkForwardSuccessDialog from "../oomf/oomfWorkflow/BulkForwardSuccessDialog";
+import {
+  saveIndividualBulkForwardDraft,
+  validateNonCreatorDraft,
+  getIndividualBulkForwardDraftById,
+} from "@/utils/oomf/individualBulkForwardDraft";
 
-export default function IndividualBulkForwardDialog({
-  open,
-  onClose,
-  submissionId,
+const IndividualBulkForwardStepper = ({
   mode,
-  isCreator = false,
-  type = "",
   canForward,
-  selectedRow,
-}) {
+  submissionId,
+  uniqueFlag = "No",
+  successDialogParams,
+  documents,
+  remarks:initialRemarks= "",
+  onClose,
+}) => {
   const dispatch = useDispatch();
-  const [isValidated, setIsValidated] = useState(false);
-  const [successDialogParams, setSuccessDialogParams] = useState(null);
+  const router = useRouter();
+  const [revisedFrameworkData, setRevisedFrameworkData] = useState({
+    uploadedFiles: [],
+  });
+  const [hindiDocumentData, setHindiDocumentData] = useState({
+    uploadedFiles: [],
+  });
+  const [snippetFileData, setSnippetFileData] = useState({
+    uploadedFiles: [],
+  });
+  const [remarks, setRemarks] = useState("");
+  const [openSuccessDialog, setOpenSuccessDialog] = useState(false);
+  const userData = useSelector((state) => state.config.userData);
 
-  // ---------- Frequency validation helper ----------
-  const isEmptyFrequency = (freq) => {
-    if (!freq) return true;
-    if (typeof freq === "object" && Object.keys(freq).length === 0) return true;
-    if (Array.isArray(freq) && freq.length === 0) return true;
-    if (typeof freq === "string" && freq.trim() === "") return true;
-    return false;
+  const isReadOnly = mode === "view";
+
+  const uniqueRoleIds = [
+    ...new Set(
+      userData?.privileges?.flatMap((item) =>
+        item.frameworkId === 3 && Array.isArray(item.accessRights?.oomfSubRoles)
+          ? item.accessRights.oomfSubRoles.map((role) => role.id)
+          : [],
+      ),
+    ),
+  ];
+
+  const subRoleId = uniqueRoleIds[0];
+
+
+
+  // useEffect(() => {
+  //   // If redux is empty (page refresh), restore from localStorage
+  //   if (!documents || documents.length === 0) {
+  //     try {
+  //       const savedDocs = localStorage.getItem("oomfDocs");
+  //       // if (savedDocs) {
+  //       //   const parsed = JSON.parse(savedDocs);
+  //       //   dispatch(setOomfWorkflowDocuments(parsed));
+  //       // }
+  //       try {
+  //         const encrypted = localStorage.getItem("oomfDocs");
+  //         if (encrypted) {
+  //           const decrypted = decryptData(encrypted);
+  //           if (decrypted) {
+  //             dispatch(setOomfWorkflowDocuments(decrypted));
+  //           }
+  //         }
+  //       } catch (err) {
+  //         console.error("Failed to decrypt saved documents", err);
+  //       }
+  //     } catch (err) {
+  //       console.error("Failed to load documents from localStorage", err);
+  //     }
+  //   }
+  // }, []);
+
+  useEffect(() => {
+    if (uniqueFlag === "Yes") {
+      dispatch(setOomfWorkflowDocuments([]));
+    }
+  }, []);
+
+  // useEffect(() => {
+  //   if (mode === "edit" || mode === "view") {
+  //     setRevisedFrameworkData({
+  //       uploadedFiles: documents?.filter(
+  //         (doc) => doc.name === "Revised framework" || doc.name === "Framework",
+  //       ),
+  //     });
+
+  //     setHindiDocumentData({
+  //       uploadedFiles: documents?.filter(
+  //         (doc) => doc.name === "Hindi Document",
+  //       ),
+  //     });
+
+  //     setSnippetFileData({
+  //       uploadedFiles: documents?.filter(
+  //         (doc) => doc.name === "Snippet of e file ",
+  //       ),
+  //     });
+  //   }
+  // }, [documents, mode]);
+
+//     useEffect(() => {
+//   if (!submissionId) return;
+
+//   const savedDraft = getIndividualBulkForwardDraftById(submissionId);
+
+//   // First priority = previously saved frontend draft
+//   if (savedDraft) {
+//     const savedDocs = savedDraft?.documents || [];
+
+//     setRevisedFrameworkData({
+//       uploadedFiles: savedDocs.filter(
+//         (doc) => doc.name === "Revised framework" || doc.name === "Framework"
+//       ),
+//     });
+
+//     setHindiDocumentData({
+//       uploadedFiles: savedDocs.filter(
+//         (doc) => doc.name === "Hindi Document"
+//       ),
+//     });
+
+//     setSnippetFileData({
+//       uploadedFiles: savedDocs.filter(
+//         (doc) => doc.name === "Snippet of e file "
+//       ),
+//     });
+
+//     setRemarks(savedDraft?.remarks || "");
+//     return;
+//   }
+
+//   // Second priority = backend / passed documents prop
+//   if ((mode === "edit" || mode === "view") && documents?.length) {
+//     setRevisedFrameworkData({
+//       uploadedFiles: documents.filter(
+//         (doc) => doc.name === "Revised framework" || doc.name === "Framework"
+//       ),
+//     });
+
+//     setHindiDocumentData({
+//       uploadedFiles: documents.filter(
+//         (doc) => doc.name === "Hindi Document"
+//       ),
+//     });
+
+//     setSnippetFileData({
+//       uploadedFiles: documents.filter(
+//         (doc) => doc.name === "Snippet of e file "
+//       ),
+//     });
+//   }
+// }, [submissionId, documents, mode]);
+useEffect(() => {
+  if (!submissionId) return;
+
+  const savedDraft = getIndividualBulkForwardDraftById(submissionId);
+
+  // 1st priority = previously saved frontend draft
+  if (savedDraft) {
+    const savedDocs = savedDraft?.documents || [];
+
+    setRevisedFrameworkData({
+      uploadedFiles: savedDocs.filter(
+        (doc) => doc.name === "Revised framework" || doc.name === "Framework"
+      ),
+    });
+
+    setHindiDocumentData({
+      uploadedFiles: savedDocs.filter(
+        (doc) => doc.name === "Hindi Document"
+      ),
+    });
+
+    setSnippetFileData({
+      uploadedFiles: savedDocs.filter(
+        (doc) => doc.name === "Snippet of e file "
+      ),
+    });
+
+    setRemarks(savedDraft?.remarks || "");
+    return;
+  }
+
+  // 2nd priority = backend / passed row data
+  if (mode === "edit" || mode === "view") {
+    const backendDocs = documents || [];
+
+    setRevisedFrameworkData({
+      uploadedFiles: backendDocs.filter(
+        (doc) => doc.name === "Revised framework" || doc.name === "Framework"
+      ),
+    });
+
+    setHindiDocumentData({
+      uploadedFiles: backendDocs.filter(
+        (doc) => doc.name === "Hindi Document"
+      ),
+    });
+
+    setSnippetFileData({
+      uploadedFiles: backendDocs.filter(
+        (doc) => doc.name === "Snippet of e file "
+      ),
+    });
+
+    setRemarks(initialRemarks || "");
+  }
+}, [submissionId, documents, mode, initialRemarks]);
+
+  const uploadMultipleFiles = async (files, titles = [], docDescription) => {
+    const formData = new FormData();
+    files.forEach((file) => {
+      formData.append("files", file);
+      const title = file.name.replace(/[^a-zA-Z0-9]/g, "_");
+      formData.append("titles[]", title);
+    });
+    formData.append("reference_type", "oomf");
+    formData.append("user_id", userData?.id);
+    formData.append("remarks", docDescription);
+
+    try {
+      const response = await apiClient.post(
+        "api/document/upload-files",
+        formData,
+      );
+      return response.data.files;
+    } catch (err) {
+      console.error("Upload failed:", err);
+      return [];
+    }
   };
 
-  // ---------- Targets validation helper ----------
-  const isEmptyTargets = (targets) => {
-    if (!targets) return true;
-    if (typeof targets === "object" && Object.keys(targets).length === 0)
-      return true;
-    if (Array.isArray(targets) && targets.length === 0) return true;
-    if (typeof targets === "string" && targets.trim() === "") return true;
-    return false;
-  };
+  // const handleForward = async () => {
+  //   dispatch(startLoader());
+  //   try {
+  //     // validation: check if all documents exist
+  //     // if (
+  //     //   revisedFrameworkData.uploadedFiles.length === 0 ||
+  //     //   (hindiDocumentData.uploadedFiles.length === 0 && uniqueFlag === "No") ||
+  //     //   (snippetFileData.uploadedFiles.length === 0 && uniqueFlag === "No")
+  //     // ) {
+  //     //   dispatch(
+  //     //     setError("Please upload all mandatory attachments before forwarding.")
+  //     //   );
+  //     //   return;
+  //     // }
+  //     if (
+  //       !revisedFrameworkData?.uploadedFiles[0]?.uploadedFile ||
+  //       (!hindiDocumentData?.uploadedFiles[0]?.uploadedFile &&
+  //         uniqueFlag === "No") ||
+  //       (!snippetFileData?.uploadedFiles[0]?.uploadedFile &&
+  //         uniqueFlag === "No")
+  //     ) {
+  //       dispatch(
+  //         setError(
+  //           "Please upload all mandatory attachments before forwarding.",
+  //         ),
+  //       );
+  //       return;
+  //     }
+  //     if (!remarks.trim() && uniqueFlag === "No") {
+  //       dispatch(setError("Please fill Remarks."));
+  //       return;
+  //     }
 
-  // ---------- Validate frequency and targets ----------
-  const validateFrequencyAndTargets = (data) => {
-    if (!data?.form_values?.indicatorData)
-      return { valid: false, message: "No indicator data found." };
+  //     const allDocumentIds = [
+  //       ...(revisedFrameworkData.uploadedFiles || []),
+  //       ...(hindiDocumentData.uploadedFiles || []),
+  //       ...(snippetFileData.uploadedFiles || []),
+  //     ];
+  //     const validationPayload = {
+  //       orgTypeId: userData?.OrganizationType?.id,
+  //       subRoleIds: uniqueRoleIds,
+  //       submissionId: Number(submissionId),
+  //     };
+  //     const validateUserPrivileges = await apiClient.post(
+  //       `/api/oomf/step/validate-submission`,
+  //       validationPayload,
+  //     );
+  //     if (!validateUserPrivileges?.data?.data?.valid) {
+  //       dispatch(setError("No action found for this role!"));
+  //       return;
+  //     }
+  //     const payload = {
+  //       orgTypeId: userData?.OrganizationType?.id,
+  //       subRoleId: validateUserPrivileges?.data?.data?.latestStep?.subRoleId,
+  //       submissionId: Number(submissionId),
+  //       fromRemarks: remarks,
+  //       fromDocumentIds: allDocumentIds,
+  //       createdBy: userData?.id,
+  //     };
+  //     const res = await apiClient.post(
+  //       `/api/oomf/step/forward-application`,
+  //       payload,
+  //     );
+  //     dispatch(setSuccess("Application forwarded successfully"));
+  //     dispatch(setOomfWorkflowDocuments([]));
+  //     localStorage.removeItem("oomfDocs");
+  //     // router.push("/niti/oomf-dashboard");
+  //     // OPEN SUCCESS POPUP
+  //     setOpenSuccessDialog(true);
+  //   } catch (error) {
+  //     dispatch(setError("Failed to forward application"));
+  //   } finally {
+  //     dispatch(stopLoader());
+  //   }
+  // };
+  const handleSaveDraft = async () => {
+  try {
+    const validation = validateNonCreatorDraft({
+      revisedFrameworkFiles: revisedFrameworkData?.uploadedFiles || [],
+      hindiFiles: hindiDocumentData?.uploadedFiles || [],
+      snippetFiles: snippetFileData?.uploadedFiles || [],
+      remarks,
+      uniqueFlag,
+    });
 
-    for (const item of data.form_values.indicatorData) {
-      for (const section of item.sections || []) {
-        for (const ind of section.indicators || []) {
-          // Frequency validation
-          if (isEmptyFrequency(ind.frequency)) {
-            return {
-              valid: false,
-              message:
-                "Please select the frequency for all indicators in the framework before forwarding.",
-            };
-          }
-
-          // Targets validation
-          if (isEmptyTargets(ind.targets)) {
-            return {
-              valid: false,
-              message:
-                "Please fill the frequency value for all indicators in the framework before forwarding.",
-            };
-          }
-        }
-      }
+    if (!validation.isValid) {
+      dispatch(setError(validation.errors[0]));
+      return;
     }
 
-    return { valid: true, message: "Validation passed." };
-  };
+    const allDocumentIds = [
+      ...(revisedFrameworkData.uploadedFiles || []),
+      ...(hindiDocumentData.uploadedFiles || []),
+      ...(snippetFileData.uploadedFiles || []),
+    ];
 
-  // ---------- Fetch & validate on open ----------
-  useEffect(() => {
-    if (!open || !submissionId) return;
-
-    const fetchAndValidate = async () => {
-      dispatch(startLoader());
-      try {
-        const res = await apiClient.get(
-          `api/oomf/submissions/applicationDetailsById/${submissionId}`,
-        );
-        const data = res.data?.data;
-        const successParams = {
-          ministry: data?.form_values?.ministryId?.name,
-          department: data?.form_values?.departmentId?.name,
-          scheme: data?.form_values?.schemeId?.name,
-        };
-        setSuccessDialogParams(successParams);
-        if (type === "addFrequency") {
-          const validationResult = validateFrequencyAndTargets(data);
-          setIsValidated(validationResult.valid);
-
-          if (!validationResult.valid) {
-            dispatch(setError(validationResult.message));
-            onClose();
-          }
-        }
-      } catch (err) {
-        dispatch(setError("Failed to validate submission data."));
-        onClose();
-      } finally {
-        dispatch(stopLoader());
-      }
+    const validationPayload = {
+      orgTypeId: userData?.OrganizationType?.id,
+      subRoleIds: uniqueRoleIds,
+      submissionId: Number(submissionId),
     };
 
-    fetchAndValidate();
-  }, [open, submissionId, type, dispatch, onClose]);
+    const validateUserPrivileges = await apiClient.post(
+      `/api/oomf/step/validate-submission`,
+      validationPayload,
+    );
 
+    if (!validateUserPrivileges?.data?.data?.valid) {
+      dispatch(setError("No action found for this role!"));
+      return;
+    }
+
+    const draftPayload = {
+      orgTypeId: userData?.OrganizationType?.id,
+      subRoleId: validateUserPrivileges?.data?.data?.latestStep?.subRoleId,
+      submissionId: Number(submissionId),
+      fromRemarks: remarks,
+      fromDocumentIds: allDocumentIds,
+      createdBy: userData?.id,
+    };
+
+    saveIndividualBulkForwardDraft(submissionId, {
+      submissionId: Number(submissionId),
+      isCreator: false,
+      type: "workflow",
+      documents: allDocumentIds,
+      remarks,
+      isValid: validation.isValid,
+      errors: validation.errors,
+      payload: draftPayload,
+    });
+
+    dispatch(setSuccess("Record saved successfully for Bulk Forward."));
+    onClose();
+  } catch (error) {
+    dispatch(setError("Failed to save record."));
+  }
+};
   return (
-    <Dialog open={open} onClose={onClose} fullWidth maxWidth="lg">
-      <DialogTitle sx={{ backgroundColor: "#45154f", color: "#fff" }}>
-        <TelegramIcon /> Review to make individual framework ready for Bulk forward
-      </DialogTitle>
+    <>
+      <Box sx={{ mt: 3 }}>
+        <Box
+          sx={{
+            backgroundColor: "#FFF3CD",
+            border: "1px solid #FFEEBA",
+            padding: "12px 16px",
+            borderRadius: "6px",
+            mb: 2,
+          }}
+        >
+          <Typography sx={{ color: "#856404", fontSize: "14px" }}>
+            <strong>Note:</strong> When making individual framework ready for
+            Bulk forward, the documents and remarks previously uploaded for
+            individual schemes will be replaced by the documents and remarks
+            submitted here.
+          </Typography>
+        </Box>
+      </Box>
+      {(mode === "edit" || (mode === "view" && canForward)) && (
+        <Box sx={{ mt: 3 }}>
+          <Box
+            sx={{
+              color: "#fff",
+              backgroundColor: "#45154f",
+              borderRadius: "5px",
+              p: "8px 20px 8px 20px",
+            }}
+          >
+            <Typography variant="h6">
+              Mandatory Attachments <span style={{ color: "#E43636" }}>*</span>
+            </Typography>
+          </Box>
+          <Box
+            sx={{
+              border: "1px solid lightgray",
+              borderRadius: "5px",
+              px: 3,
+              pt: 2,
+              pb: 1,
+              mt: 2,
+            }}
+          >
+            <Box sx={{ mt: 2 }}>
+              <SingleUpload
+                initialDocuments={revisedFrameworkData.uploadedFiles || []}
+                handleJsonDataChange={(fieldName) => (e) => {
+                  if (fieldName === "supportingDocuments") {
+                    setRevisedFrameworkData((prev) => ({
+                      ...prev,
+                      uploadedFiles: e.target.value,
+                    }));
+                  }
+                }}
+                uploadMultipleFiles={uploadMultipleFiles}
+                documentName={
+                  uniqueFlag === "No" ? "Revised framework" : "Framework"
+                }
+                deleteFunctionality={false}
+                isViewing={isReadOnly}
+              />
+            </Box>
 
-      <DialogContent dividers>
-        {type === "addFrequency" && !isValidated ? (
-          <div>Validating frequency...</div>
-        ) : isCreator ? (
-          <IndividualBulkForwardStepperForCreater
-            submissionId={submissionId}
-            successDialogParams={successDialogParams}
-            onClose={onClose}
-          />
-        ) : (
-          <IndividualBulkForwardStepper
-            mode={mode}
-            canForward={canForward}
-            submissionId={submissionId}
-            successDialogParams={successDialogParams}
-            documents={selectedRow?.documents}
-            remarks={selectedRow?.remarks ?? ""}
-            onClose={onClose}
-          />
-        )}
-      </DialogContent>
+            {uniqueFlag === "No" && (
+              <Box sx={{ mt: 2 }}>
+                <SingleUpload
+                  initialDocuments={hindiDocumentData.uploadedFiles || []}
+                  handleJsonDataChange={(fieldName) => (e) => {
+                    if (fieldName === "supportingDocuments") {
+                      setHindiDocumentData((prev) => ({
+                        ...prev,
+                        uploadedFiles: e.target.value,
+                      }));
+                    }
+                  }}
+                  uploadMultipleFiles={uploadMultipleFiles}
+                  documentName="Hindi Document"
+                  isViewing={isReadOnly}
+                  deleteFunctionality={false}
+                />
+              </Box>
+            )}
 
-      <DialogActions>
-        <Button onClick={onClose} variant="contained">
-          Close
-        </Button>
-      </DialogActions>
-    </Dialog>
+            {uniqueFlag === "No" && (
+              <Box sx={{ mt: 2 }}>
+                <SingleUpload
+                  initialDocuments={snippetFileData.uploadedFiles || []}
+                  handleJsonDataChange={(fieldName) => (e) => {
+                    if (fieldName === "supportingDocuments") {
+                      setSnippetFileData((prev) => ({
+                        ...prev,
+                        uploadedFiles: e.target.value,
+                      }));
+                    }
+                  }}
+                  uploadMultipleFiles={uploadMultipleFiles}
+                  documentName="Snippet of e file "
+                  isViewing={isReadOnly}
+                  deleteFunctionality={false}
+                />
+              </Box>
+            )}
+          </Box>
+
+          {/* Remarks */}
+          {uniqueFlag === "No" && (
+            <Box sx={{ mt: 2 }}>
+              <Box
+                sx={{
+                  color: "#fff",
+                  backgroundColor: "#45154f",
+                  borderRadius: "5px",
+                  p: "8px 20px 8px 20px",
+                }}
+              >
+                <Typography variant="h6">
+                  Remarks <span style={{ color: "#E43636" }}>*</span>
+                </Typography>
+              </Box>
+              {/* <TextField
+                required
+                disabled={isReadOnly}
+                placeholder="Kindly add Remarks"
+                multiline
+                minRows={3}
+                fullWidth
+                variant="outlined"
+                value={remarks}
+                onChange={(e) => setRemarks(e.target.value)}
+                sx={{ mt: 1 }}
+              /> */}
+              <Box position="relative">
+                <TextField
+                  required
+                  // disabled={isReadOnly}
+                  disabled={
+                    !(mode === "edit" || (mode === "view" && canForward))
+                  }
+                  placeholder="Kindly add Remarks"
+                  multiline
+                  minRows={3}
+                  fullWidth
+                  variant="outlined"
+                  value={remarks}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    if (value.length <= 1000) {
+                      setRemarks(value);
+                    }
+                  }}
+                  sx={{ mt: 1 }}
+                  // inputProps={{ style: { paddingBottom: "25px" } }}
+                  inputProps={{
+                    style: { paddingBottom: "25px" },
+                    pattern: "[a-zA-Z0-9\\-_,.() ]*",
+                    onInput: (e) => {
+                      e.target.value = e.target.value.replace(
+                        /[^a-zA-Z0-9\-_,.() ]/g,
+                        "",
+                      );
+                    },
+                  }}
+                />
+
+                {/* Counter */}
+                <Box
+                  sx={{
+                    position: "absolute",
+                    bottom: 4,
+                    right: 8,
+                    fontSize: "11px",
+                    color: "#666",
+                  }}
+                >
+                  {remarks?.length}/1000
+                </Box>
+              </Box>
+            </Box>
+          )}
+          <Box textAlign="right" mt={3}>
+            <Button
+              variant="contained"
+              size="large"
+              color="success"
+              onClick={handleSaveDraft}
+              // endIcon={<SendIcon />}
+            >
+              Save
+            </Button>
+          </Box>
+        </Box>
+      )}
+      {/* <BulkForwardSuccessDialog
+        open={openSuccessDialog}
+        successDialogParams={successDialogParams}
+        onClose={() => {
+          setOpenSuccessDialog(false);
+          router.push("/niti/oomf-dashboard");
+        }}
+      /> */}
+    </>
   );
-}
+};
+
+export default IndividualBulkForwardStepper;
