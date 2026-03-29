@@ -4,19 +4,13 @@ import SingleUpload from "./SingleUpload";
 import apiClient from "@/utils/apiClient";
 import { useDispatch, useSelector } from "react-redux";
 import { setError, setSuccess } from "@/store/slices/errorSlice";
-import { setOomfWorkflowDocuments } from "@/store/slices/configSlice";
 import {
-  validateNonCreatorDraft,
+  validateCreatorDraft,
 } from "@/utils/oomf/individualBulkForwardDraft";
 
-const IndividualBulkForwardStepper = ({
-  mode,
-  canForward,
+const IndividualBulkForwardStepperForCreater = ({
   submissionId,
-  uniqueFlag = "No",
   successDialogParams,
-  documents,
-  remarks: initialRemarks = "",
   onClose,
   draftData,
   onSaveDraft,
@@ -26,95 +20,40 @@ const IndividualBulkForwardStepper = ({
   const [revisedFrameworkData, setRevisedFrameworkData] = useState({
     uploadedFiles: [],
   });
-  const [hindiDocumentData, setHindiDocumentData] = useState({
-    uploadedFiles: [],
-  });
-  const [snippetFileData, setSnippetFileData] = useState({
-    uploadedFiles: [],
-  });
   const [remarks, setRemarks] = useState("");
 
   const userData = useSelector((state) => state.config.userData);
-  const isReadOnly = mode === "view";
 
   const uniqueRoleIds = [
     ...new Set(
       userData?.privileges?.flatMap((item) =>
         item.frameworkId === 3 && Array.isArray(item.accessRights?.oomfSubRoles)
-          ? item.accessRights.oomfSubRoles.map((role) => role.id)
+          ? item.accessRights.oomfSubRoles.map((role) => Number(role.id))
           : [],
       ),
     ),
   ];
 
-  useEffect(() => {
-    if (uniqueFlag === "Yes") {
-      dispatch(setOomfWorkflowDocuments([]));
-    }
-  }, [dispatch, uniqueFlag]);
+  const subRoleId = uniqueRoleIds.includes(1) ? 1 : null;
 
   useEffect(() => {
     if (!submissionId) return;
 
-    // 1st priority = reviewed in-memory draft
     if (draftData) {
-      const savedDocs = draftData?.documents || [];
-
       setRevisedFrameworkData({
-        uploadedFiles: savedDocs.filter(
-          (doc) => doc.name === "Revised framework" || doc.name === "Framework",
-        ),
-      });
-
-      setHindiDocumentData({
-        uploadedFiles: savedDocs.filter(
-          (doc) => doc.name === "Hindi Document",
-        ),
-      });
-
-      setSnippetFileData({
-        uploadedFiles: savedDocs.filter(
-          (doc) => doc.name === "Snippet of e file ",
-        ),
+        uploadedFiles: draftData?.documents || [],
       });
 
       setRemarks(draftData?.remarks || "");
-      return;
     }
-
-    // 2nd priority = backend / row data
-    if (mode === "edit" || mode === "view") {
-      const backendDocs = documents || [];
-
-      setRevisedFrameworkData({
-        uploadedFiles: backendDocs.filter(
-          (doc) => doc.name === "Revised framework" || doc.name === "Framework",
-        ),
-      });
-
-      setHindiDocumentData({
-        uploadedFiles: backendDocs.filter(
-          (doc) => doc.name === "Hindi Document",
-        ),
-      });
-
-      setSnippetFileData({
-        uploadedFiles: backendDocs.filter(
-          (doc) => doc.name === "Snippet of e file ",
-        ),
-      });
-
-      setRemarks(initialRemarks || "");
-    }
-  }, [submissionId, documents, mode, initialRemarks, draftData]);
+  }, [submissionId, draftData]);
 
   const uploadMultipleFiles = async (files, titles = [], docDescription) => {
     const formData = new FormData();
 
     files.forEach((file) => {
       formData.append("files", file);
-      const title = file.name.replace(/[^a-zA-Z0-9]/g, "_");
-      formData.append("titles[]", title);
+      formData.append("titles[]", "Snippet");
     });
 
     formData.append("reference_type", "oomf");
@@ -135,12 +74,9 @@ const IndividualBulkForwardStepper = ({
 
   const handleSaveDraft = async () => {
     try {
-      const validation = validateNonCreatorDraft({
-        revisedFrameworkFiles: revisedFrameworkData?.uploadedFiles || [],
-        hindiFiles: hindiDocumentData?.uploadedFiles || [],
-        snippetFiles: snippetFileData?.uploadedFiles || [],
+      const validation = validateCreatorDraft({
+        uploadedFiles: revisedFrameworkData?.uploadedFiles || [],
         remarks,
-        uniqueFlag,
       });
 
       if (!validation.isValid) {
@@ -148,31 +84,11 @@ const IndividualBulkForwardStepper = ({
         return;
       }
 
-      const allDocumentIds = [
-        ...(revisedFrameworkData.uploadedFiles || []),
-        ...(hindiDocumentData.uploadedFiles || []),
-        ...(snippetFileData.uploadedFiles || []),
-      ];
-
-      const validationPayload = {
-        orgTypeId: userData?.OrganizationType?.id,
-        subRoleIds: uniqueRoleIds,
-        submissionId: Number(submissionId),
-      };
-
-      const validateUserPrivileges = await apiClient.post(
-        `/api/oomf/step/validate-submission`,
-        validationPayload,
-      );
-
-      if (!validateUserPrivileges?.data?.data?.valid) {
-        dispatch(setError("No action found for this role!"));
-        return;
-      }
+      const allDocumentIds = [...(revisedFrameworkData.uploadedFiles || [])];
 
       const draftPayload = {
         orgTypeId: userData?.OrganizationType?.id,
-        subRoleId: validateUserPrivileges?.data?.data?.latestStep?.subRoleId,
+        subRoleId: subRoleId,
         submissionId: Number(submissionId),
         fromRemarks: remarks,
         fromDocumentIds: allDocumentIds,
@@ -181,8 +97,8 @@ const IndividualBulkForwardStepper = ({
 
       onSaveDraft?.(submissionId, {
         submissionId: Number(submissionId),
-        isCreator: false,
-        type: "workflow",
+        isCreator: true,
+        type: "creator",
         documents: allDocumentIds,
         remarks,
         isValid: validation.isValid,
@@ -210,16 +126,54 @@ const IndividualBulkForwardStepper = ({
           }}
         >
           <Typography sx={{ color: "#856404", fontSize: "14px" }}>
-            <strong>Note:</strong> When making individual framework ready for
-            Bulk forward, the documents and remarks previously uploaded for
-            individual schemes will be replaced by the documents and remarks
-            submitted here.
+            <strong>Note:</strong> When making individual framework ready for Bulk
+            forward, the documents and remarks previously uploaded for individual
+            schemes will be replaced by the documents and remarks submitted here.
           </Typography>
         </Box>
-      </Box>
 
-      {(mode === "edit" || (mode === "view" && canForward)) && (
-        <Box sx={{ mt: 3 }}>
+        <Box
+          sx={{
+            color: "#fff",
+            backgroundColor: "#45154f",
+            borderRadius: "5px",
+            p: "8px 20px 8px 20px",
+          }}
+        >
+          <Typography variant="h6">
+            Mandatory Attachments <span style={{ color: "#E43636" }}>*</span>
+          </Typography>
+        </Box>
+
+        <Box
+          sx={{
+            border: "1px solid lightgray",
+            borderRadius: "5px",
+            px: 3,
+            pt: 2,
+            pb: 1,
+            mt: 2,
+          }}
+        >
+          <Box sx={{ mt: 2 }}>
+            <SingleUpload
+              initialDocuments={revisedFrameworkData.uploadedFiles || []}
+              handleJsonDataChange={(fieldName) => (e) => {
+                if (fieldName === "supportingDocuments") {
+                  setRevisedFrameworkData((prev) => ({
+                    ...prev,
+                    uploadedFiles: e.target.value,
+                  }));
+                }
+              }}
+              uploadMultipleFiles={uploadMultipleFiles}
+              documentName={"Framework"}
+              deleteFunctionality={false}
+            />
+          </Box>
+        </Box>
+
+        <Box sx={{ mt: 2 }}>
           <Box
             sx={{
               color: "#fff",
@@ -229,156 +183,65 @@ const IndividualBulkForwardStepper = ({
             }}
           >
             <Typography variant="h6">
-              Mandatory Attachments <span style={{ color: "#E43636" }}>*</span>
+              Remarks <span style={{ color: "#E43636" }}>*</span>
             </Typography>
           </Box>
 
-          <Box
-            sx={{
-              border: "1px solid lightgray",
-              borderRadius: "5px",
-              px: 3,
-              pt: 2,
-              pb: 1,
-              mt: 2,
-            }}
-          >
-            <Box sx={{ mt: 2 }}>
-              <SingleUpload
-                initialDocuments={revisedFrameworkData.uploadedFiles || []}
-                handleJsonDataChange={(fieldName) => (e) => {
-                  if (fieldName === "supportingDocuments") {
-                    setRevisedFrameworkData((prev) => ({
-                      ...prev,
-                      uploadedFiles: e.target.value,
-                    }));
-                  }
-                }}
-                uploadMultipleFiles={uploadMultipleFiles}
-                documentName={
-                  uniqueFlag === "No" ? "Revised framework" : "Framework"
+          <Box position="relative">
+            <TextField
+              required
+              placeholder="Kindly add Remarks"
+              multiline
+              minRows={3}
+              fullWidth
+              variant="outlined"
+              value={remarks}
+              onChange={(e) => {
+                const value = e.target.value;
+                if (value.length <= 1000) {
+                  setRemarks(value);
                 }
-                deleteFunctionality={false}
-                isViewing={isReadOnly}
-              />
-            </Box>
+              }}
+              sx={{ mt: 1 }}
+              inputProps={{
+                style: { paddingBottom: "25px" },
+                pattern: "[a-zA-Z0-9\\-_,.() ]*",
+                onInput: (e) => {
+                  e.target.value = e.target.value.replace(
+                    /[^a-zA-Z0-9\-_,.() ]/g,
+                    "",
+                  );
+                },
+              }}
+            />
 
-            {uniqueFlag === "No" && (
-              <Box sx={{ mt: 2 }}>
-                <SingleUpload
-                  initialDocuments={hindiDocumentData.uploadedFiles || []}
-                  handleJsonDataChange={(fieldName) => (e) => {
-                    if (fieldName === "supportingDocuments") {
-                      setHindiDocumentData((prev) => ({
-                        ...prev,
-                        uploadedFiles: e.target.value,
-                      }));
-                    }
-                  }}
-                  uploadMultipleFiles={uploadMultipleFiles}
-                  documentName="Hindi Document"
-                  isViewing={isReadOnly}
-                  deleteFunctionality={false}
-                />
-              </Box>
-            )}
-
-            {uniqueFlag === "No" && (
-              <Box sx={{ mt: 2 }}>
-                <SingleUpload
-                  initialDocuments={snippetFileData.uploadedFiles || []}
-                  handleJsonDataChange={(fieldName) => (e) => {
-                    if (fieldName === "supportingDocuments") {
-                      setSnippetFileData((prev) => ({
-                        ...prev,
-                        uploadedFiles: e.target.value,
-                      }));
-                    }
-                  }}
-                  uploadMultipleFiles={uploadMultipleFiles}
-                  documentName="Snippet of e file "
-                  isViewing={isReadOnly}
-                  deleteFunctionality={false}
-                />
-              </Box>
-            )}
-          </Box>
-
-          {uniqueFlag === "No" && (
-            <Box sx={{ mt: 2 }}>
-              <Box
-                sx={{
-                  color: "#fff",
-                  backgroundColor: "#45154f",
-                  borderRadius: "5px",
-                  p: "8px 20px 8px 20px",
-                }}
-              >
-                <Typography variant="h6">
-                  Remarks <span style={{ color: "#E43636" }}>*</span>
-                </Typography>
-              </Box>
-
-              <Box position="relative">
-                <TextField
-                  required
-                  disabled={
-                    !(mode === "edit" || (mode === "view" && canForward))
-                  }
-                  placeholder="Kindly add Remarks"
-                  multiline
-                  minRows={3}
-                  fullWidth
-                  variant="outlined"
-                  value={remarks}
-                  onChange={(e) => {
-                    const value = e.target.value;
-                    if (value.length <= 1000) {
-                      setRemarks(value);
-                    }
-                  }}
-                  sx={{ mt: 1 }}
-                  inputProps={{
-                    style: { paddingBottom: "25px" },
-                    pattern: "[a-zA-Z0-9\\-_,.() ]*",
-                    onInput: (e) => {
-                      e.target.value = e.target.value.replace(
-                        /[^a-zA-Z0-9\-_,.() ]/g,
-                        "",
-                      );
-                    },
-                  }}
-                />
-
-                <Box
-                  sx={{
-                    position: "absolute",
-                    bottom: 4,
-                    right: 8,
-                    fontSize: "11px",
-                    color: "#666",
-                  }}
-                >
-                  {remarks?.length}/1000
-                </Box>
-              </Box>
-            </Box>
-          )}
-
-          <Box textAlign="right" mt={3}>
-            <Button
-              variant="contained"
-              size="large"
-              color="success"
-              onClick={handleSaveDraft}
+            <Box
+              sx={{
+                position: "absolute",
+                bottom: 4,
+                right: 8,
+                fontSize: "11px",
+                color: "#666",
+              }}
             >
-              Save
-            </Button>
+              {remarks.length}/1000
+            </Box>
           </Box>
         </Box>
-      )}
+
+        <Box textAlign="right" mt={3}>
+          <Button
+            variant="contained"
+            size="large"
+            color="success"
+            onClick={handleSaveDraft}
+          >
+            Save
+          </Button>
+        </Box>
+      </Box>
     </>
   );
 };
 
-export default IndividualBulkForwardStepper;
+export default IndividualBulkForwardStepperForCreater;
