@@ -2,160 +2,369 @@ import {
   Dialog,
   DialogTitle,
   DialogContent,
-  DialogActions,
   Button,
+  Typography,
+  DialogActions,
+  Tooltip,
+  Box,
 } from "@mui/material";
-import { useEffect, useState } from "react";
-import { useDispatch } from "react-redux";
-import { setError, startLoader, stopLoader } from "@/store/slices/errorSlice";
+import ArrowForwardIosIcon from "@mui/icons-material/ArrowForwardIos";
+import DoubleArrowIcon from "@mui/icons-material/DoubleArrow";
+import SearchTable from "../../SearchTable";
+import BulkForwardDialog from "../../nitiAyog/oomfForm/BulkForwardDialog";
+import IndividualBulkForwardDialog from "./IndividualBulkForwardDialog";
+import BulkForwardSuccessDialog from "../../oomf/oomfWorkflow/BulkForwardSuccessDialog";
+import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/router";
+import { useDispatch, useSelector } from "react-redux";
+import {
+  setError,
+  setSuccess,
+  startLoader,
+  stopLoader,
+} from "@/store/slices/errorSlice";
 import apiClient from "@/utils/apiClient";
-import IndividualBulkForwardStepper from "../IndividualBulkForwardStepper";
-import IndividualBulkForwardStepperForCreater from "../IndividualBulkForwardStepperForCreater";
-import TelegramIcon from "@mui/icons-material/Telegram";
+import {
+  areAllSelectedRecordsValidated,
+  buildBulkForwardIndividualPayload,
+  getValidationSummaryForRows,
+} from "@/utils/oomf/individualBulkForwardDraft";
 
-export default function IndividualBulkForwardDialog({
+const BulkForwardSelectionDialog = ({
   open,
   onClose,
-  submissionId,
-  mode,
-  isCreator = false,
-  type = "",
-  canForward,
-  selectedRow,
-  draftData,
-  onSaveDraft,
-}) {
+  onSuccess,
+  rows,
+  columns,
+}) => {
   const dispatch = useDispatch();
-  const [isValidated, setIsValidated] = useState(false);
+  const router = useRouter();
+
+  const [openBulkForwardDialog, setOpenBulkForwardDialog] = useState(false);
+  const [openForwardDialog, setOpenForwardDialog] = useState(false);
+  const [selectedRow, setSelectedRow] = useState(null);
+  const [isAllValidated, setIsAllValidated] = useState(false);
+  const [validationSummary, setValidationSummary] = useState([]);
+  const [openSuccessDialog, setOpenSuccessDialog] = useState(false);
   const [successDialogParams, setSuccessDialogParams] = useState(null);
 
-  const isEmptyFrequency = (freq) => {
-    if (!freq) return true;
-    if (typeof freq === "object" && Object.keys(freq).length === 0) return true;
-    if (Array.isArray(freq) && freq.length === 0) return true;
-    if (typeof freq === "string" && freq.trim() === "") return true;
-    return false;
-  };
+  // In-memory reviewed drafts
+  const [reviewedDrafts, setReviewedDrafts] = useState({});
 
-  const isEmptyTargets = (targets) => {
-    if (!targets) return true;
-    if (typeof targets === "object" && Object.keys(targets).length === 0)
-      return true;
-    if (Array.isArray(targets) && targets.length === 0) return true;
-    if (typeof targets === "string" && targets.trim() === "") return true;
-    return false;
-  };
+  const userData = useSelector((state) => state.config.userData);
+  const orgTypeId = userData?.OrganizationType?.id;
+  const createdBy = userData?.id;
 
-  const validateFrequencyAndTargets = (data) => {
-    if (!data?.form_values?.indicatorData) {
-      return { valid: false, message: "No indicator data found." };
-    }
+  const submissionIds = useMemo(
+    () => rows?.map((item) => item?.submissionId) || [],
+    [rows],
+  );
 
-    for (const item of data.form_values.indicatorData) {
-      for (const section of item.sections || []) {
-        for (const ind of section.indicators || []) {
-          if (isEmptyFrequency(ind.frequency)) {
-            return {
-              valid: false,
-              message:
-                "Please select the frequency for all indicators in the framework before forwarding.",
-            };
-          }
+  const uniqueRoleIds = [
+    ...new Set(
+      userData?.privileges?.flatMap((item) =>
+        item.frameworkId === 3 && Array.isArray(item.accessRights?.oomfSubRoles)
+          ? item.accessRights.oomfSubRoles.map((role) => role.id)
+          : [],
+      ),
+    ),
+  ];
 
-          if (isEmptyTargets(ind.targets)) {
-            return {
-              valid: false,
-              message:
-                "Please fill the frequency value for all indicators in the framework before forwarding.",
-            };
-          }
-        }
-      }
-    }
+  const refreshValidationState = () => {
+    const allValid = areAllSelectedRecordsValidated(rows || [], reviewedDrafts);
+    const summary = getValidationSummaryForRows(rows || [], reviewedDrafts);
 
-    return { valid: true, message: "Validation passed." };
+    setIsAllValidated(allValid);
+    setValidationSummary(summary);
   };
 
   useEffect(() => {
-    if (!open || !submissionId) return;
+    if (rows?.length > 0) {
+      setSuccessDialogParams({
+        ministry: rows[0]?.ministry,
+        department: rows[0]?.department,
+        scheme: "-",
+      });
+    }
+  }, [rows]);
 
-    const fetchAndValidate = async () => {
-      dispatch(startLoader());
-      try {
-        const res = await apiClient.get(
-          `api/oomf/submissions/applicationDetailsById/${submissionId}`,
+  useEffect(() => {
+    if (open) {
+      refreshValidationState();
+    }
+  }, [open, rows, reviewedDrafts]);
+
+  const handleMakeReady = (row) => {
+    setSelectedRow(row);
+    setOpenForwardDialog(true);
+  };
+
+  const handleSaveDraftForRow = (submissionId, draftData) => {
+    setReviewedDrafts((prev) => ({
+      ...prev,
+      [submissionId]: {
+        ...(prev?.[submissionId] || {}),
+        ...draftData,
+        updatedAt: Date.now(), // IMPORTANT: used to force refresh/reopen with latest data
+      },
+    }));
+  };
+
+  const handleBulkForwardIndividualRecords = async () => {
+    dispatch(startLoader());
+    try {
+      const validationPayload = {
+        orgTypeId: userData?.OrganizationType?.id,
+        subRoleIds: uniqueRoleIds,
+        submissionIds: submissionIds,
+      };
+
+      const validateUserPrivileges = await apiClient.post(
+        `/api/oomf/step/bulk-validate-submission`,
+        validationPayload,
+      );
+
+      const validationResults = validateUserPrivileges?.data?.data || [];
+      const subRoleId =
+        validateUserPrivileges?.data?.data?.[0]?.latestStep?.subRoleId ||
+        validateUserPrivileges?.data?.data?.[0]?.subRoleId;
+
+      const anyInvalid = validationResults.some((item) => !item.valid);
+
+      if (anyInvalid) {
+        dispatch(setError("No action found for this role!"));
+        return;
+      }
+
+      const finalPayload = buildBulkForwardIndividualPayload({
+        selectedRows: rows,
+        orgTypeId,
+        subRoleId,
+        createdBy,
+        reviewedDrafts,
+      });
+
+      if (!Object.keys(finalPayload).length || !finalPayload?.submissionIds?.length) {
+        dispatch(setError("No valid individual records found."));
+        return;
+      }
+
+      await apiClient.post(
+        "/api/oomf/step/bulk-forward-application",
+        finalPayload,
+      );
+
+      dispatch(setSuccess("All individual records forwarded successfully."));
+      setReviewedDrafts({});
+      setOpenBulkForwardDialog(false);
+      setOpenSuccessDialog(true);
+
+      if (onSuccess) {
+        onSuccess();
+      } else {
+        onClose();
+      }
+
+      onClose();
+    } catch (error) {
+      dispatch(setError("Failed to bulk forward individual records."));
+    } finally {
+      dispatch(stopLoader());
+    }
+  };
+
+  const updatedColumns = [
+    ...columns
+      ?.filter((col) => col.field !== "action")
+      ?.map((col) => {
+        if (col.field === "id") {
+          return { ...col, headerName: "Record No.", width: 120 };
+        }
+        return col;
+      }),
+    {
+      field: "validationStatus",
+      headerName: "Bulk Forward Status",
+      width: 190,
+      renderCell: (params) => {
+        const record = validationSummary?.find(
+          (item) =>
+            Number(item.submissionId) === Number(params.row.submissionId),
         );
 
-        const data = res.data?.data;
+        const isValid = record?.isValid;
 
-        const successParams = {
-          ministry: data?.form_values?.ministryId?.name,
-          department: data?.form_values?.departmentId?.name,
-          scheme: data?.form_values?.schemeId?.name,
-        };
-
-        setSuccessDialogParams(successParams);
-
-        if (type === "addFrequency") {
-          const validationResult = validateFrequencyAndTargets(data);
-          setIsValidated(validationResult.valid);
-
-          if (!validationResult.valid) {
-            dispatch(setError(validationResult.message));
-            onClose();
-          }
-        } else {
-          setIsValidated(true);
-        }
-      } catch (err) {
-        dispatch(setError("Failed to validate submission data."));
-        onClose();
-      } finally {
-        dispatch(stopLoader());
-      }
-    };
-
-    fetchAndValidate();
-  }, [open, submissionId, type, dispatch, onClose]);
+        return (
+          <Typography
+            sx={{
+              fontSize: "14px",
+              fontWeight: 600,
+              color: isValid ? "green" : "orange",
+              mt: 2,
+            }}
+          >
+            {isValid ? "Ready" : "Not Ready"}
+          </Typography>
+        );
+      },
+    },
+    {
+      field: "bulkAction",
+      headerName: "Action",
+      width: 200,
+      renderCell: (params) => (
+        <Tooltip title="Review">
+          <Button
+            variant="contained"
+            color="primary"
+            onClick={() => handleMakeReady(params.row)}
+          >
+            Review
+          </Button>
+        </Tooltip>
+      ),
+    },
+  ];
 
   return (
-    <Dialog open={open} onClose={onClose} fullWidth maxWidth="lg">
-      <DialogTitle sx={{ backgroundColor: "#45154f", color: "#fff" }}>
-        <TelegramIcon /> Review to make individual framework ready for Bulk forward
-      </DialogTitle>
+    <>
+      <Dialog open={open} onClose={onClose} fullWidth maxWidth="lg">
+        <DialogTitle
+          sx={{
+            backgroundColor: "#45154f",
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            gap: 2,
+            flexWrap: "wrap",
+          }}
+        >
+          <Box sx={{ display: "flex" }}>
+            <Typography variant="h6" sx={{ color: "#fff" }}>
+              Selected Records for Bulk Forward
+            </Typography>
+          </Box>
 
-      <DialogContent dividers>
-        {type === "addFrequency" && !isValidated ? (
-          <div>Validating frequency...</div>
-        ) : isCreator ? (
-          <IndividualBulkForwardStepperForCreater
-            submissionId={submissionId}
-            successDialogParams={successDialogParams}
-            onClose={onClose}
-            draftData={draftData}
-            onSaveDraft={onSaveDraft}
-          />
-        ) : (
-          <IndividualBulkForwardStepper
-            mode={mode}
-            canForward={canForward}
-            submissionId={submissionId}
-            successDialogParams={successDialogParams}
-            documents={selectedRow?.documents}
-            remarks={selectedRow?.remarks ?? ""}
-            onClose={onClose}
-            draftData={draftData}
-            onSaveDraft={onSaveDraft}
-            uniqueFlag={selectedRow?.uniqueFlag || "No"}
-          />
-        )}
-      </DialogContent>
+          <Box sx={{ display: "flex", gap: 2 }}>
+            <Tooltip
+              title={
+                isAllValidated
+                  ? "All individual records are validated and ready."
+                  : "Please ensure bulk forward status for every record should be ready."
+              }
+            >
+              <span>
+                <Button
+                  variant="contained"
+                  color="warning"
+                  onClick={handleBulkForwardIndividualRecords}
+                  endIcon={<ArrowForwardIosIcon />}
+                  disabled={!isAllValidated}
+                  sx={{
+                    "&.Mui-disabled": {
+                      backgroundColor: "#d9913f",
+                      color: "#fff",
+                      opacity: 0.6,
+                    },
+                  }}
+                >
+                  Bulk Forward Individual Records
+                </Button>
+              </span>
+            </Tooltip>
 
-      <DialogActions>
-        <Button onClick={onClose} variant="contained">
-          Close
-        </Button>
-      </DialogActions>
-    </Dialog>
+            <Button
+              variant="contained"
+              color="success"
+              onClick={() => setOpenBulkForwardDialog(true)}
+              endIcon={<DoubleArrowIcon />}
+              disabled={submissionIds?.length < 2}
+            >
+              Bulk Forward at once
+            </Button>
+          </Box>
+        </DialogTitle>
+
+        <DialogContent>
+          <Box
+            sx={{
+              mt: 2,
+              mb: 2,
+              backgroundColor: "#FFF3CD",
+              border: "1px solid #FFEEBA",
+              padding: "12px 16px",
+              borderRadius: "6px",
+            }}
+          >
+            <Typography sx={{ color: "#856404", fontSize: "14px" }}>
+              <strong>Note:</strong> Reviewed records are stored temporarily in this
+              screen only. If you refresh the page, the reviewed data will be lost.
+            </Typography>
+          </Box>
+
+          <Box mt={2}>
+            <SearchTable
+              columns={updatedColumns}
+              data={rows}
+              isCheckbox={false}
+              isHideDensity={false}
+              isHideExport={true}
+              isHideFilter={false}
+              isHideColumn={true}
+              isHidePaging={false}
+            />
+          </Box>
+
+          <BulkForwardDialog
+            open={openBulkForwardDialog}
+            onClose={() => setOpenBulkForwardDialog(false)}
+            mode={"edit"}
+            submissionIds={submissionIds}
+            isCreator={false}
+            type={""}
+            canForward={true}
+            successDialogParams={successDialogParams}
+            onCloseBulkForwardSelectionDialog={onClose}
+            onSuccess={onSuccess}
+          />
+
+          <IndividualBulkForwardDialog
+            key={`${selectedRow?.submissionId || "empty"}-${reviewedDrafts?.[selectedRow?.submissionId]?.updatedAt || 0}`}
+            open={openForwardDialog}
+            onClose={() => {
+              setOpenForwardDialog(false);
+              refreshValidationState();
+            }}
+            mode={"edit"}
+            submissionId={selectedRow?.submissionId}
+            isCreator={Number(selectedRow?.permission?.orderIndex) === 1}
+            type={
+              selectedRow?.permission?.isPostBudget == true ? "addFrequency" : ""
+            }
+            canForward={true}
+            selectedRow={selectedRow}
+            draftData={reviewedDrafts?.[selectedRow?.submissionId] || null}
+            onSaveDraft={handleSaveDraftForRow}
+          />
+        </DialogContent>
+
+        <DialogActions>
+          <Button onClick={onClose} variant="contained">
+            Close
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <BulkForwardSuccessDialog
+        open={openSuccessDialog}
+        successDialogParams={successDialogParams}
+        onClose={() => {
+          setOpenSuccessDialog(false);
+          router.push("/niti/oomf-dashboard");
+        }}
+      />
+    </>
   );
-}
+};
+
+export default BulkForwardSelectionDialog;
