@@ -1,246 +1,161 @@
-import React, { useEffect, useState } from "react";
-import { Box, Typography, Button, TextField } from "@mui/material";
-import SingleUpload from "./SingleUpload";
+import {
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Button,
+} from "@mui/material";
+import { useEffect, useState } from "react";
+import { useDispatch } from "react-redux";
+import { setError, startLoader, stopLoader } from "@/store/slices/errorSlice";
 import apiClient from "@/utils/apiClient";
-import { useDispatch, useSelector } from "react-redux";
-import { setError, setSuccess } from "@/store/slices/errorSlice";
-import { validateCreatorDraft } from "@/utils/oomf/individualBulkForwardDraft";
+import IndividualBulkForwardStepper from "../IndividualBulkForwardStepper";
+import IndividualBulkForwardStepperForCreater from "../IndividualBulkForwardStepperForCreater";
+import TelegramIcon from "@mui/icons-material/Telegram";
 
-const IndividualBulkForwardStepperForCreater = ({
-  submissionId,
-  successDialogParams,
+export default function IndividualBulkForwardDialog({
+  open,
   onClose,
+  submissionId,
+  mode,
+  isCreator = false,
+  type = "",
+  canForward,
+  selectedRow,
   draftData,
   onSaveDraft,
-}) => {
+}) {
   const dispatch = useDispatch();
+  const [isValidated, setIsValidated] = useState(false);
+  const [successDialogParams, setSuccessDialogParams] = useState(null);
 
-  const [revisedFrameworkData, setRevisedFrameworkData] = useState({
-    uploadedFiles: [],
-  });
-  const [remarks, setRemarks] = useState("");
+  const isEmptyFrequency = (freq) => {
+    if (!freq) return true;
+    if (typeof freq === "object" && Object.keys(freq).length === 0) return true;
+    if (Array.isArray(freq) && freq.length === 0) return true;
+    if (typeof freq === "string" && freq.trim() === "") return true;
+    return false;
+  };
 
-  const userData = useSelector((state) => state.config.userData);
+  const isEmptyTargets = (targets) => {
+    if (!targets) return true;
+    if (typeof targets === "object" && Object.keys(targets).length === 0)
+      return true;
+    if (Array.isArray(targets) && targets.length === 0) return true;
+    if (typeof targets === "string" && targets.trim() === "") return true;
+    return false;
+  };
 
-  const uniqueRoleIds = [
-    ...new Set(
-      userData?.privileges?.flatMap((item) =>
-        item.frameworkId === 3 && Array.isArray(item.accessRights?.oomfSubRoles)
-          ? item.accessRights.oomfSubRoles.map((role) => Number(role.id))
-          : [],
-      ),
-    ),
-  ];
+  const validateFrequencyAndTargets = (data) => {
+    if (!data?.form_values?.indicatorData) {
+      return { valid: false, message: "No indicator data found." };
+    }
 
-  const subRoleId = uniqueRoleIds.includes(1) ? 1 : null;
+    for (const item of data.form_values.indicatorData) {
+      for (const section of item.sections || []) {
+        for (const ind of section.indicators || []) {
+          if (isEmptyFrequency(ind.frequency)) {
+            return {
+              valid: false,
+              message:
+                "Please select the frequency for all indicators in the framework before forwarding.",
+            };
+          }
+
+          if (isEmptyTargets(ind.targets)) {
+            return {
+              valid: false,
+              message:
+                "Please fill the frequency value for all indicators in the framework before forwarding.",
+            };
+          }
+        }
+      }
+    }
+
+    return { valid: true, message: "Validation passed." };
+  };
 
   useEffect(() => {
-    if (!submissionId) return;
+    if (!open || !submissionId) return;
 
-    if (draftData) {
-      setRevisedFrameworkData({
-        uploadedFiles: draftData?.documents || [],
-      });
+    const fetchAndValidate = async () => {
+      dispatch(startLoader());
+      try {
+        const res = await apiClient.get(
+          `api/oomf/submissions/applicationDetailsById/${submissionId}`,
+        );
 
-      setRemarks(draftData?.remarks || "");
-    }
-  }, [submissionId, draftData]);
+        const data = res.data?.data;
 
-  const uploadMultipleFiles = async (files, titles = [], docDescription) => {
-    const formData = new FormData();
+        const successParams = {
+          ministry: data?.form_values?.ministryId?.name,
+          department: data?.form_values?.departmentId?.name,
+          scheme: data?.form_values?.schemeId?.name,
+        };
 
-    files.forEach((file) => {
-      formData.append("files", file);
-      formData.append("titles[]", "Snippet");
-    });
+        setSuccessDialogParams(successParams);
 
-    formData.append("reference_type", "oomf");
-    formData.append("user_id", userData?.id);
-    formData.append("remarks", docDescription);
+        if (type === "addFrequency") {
+          const validationResult = validateFrequencyAndTargets(data);
+          setIsValidated(validationResult.valid);
 
-    try {
-      const response = await apiClient.post(
-        "api/document/upload-files",
-        formData,
-      );
-      return response.data.files;
-    } catch (err) {
-      console.error("Upload failed:", err);
-      return [];
-    }
-  };
-
-  const handleSaveDraft = async () => {
-    try {
-      const validation = validateCreatorDraft({
-        uploadedFiles: revisedFrameworkData?.uploadedFiles || [],
-        remarks,
-      });
-
-      if (!validation.isValid) {
-        dispatch(setError(validation.errors[0]));
-        return;
+          if (!validationResult.valid) {
+            dispatch(setError(validationResult.message));
+            onClose();
+          }
+        } else {
+          setIsValidated(true);
+        }
+      } catch (err) {
+        dispatch(setError("Failed to validate submission data."));
+        onClose();
+      } finally {
+        dispatch(stopLoader());
       }
+    };
 
-      const allDocumentIds = [...(revisedFrameworkData.uploadedFiles || [])];
-
-      const draftPayload = {
-        orgTypeId: userData?.OrganizationType?.id,
-        subRoleId: subRoleId,
-        submissionId: Number(submissionId),
-        fromRemarks: remarks,
-        fromDocumentIds: allDocumentIds,
-        createdBy: userData?.id,
-      };
-
-      onSaveDraft?.(submissionId, {
-        submissionId: Number(submissionId),
-        isCreator: true,
-        type: "creator",
-        documents: allDocumentIds,
-        remarks,
-        isValid: validation.isValid,
-        errors: validation.errors,
-        payload: draftPayload,
-      });
-
-      dispatch(setSuccess("Record saved successfully for Bulk Forward."));
-      onClose();
-    } catch (error) {
-      dispatch(setError("Failed to save record."));
-    }
-  };
+    fetchAndValidate();
+  }, [open, submissionId, type, dispatch, onClose]);
 
   return (
-    <>
-      <Box sx={{ mt: 3 }}>
-        <Box
-          sx={{
-            backgroundColor: "#FFF3CD",
-            border: "1px solid #FFEEBA",
-            padding: "12px 16px",
-            borderRadius: "6px",
-            mb: 2,
-          }}
-        >
-          <Typography sx={{ color: "#856404", fontSize: "14px" }}>
-            <strong>Note:</strong> When making individual framework ready for Bulk
-            forward, the documents and remarks previously uploaded for individual
-            schemes will be replaced by the documents and remarks submitted here.
-          </Typography>
-        </Box>
+    <Dialog open={open} onClose={onClose} fullWidth maxWidth="lg">
+      <DialogTitle sx={{ backgroundColor: "#45154f", color: "#fff" }}>
+        <TelegramIcon /> Review to make individual framework ready for Bulk forward
+      </DialogTitle>
 
-        <Box
-          sx={{
-            color: "#fff",
-            backgroundColor: "#45154f",
-            borderRadius: "5px",
-            p: "8px 20px 8px 20px",
-          }}
-        >
-          <Typography variant="h6">
-            Mandatory Attachments <span style={{ color: "#E43636" }}>*</span>
-          </Typography>
-        </Box>
+      <DialogContent dividers>
+        {type === "addFrequency" && !isValidated ? (
+          <div>Validating frequency...</div>
+        ) : isCreator ? (
+          <IndividualBulkForwardStepperForCreater
+            submissionId={submissionId}
+            successDialogParams={successDialogParams}
+            onClose={onClose}
+            draftData={draftData}
+            onSaveDraft={onSaveDraft}
+          />
+        ) : (
+          <IndividualBulkForwardStepper
+            mode={mode}
+            canForward={canForward}
+            submissionId={submissionId}
+            successDialogParams={successDialogParams}
+            documents={selectedRow?.documents}
+            remarks={selectedRow?.remarks ?? ""}
+            onClose={onClose}
+            draftData={draftData}
+            onSaveDraft={onSaveDraft}
+            uniqueFlag={selectedRow?.uniqueFlag || "No"}
+          />
+        )}
+      </DialogContent>
 
-        <Box
-          sx={{
-            border: "1px solid lightgray",
-            borderRadius: "5px",
-            px: 3,
-            pt: 2,
-            pb: 1,
-            mt: 2,
-          }}
-        >
-          <Box sx={{ mt: 2 }}>
-            <SingleUpload
-              key={`creator-${submissionId}-${draftData?.updatedAt || 0}`}
-              initialDocuments={revisedFrameworkData.uploadedFiles || []}
-              handleJsonDataChange={(fieldName) => (e) => {
-                if (fieldName === "supportingDocuments") {
-                  setRevisedFrameworkData((prev) => ({
-                    ...prev,
-                    uploadedFiles: e.target.value,
-                  }));
-                }
-              }}
-              uploadMultipleFiles={uploadMultipleFiles}
-              documentName={"Framework"}
-              deleteFunctionality={false}
-            />
-          </Box>
-        </Box>
-
-        <Box sx={{ mt: 2 }}>
-          <Box
-            sx={{
-              color: "#fff",
-              backgroundColor: "#45154f",
-              borderRadius: "5px",
-              p: "8px 20px 8px 20px",
-            }}
-          >
-            <Typography variant="h6">
-              Remarks <span style={{ color: "#E43636" }}>*</span>
-            </Typography>
-          </Box>
-
-          <Box position="relative">
-            <TextField
-              required
-              placeholder="Kindly add Remarks"
-              multiline
-              minRows={3}
-              fullWidth
-              variant="outlined"
-              value={remarks}
-              onChange={(e) => {
-                const value = e.target.value;
-                if (value.length <= 1000) {
-                  setRemarks(value);
-                }
-              }}
-              sx={{ mt: 1 }}
-              inputProps={{
-                style: { paddingBottom: "25px" },
-                pattern: "[a-zA-Z0-9\\-_,.() ]*",
-                onInput: (e) => {
-                  e.target.value = e.target.value.replace(
-                    /[^a-zA-Z0-9\-_,.() ]/g,
-                    "",
-                  );
-                },
-              }}
-            />
-
-            <Box
-              sx={{
-                position: "absolute",
-                bottom: 4,
-                right: 8,
-                fontSize: "11px",
-                color: "#666",
-              }}
-            >
-              {remarks.length}/1000
-            </Box>
-          </Box>
-        </Box>
-
-        <Box textAlign="right" mt={3}>
-          <Button
-            variant="contained"
-            size="large"
-            color="success"
-            onClick={handleSaveDraft}
-          >
-            Save
-          </Button>
-        </Box>
-      </Box>
-    </>
+      <DialogActions>
+        <Button onClick={onClose} variant="contained">
+          Close
+        </Button>
+      </DialogActions>
+    </Dialog>
   );
-};
-
-export default IndividualBulkForwardStepperForCreater;
+}
