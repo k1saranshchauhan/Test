@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import {
   Box,
-  Typography,
   TextField,
   Button,
   CircularProgress,
@@ -17,28 +16,20 @@ import RestartAltIcon from "@mui/icons-material/RestartAlt";
 import { DataGrid } from "@mui/x-data-grid";
 import apiClient from "@/utils/apiClient";
 import ExportCsvButton from "../ExportCSV";
-import Ministry from "../ModalsFields/Ministry";
 import AddRecordDialog from "./AddRecordDialog";
 import { getMasterColumns } from "../UnifiedMastersDataGridTables";
-import { deepSearch, generateRowsForColumns } from "@/utils/unifiedHelpers";
+import { generateRowsForColumns } from "@/utils/unifiedHelpers";
 import { getMasterExampleRow } from "../UnifiedMastersDataGridRows";
 import { ColumnReorderManager } from "@/utils/columnReorderManager";
 import { useDispatch, useSelector } from "react-redux";
 import { setError, setSuccess } from "@/store/slices/errorSlice";
-import {
-  validateDistrictFields,
-  validateOutputOutcomeFields,
-  validateUnitsFields,
-} from "../ModalsFields/Validation";
-import District from "../ModalsFields/District";
+import { validateOutputOutcomeFields } from "../ModalsFields/Validation";
 import MainFormHeader from "../../DashboardUI/MainFormHeader";
 import { CustomAutoCompleteWithoutFormik } from "../CustomAutoCompleteWithoutFormik";
-import Units from "../ModalsFields/Units";
 import OutputOutcome from "../ModalsFields/OutputOutcome";
 import CommonViewMasterDialog from "../commonViewProfileDialog";
 import { usePrivileges } from "@/src/context/privilegeContextProvider";
 import { SECTION_KEY } from "@/src/constants/privilegesSectionKeys/sectionKeys";
-import AuditDataGrid from "../../AuditDetailsDialog";
 import { AuditTrailDialog } from "../../audit";
 import axios from "axios";
 import { applyCustomLogic } from "@/utils/niti/datagridUtils";
@@ -73,11 +64,11 @@ const OutputOutcomeMaster = ({ masterState }) => {
   const [ministryNames, SetMinistryNames] = useState([]);
   const [departments, setDepartments] = useState([]);
   const [schemes, setSchemes] = useState([]);
-  const [isSubSchemes, setIsSubSchemes] = useState([
+  const [isSubSchemes] = useState([
     { id: 1, name: "Yes" },
     { id: 2, name: "No" },
   ]);
-  const [statementTypes, setStatementTypes] = useState([
+  const [statementTypes] = useState([
     { id: 1, name: "Output" },
     { id: 2, name: "Outcome" },
   ]);
@@ -85,7 +76,7 @@ const OutputOutcomeMaster = ({ masterState }) => {
   const [selectedDepartments, setSelectedDepartments] = useState([]);
   const [selectedSchemes, setSelectedSchemes] = useState([]);
   const [selectedIsSubScheme, setSelectedIsSubScheme] = useState(null);
-  const [selectedStatement, setSelectedStatement] = useState();
+  const [selectedStatement, setSelectedStatement] = useState(null);
   const [outputOutcomes, setOutputOutcomes] = useState([]);
   const [filteredOutputOutcomes, setFilteredOutputOutcomes] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -93,22 +84,40 @@ const OutputOutcomeMaster = ({ masterState }) => {
   const [search, setSearch] = useState("");
   const [auditDialogOpen, setAuditDialogOpen] = useState(false);
   const [paginationModel, setPaginationModel] = useState({
-    page: 0, // MUI is 0-based
-    pageSize: 10, // number of rows per page
+    page: 0,
+    pageSize: 10,
   });
   const [totalRows, setTotalRows] = useState(0);
+
   const {
     mappedPrivileges,
     hasAddAccess,
     hasEditAccess,
     hasViewAccess,
     hasAuditTrailViewAccess,
-    refresh,
   } = usePrivileges(SECTION_KEY.OUTPUT_OUTCOME_STATEMENT);
+
   const abortRef = useRef(null);
   const inFlightRef = useRef(false);
   const firstLoadRef = useRef(true);
+  const hasAutoOpenedRef = useRef(false);
+
   const userData = useSelector((state) => state.config.userData);
+
+  const userMinistryIds = userData?.userRelationships?.[0]?.ministryIds || [];
+  const userDepartmentIds =
+    userData?.userRelationships?.[0]?.departmentIds || [];
+  const userSchemeIds = userData?.userRelationships?.[0]?.schemeIds || [];
+
+  const searchParams = useSearchParams();
+
+  const prefillMinistryId = searchParams.get("ministryId");
+  const prefillDepartmentId = searchParams.get("departmentId");
+  const prefillSchemeId = searchParams.get("schemeId");
+  const prefillSubSchemeId = searchParams.get("subSchemeId");
+  const prefillIsSubScheme = searchParams.get("isSubScheme");
+  const prefillStatementType = searchParams.get("statementType");
+
   const handleViewAuditTrail = async (row) => {
     if (!row?.id || !mappedPrivileges?.sectionId) return;
 
@@ -118,6 +127,7 @@ const OutputOutcomeMaster = ({ masterState }) => {
     });
     setAuditDialogOpen(true);
   };
+
   const actionsConfig = React.useMemo(
     () => ({
       hasAddAccess,
@@ -134,94 +144,18 @@ const OutputOutcomeMaster = ({ masterState }) => {
       hasAddAccess,
       hasEditAccess,
       hasViewAccess,
-      handleEdit,
       hasAuditTrailViewAccess,
+      handleEdit,
       setIsViewing,
       urlModal,
       setSchemeData,
     ],
   );
 
-  const userMinistryIds = userData?.userRelationships[0]?.ministryIds;
-  const userDepartmentIds = userData?.userRelationships[0]?.departmentIds;
-  const userSchemeIds = userData?.userRelationships[0]?.schemeIds;
+  const gridColumns = React.useMemo(() => {
+    return getMasterColumns(urlModal, actionsConfig);
+  }, [urlModal, actionsConfig]);
 
-  const searchParams = useSearchParams();
-const prefillMinistryId = searchParams.get("ministryId");
-const prefillMinistryName = searchParams.get("ministryName");
-
-const prefillDepartmentId = searchParams.get("departmentId");
-const prefillDepartmentName = searchParams.get("departmentName");
-
-const prefillSchemeTypeId = searchParams.get("schemeTypeId");
-const prefillSchemeTypeName = searchParams.get("schemeTypeName");
-
-const prefillSchemeId = searchParams.get("schemeId");
-const prefillSchemeName = searchParams.get("schemeName");
-
-const prefillSubSchemeId = searchParams.get("subSchemeId");
-const prefillSubSchemeName = searchParams.get("subSchemeName");
-
-const prefillIsSubScheme = searchParams.get("isSubScheme");
-const prefillStatementType = searchParams.get("statementType");
-
-useEffect(() => {
-  if (!prefillMinistryId || ministryNames.length === 0) return;
-
-  const matchedMinistry = ministryNames.find(
-    (item) => String(item.id) === String(prefillMinistryId),
-  );
-
-  if (matchedMinistry) {
-    setSelectedMinistries([matchedMinistry]);
-  }
-}, [prefillMinistryId, ministryNames]);
-
-useEffect(() => {
-  if (!prefillDepartmentId || departments.length === 0) return;
-
-  const matchedDepartment = departments.find(
-    (item) => String(item.id) === String(prefillDepartmentId),
-  );
-
-  if (matchedDepartment) {
-    setSelectedDepartments([matchedDepartment]);
-  }
-}, [prefillDepartmentId, departments]);
-
-useEffect(() => {
-  if (!prefillSchemeId || schemes.length === 0) return;
-
-  const matchedScheme = schemes.find(
-    (item) => String(item.id) === String(prefillSchemeId),
-  );
-
-  if (matchedScheme) {
-    setSelectedSchemes([matchedScheme]);
-  }
-}, [prefillSchemeId, schemes]);
-useEffect(() => {
-  if (prefillStatementType) {
-    const matchedStatement = statementTypes.find(
-      (item) =>
-        item.name.toLowerCase() === prefillStatementType.toLowerCase(),
-    );
-
-    if (matchedStatement) {
-      setSelectedStatement(matchedStatement);
-    }
-  }
-
-  if (prefillIsSubScheme === "true") {
-    const yesOption = isSubSchemes.find((item) => item.name === "Yes");
-    if (yesOption) setSelectedIsSubScheme(yesOption);
-  } else if (prefillIsSubScheme === "false") {
-    const noOption = isSubSchemes.find((item) => item.name === "No");
-    if (noOption) setSelectedIsSubScheme(noOption);
-  }
-}, [prefillStatementType, prefillIsSubScheme]);
-
-  //helper
   const pickIdName = (obj) => {
     if (!obj) return null;
     return {
@@ -230,25 +164,22 @@ useEffect(() => {
     };
   };
 
-  useEffect(() => {
-    // 🔥 Skip FIRST RUN
-    if (firstLoadRef.current) {
-      firstLoadRef.current = false;
-      return;
-    }
+  const openDialogWithPrefilledData = (row) => {
+    if (!row) return;
 
-    const handle = setTimeout(() => {
-      if (!search?.trim() || search.trim().length >= 3)
-        fetchOutputOutcomes({
-          page: paginationModel.page,
-          pageSize: paginationModel.pageSize,
-        });
-    }, 400); // debounce 400ms
+    setIsViewing(false);
+    setIsEditing(true);
+    setEditId(row?.id || null);
 
-    return () => {
-      clearTimeout(handle);
-    };
-  }, [search]);
+    setNewRow({
+      ...row,
+      status: row?.status ?? true,
+      jsonData: row?.jsonData || {},
+    });
+
+    setSchemeData?.(row);
+    setShowAccordion(true);
+  };
 
   const fetchMinistries = async () => {
     try {
@@ -282,21 +213,18 @@ useEffect(() => {
         associatedFramework: item?.jsonData?.associatedFramework,
       }));
 
-      // ✅ Step 1: Extract user-allowed department IDs
       const allowedDeptIds =
         userData?.userRelationships?.[0]?.departmentIds || [];
 
-      // ✅ Step 2: Apply filtering if user has department restrictions
       const filteredDepartments =
         allowedDeptIds.length > 0
           ? res.filter((dept) => allowedDeptIds.includes(dept.id))
           : res;
+
       setDepartments(filteredDepartments);
 
-      // ✅ Step 3: Auto-select if there’s only one allowed department
-      if (filteredDepartments.length === 1) {
-        const onlyDept = filteredDepartments;
-        setSelectedDepartments(onlyDept);
+      if (filteredDepartments.length === 1 && !prefillDepartmentId) {
+        setSelectedDepartments(filteredDepartments);
       }
     } catch (err) {
       console.error("Error fetching departments:", err);
@@ -321,21 +249,18 @@ useEffect(() => {
         associatedFramework: item?.jsonData?.associatedFramework,
       }));
 
-      // ✅ Step 1: Extract user-allowed department IDs
       const allowedSchemeIds =
         userData?.userRelationships?.[0]?.schemeIds || [];
 
-      // ✅ Step 2: Apply filtering if user has department restrictions
       const filteredSchemes =
         allowedSchemeIds.length > 0
           ? res.filter((scheme) => allowedSchemeIds.includes(scheme.id))
           : res;
+
       setSchemes(filteredSchemes);
 
-      // ✅ Step 3: Auto-select if there’s only one allowed department
-      if (filteredSchemes.length === 1) {
-        const onlyScheme = filteredSchemes;
-        setSelectedSchemes(onlyScheme);
+      if (filteredSchemes.length === 1 && !prefillSchemeId) {
+        setSelectedSchemes(filteredSchemes);
       }
     } catch (err) {
       console.error("Error fetching schemes:", err);
@@ -345,24 +270,6 @@ useEffect(() => {
     }
   };
 
-  useEffect(() => {
-    const selectedMinistryIds =
-      selectedMinistries?.map((item) => item?.id) || [];
-    setSelectedDepartments([]);
-
-    // Fetch departments for selected ministries
-    fetchDepartments(selectedMinistryIds);
-  }, [selectedMinistries]);
-
-  useEffect(() => {
-    const selectedDepartmentIds =
-      selectedDepartments?.map((item) => item?.id) || [];
-    setSelectedSchemes([]);
-
-    // Fetch departments for selected ministries
-    fetchSchemes(selectedDepartmentIds);
-  }, [selectedDepartments]);
-
   const fetchOutputOutcomes = async ({
     page = paginationModel.page,
     pageSize = paginationModel.pageSize,
@@ -370,7 +277,6 @@ useEffect(() => {
   } = {}) => {
     setLoading(true);
 
-    // 💥 SAFE & CORRECT ABORT
     if (
       inFlightRef.current &&
       abortRef.current &&
@@ -382,7 +288,9 @@ useEffect(() => {
     abortRef.current = new AbortController();
     const signal = abortRef.current.signal;
     inFlightRef.current = true;
+
     const apiPage = page + 1;
+
     const selectedMinistryIds = isReset
       ? userMinistryIds
       : selectedMinistries?.map((item) => item?.id);
@@ -450,13 +358,11 @@ useEffect(() => {
       setFilteredOutputOutcomes(finalRows);
     } catch (err) {
       if (axios.isCancel(err) || err.code === "ERR_CANCELED") {
-        // 🔇 Silent — do not log, do not show error
         return;
       }
-
       console.error("Error fetching indicators:", err);
     } finally {
-      inFlightRef.current = false; // 💥 finished
+      inFlightRef.current = false;
       setLoading(false);
     }
   };
@@ -471,7 +377,6 @@ useEffect(() => {
 
       if (Object.keys(validationErrors).length > 0) {
         dispatch(setError("Please fill required fields before submitting."));
-        // ❌ Invalid → show errors, don’t submit
         return;
       }
 
@@ -505,7 +410,6 @@ useEffect(() => {
 
         const result = response?.data;
 
-        // ✅ Handle backend validation / duplicate errors
         if (!result?.success) {
           dispatch(
             setError(result?.message || "Failed to save Output outcome"),
@@ -516,12 +420,10 @@ useEffect(() => {
         dispatch(setSuccess(result?.message));
         setShowAccordion(false);
         setNewRow({
-          status: true, // Ensure Active by default
-          // other fields...
+          status: true,
         });
         setEditId(null);
         setErrors({});
-        // Refresh associated framework data
         fetchOutputOutcomes();
       } catch (error) {
         console.error("Failed to add Output outcome:", error);
@@ -530,33 +432,203 @@ useEffect(() => {
     }
   }
 
+  // Initial Load
   useEffect(() => {
     fetchMinistries();
+  }, []);
+
+  useEffect(() => {
     fetchOutputOutcomes();
   }, []);
 
-  const gridColumns = React.useMemo(() => {
-    return getMasterColumns(urlModal, actionsConfig);
-  }, [urlModal, actionsConfig]);
+  // Prefill Ministry
+  useEffect(() => {
+    if (!prefillMinistryId || ministryNames.length === 0) return;
 
-  // // 🔹 Search Filter
-  // useEffect(() => {
-  //   const trimmedSearch = (search || "").trim().toLowerCase();
-  //   if (!trimmedSearch) {
-  //     setFilteredOutputOutcomes(outputOutcomes || []);
-  //     return;
-  //   }
-  //   const filtered = (outputOutcomes || []).filter((item) =>
-  //     deepSearch(item, trimmedSearch),
-  //   );
-  //   setFilteredOutputOutcomes(filtered);
-  // }, [search, outputOutcomes]);
+    const matchedMinistry = ministryNames.find(
+      (item) => String(item.id) === String(prefillMinistryId),
+    );
 
-  // 🔹 Column Management
+    if (matchedMinistry) {
+      setSelectedMinistries([matchedMinistry]);
+    }
+  }, [prefillMinistryId, ministryNames]);
+
+  // Fetch Departments when Ministry changes
+  useEffect(() => {
+    const selectedMinistryIds =
+      selectedMinistries?.map((item) => item?.id) || [];
+
+    if (selectedMinistryIds.length > 0) {
+      fetchDepartments(selectedMinistryIds);
+    }
+  }, [selectedMinistries]);
+
+  // Prefill Department
+  useEffect(() => {
+    if (!prefillDepartmentId || departments.length === 0) return;
+
+    const matchedDepartment = departments.find(
+      (item) => String(item.id) === String(prefillDepartmentId),
+    );
+
+    if (matchedDepartment) {
+      setSelectedDepartments([matchedDepartment]);
+    }
+  }, [prefillDepartmentId, departments]);
+
+  // Fetch Schemes when Department changes
+  useEffect(() => {
+    const selectedDepartmentIds =
+      selectedDepartments?.map((item) => item?.id) || [];
+
+    if (selectedDepartmentIds.length > 0) {
+      fetchSchemes(selectedDepartmentIds);
+    }
+  }, [selectedDepartments]);
+
+  // Prefill Scheme
+  useEffect(() => {
+    if (!prefillSchemeId || schemes.length === 0) return;
+
+    const matchedScheme = schemes.find(
+      (item) => String(item.id) === String(prefillSchemeId),
+    );
+
+    if (matchedScheme) {
+      setSelectedSchemes([matchedScheme]);
+    }
+  }, [prefillSchemeId, schemes]);
+
+  // Prefill Statement Type + IsSubScheme
+  useEffect(() => {
+    if (prefillStatementType) {
+      const matchedStatement = statementTypes.find(
+        (item) =>
+          item.name.toLowerCase() === prefillStatementType.toLowerCase(),
+      );
+
+      if (matchedStatement) {
+        setSelectedStatement(matchedStatement);
+      }
+    }
+
+    if (prefillIsSubScheme === "true") {
+      const yesOption = isSubSchemes.find((item) => item.name === "Yes");
+      if (yesOption) setSelectedIsSubScheme(yesOption);
+    } else if (prefillIsSubScheme === "false") {
+      const noOption = isSubSchemes.find((item) => item.name === "No");
+      if (noOption) setSelectedIsSubScheme(noOption);
+    }
+  }, [prefillStatementType, prefillIsSubScheme, statementTypes, isSubSchemes]);
+
+  // Auto Search after prefill
+  useEffect(() => {
+    const shouldAutoSearch =
+      prefillMinistryId ||
+      prefillDepartmentId ||
+      prefillSchemeId ||
+      prefillIsSubScheme ||
+      prefillStatementType;
+
+    if (!shouldAutoSearch) return;
+
+    const timeout = setTimeout(() => {
+      fetchOutputOutcomes({
+        page: 0,
+        pageSize: paginationModel.pageSize,
+      });
+    }, 700);
+
+    return () => clearTimeout(timeout);
+  }, [
+    prefillMinistryId,
+    prefillDepartmentId,
+    prefillSchemeId,
+    prefillIsSubScheme,
+    prefillStatementType,
+    selectedMinistries,
+    selectedDepartments,
+    selectedSchemes,
+    selectedIsSubScheme,
+    selectedStatement,
+  ]);
+
+  // Auto open dialog with matched row
+  useEffect(() => {
+    if (hasAutoOpenedRef.current) return;
+    if (!filteredOutputOutcomes?.length) return;
+
+    const shouldAutoOpen =
+      prefillMinistryId ||
+      prefillDepartmentId ||
+      prefillSchemeId ||
+      prefillSubSchemeId ||
+      prefillStatementType;
+
+    if (!shouldAutoOpen) return;
+
+    const matchedRow = filteredOutputOutcomes.find((row) => {
+      const rowMinistryId = row?.jsonData?.ministry?.id || row?.ministry?.id;
+      const rowDepartmentId =
+        row?.jsonData?.department?.id || row?.department?.id;
+      const rowSchemeId = row?.jsonData?.scheme?.id || row?.scheme?.id;
+      const rowSubSchemeId =
+        row?.jsonData?.subScheme?.id || row?.subScheme?.id;
+      const rowStatementType =
+        row?.jsonData?.statementType || row?.statementType || "";
+      const rowIsSubScheme =
+        row?.jsonData?.isSubScheme ?? row?.isSubScheme ?? null;
+
+      return (
+        (!prefillMinistryId ||
+          String(rowMinistryId) === String(prefillMinistryId)) &&
+        (!prefillDepartmentId ||
+          String(rowDepartmentId) === String(prefillDepartmentId)) &&
+        (!prefillSchemeId ||
+          String(rowSchemeId) === String(prefillSchemeId)) &&
+        (!prefillSubSchemeId ||
+          String(rowSubSchemeId) === String(prefillSubSchemeId)) &&
+        (!prefillStatementType ||
+          String(rowStatementType).toLowerCase() ===
+            String(prefillStatementType).toLowerCase()) &&
+        (prefillIsSubScheme == null ||
+          String(rowIsSubScheme) === String(prefillIsSubScheme === "true"))
+      );
+    });
+
+    if (matchedRow) {
+      hasAutoOpenedRef.current = true;
+      openDialogWithPrefilledData(matchedRow);
+    }
+  }, [filteredOutputOutcomes]);
+
+  // Debounced Search
+  useEffect(() => {
+    if (firstLoadRef.current) {
+      firstLoadRef.current = false;
+      return;
+    }
+
+    const handle = setTimeout(() => {
+      if (!search?.trim() || search.trim().length >= 3) {
+        fetchOutputOutcomes({
+          page: paginationModel.page,
+          pageSize: paginationModel.pageSize,
+        });
+      }
+    }, 400);
+
+    return () => clearTimeout(handle);
+  }, [search]);
 
   const handleSearch = () => {
-    fetchOutputOutcomes();
+    fetchOutputOutcomes({
+      page: 0,
+      pageSize: paginationModel.pageSize,
+    });
   };
+
   const [columns, setColumns] = useState([]);
   const [columnVisibilityModel, setColumnVisibilityModel] = useState({});
 
@@ -578,7 +650,7 @@ useEffect(() => {
     handleNewChange,
     handleSwitchChange,
     ministryNames,
-    jsonData: newRow.jsonData,
+    jsonData: newRow?.jsonData || {},
     initialUploadDocuments: newRow?.jsonData?.supportingDocuments,
     uploadMultipleFiles,
     handleJsonDataChange,
@@ -612,6 +684,7 @@ useEffect(() => {
               }
             />
           </Grid>
+
           <Grid size={{ xs: 12, md: 6 }}>
             <CustomAutoCompleteWithoutFormik
               name="departments"
@@ -626,6 +699,7 @@ useEffect(() => {
               }
             />
           </Grid>
+
           <Grid size={{ xs: 12, md: 6 }}>
             <CustomAutoCompleteWithoutFormik
               name="schemes"
@@ -638,6 +712,7 @@ useEffect(() => {
               onChange={(event, newValue) => setSelectedSchemes(newValue || [])}
             />
           </Grid>
+
           <Grid size={{ xs: 12, md: 6 }}>
             <CustomAutoCompleteWithoutFormik
               name="isSubScheme"
@@ -652,6 +727,7 @@ useEffect(() => {
               }
             />
           </Grid>
+
           <Grid size={{ xs: 12, md: 6 }}>
             <CustomAutoCompleteWithoutFormik
               name="statementType"
@@ -659,10 +735,10 @@ useEffect(() => {
               selectAll={false}
               multiple={false}
               options={statementTypes}
-              value={selectedStatement ?? {}}
+              value={selectedStatement ?? null}
               fullWidth
               onChange={(event, newValue) =>
-                setSelectedStatement(newValue || {})
+                setSelectedStatement(newValue || null)
               }
             />
           </Grid>
@@ -683,16 +759,18 @@ useEffect(() => {
               >
                 Search
               </Button>
+
               <Button
                 variant="outlined"
                 sx={{ color: "#45154F" }}
                 startIcon={<RestartAltIcon />}
                 onClick={() => {
+                  hasAutoOpenedRef.current = false;
                   setSelectedMinistries([]);
                   setSelectedDepartments([]);
                   setSelectedSchemes([]);
                   setSelectedIsSubScheme(null);
-                  setSelectedStatement({});
+                  setSelectedStatement(null);
                   fetchOutputOutcomes({ isReset: true });
                 }}
               >
@@ -702,14 +780,13 @@ useEffect(() => {
           </Grid>
         </Grid>
       </Card>
-      {/* Add/Edit Dialog */}
+
       <AddRecordDialog
         open={!isViewing ? showAccordion : false}
         onClose={() => {
           setShowAccordion(false);
           setNewRow({
-            status: true, // Ensure Active by default
-            // other fields...
+            status: true,
           });
           setEditId(null);
           setErrors({});
@@ -722,14 +799,14 @@ useEffect(() => {
       >
         <OutputOutcome modalState={modalState} />
       </AddRecordDialog>
+
       {isViewing && (
         <CommonViewMasterDialog
           open={showAccordion}
           handleClose={() => {
             setShowAccordion(false);
             setNewRow({
-              status: true, // Ensure Active by default
-              // other fields...
+              status: true,
             });
             setEditId(null);
             setErrors({});
@@ -751,7 +828,6 @@ useEffect(() => {
         elevation={3}
         sx={{ p: 2, borderRadius: 3, backgroundColor: "#ffffff" }}
       >
-        {/* Header */}
         <Box
           sx={{
             display: "flex",
@@ -763,7 +839,6 @@ useEffect(() => {
             gap: 2,
           }}
         >
-          {/* Left: Search + Export */}
           <Box
             sx={{
               display: "flex",
@@ -777,7 +852,7 @@ useEffect(() => {
                 size="small"
                 placeholder="Search..."
                 value={search}
-                disabled={loading ? true : false}
+                disabled={loading}
                 onChange={(e) => setSearch(e.target.value)}
                 error={search.trim().length > 0 && search.trim().length < 3}
                 helperText={
@@ -788,10 +863,10 @@ useEffect(() => {
                 sx={{ width: { xs: "100%", sm: "auto" } }}
               />
             </Box>
+
             <ExportCsvButton
               modal={urlModal}
               columns={columns}
-              // rows={filteredOutputOutcomes}
               rows={filteredOutputOutcomes.map((row) => ({
                 ...row,
                 subScheme: row?.subScheme?.label || "",
@@ -801,7 +876,6 @@ useEffect(() => {
             />
           </Box>
 
-          {/* Right: Add Record Button */}
           {hasAddAccess && (
             <Button
               variant="outlined"
@@ -810,7 +884,6 @@ useEffect(() => {
                 setIsViewing(false);
                 setShowAccordion(true);
               }}
-              disabled={!selected}
               startIcon={<AddIcon />}
               sx={{ whiteSpace: "nowrap" }}
             >
@@ -829,16 +902,11 @@ useEffect(() => {
             alignItems: "center",
             mb: 2,
             mt: 2,
-            flexWrap: "wrap", // responsive wrapping
+            flexWrap: "wrap",
             gap: 2,
           }}
         >
           {auditParams?.auditableId && auditParams?.sectionId && (
-            // <AuditDataGrid
-            //   {...auditParams}
-            //   auditDialogOpen={auditDialogOpen}
-            //   setAuditDialogOpen={setAuditDialogOpen}
-            // />
             <AuditTrailDialog
               auditDialogOpen={auditDialogOpen}
               setAuditDialogOpen={setAuditDialogOpen}
@@ -847,6 +915,7 @@ useEffect(() => {
             />
           )}
         </Box>
+
         <Box
           sx={{
             display: "flex",
@@ -866,7 +935,6 @@ useEffect(() => {
           />
         </Box>
 
-        {/* DataGrid */}
         {loading ? (
           <Box
             display="flex"
@@ -882,18 +950,18 @@ useEffect(() => {
               sortingOrder={["asc", "desc"]}
               rows={filteredOutputOutcomes}
               columns={applyCustomLogic(columns)}
-              rowCount={totalRows} // 🔥 total rows from backend
-              paginationMode="server" // 🔥 important
+              rowCount={totalRows}
+              paginationMode="server"
               paginationModel={paginationModel}
               onPaginationModelChange={(model) => {
                 setPaginationModel(model);
                 fetchOutputOutcomes({
                   page: model.page,
                   pageSize: model.pageSize,
-                }); // <— pass fresh values
+                });
               }}
               pageSizeOptions={[10, 20, 30, 40, 50, 100]}
-              disableSelectionOnClick
+              disableRowSelectionOnClick
               columnVisibilityModel={columnVisibilityModel}
               onColumnVisibilityModelChange={(newModel) =>
                 setColumnVisibilityModel(newModel)
