@@ -1,904 +1,503 @@
-"use client";
+import {
+  Paper,
+  Grid,
+  Box,
+  FormLabel,
+  Autocomplete,
+  TextField,
+  InputAdornment,
+  Tooltip,
+  IconButton,
+  Typography,
+  Switch,
+  Accordion,
+  AccordionSummary,
+  AccordionDetails,
+} from "@mui/material";
+import {
+  ArrowUpward as ArrowUpwardIcon,
+  ArrowDownward as ArrowDownwardIcon,
+  ExpandMore as ExpandMoreIcon,
+} from "@mui/icons-material";
+import DescriptionIcon from "@mui/icons-material/Description";
+import IndicatorForm from "./IndicatorForm";
+import DeleteOutlinedIcon from "@mui/icons-material/DeleteOutlined";
+import { useMediaQuery } from "@mui/material";
 
-import React, { useEffect, useMemo, useState } from "react";
-import { Box, CircularProgress } from "@mui/material";
-
-import apiClient from "@/utils/apiClient";
-import { useSelector } from "react-redux";
-import SchemeBudgetModal from "./ModalsFields/SchemeBudgetDetails";
-import { usePrivileges } from "@/src/context/privilegeContextProvider";
-import { InactiveConfirmDialog } from "./InactiveMasterConfirmDialog";
-import { useLayout } from "@/src/context/layoutContextProvider";
-import AuditDataGrid from "../AuditDetailsDialog";
-import UserRelatedDetailsDialog from "./UserRelatedDetailsDialog";
-import MinistryMaster from "./UnifiedMasters/MinistryMaster";
-import SectorMaster from "./UnifiedMasters/SectorMaster";
-import DepartmentMaster from "./UnifiedMasters/DepartmentMaster";
-import SchemeTypeMaster from "./UnifiedMasters/SchemeTypeMaster";
-import SchemeMaster from "./UnifiedMasters/SchemeMaster";
-import StateMaster from "./UnifiedMasters/StateMaster";
-import DistrictMaster from "./UnifiedMasters/DistrictMaster";
-import SDGMaster from "./UnifiedMasters/SDGMaster";
-import TargetGroupMaster from "./UnifiedMasters/TargetGroupMaster";
-import FrameworkMaster from "./UnifiedMasters/FrameworkMaster";
-import RoleMaster from "./UnifiedMasters/RoleMaster";
-import UserMaster from "./UnifiedMasters/UserMaster";
-import UnitsMaster from "./UnifiedMasters/UnitsMaster";
-import OutputOutcomeMaster from "./UnifiedMasters/OutputOutcomeMaster";
-import StrategyTrackingModuleMaster from "./UnifiedMasters/StrategyTrackingModuleMaster";
-import IndicatorMaster from "./UnifiedMasters/IndicatorMaster";
-import OrganizationMaster from "./UnifiedMasters/OrganizationMaster";
-import ApplicableCategoryMaster from "./UnifiedMasters/ApplicableCategoryMaster";
-import FrequencyMaster from "./UnifiedMasters/FrequencyMaster";
-import IndicatorRiseMaster from "./UnifiedMasters/IndicatorRiseMaster";
-import IndicatorTypeMaster from "./UnifiedMasters/IndicatorTypeMaster";
-import PeriodMaster from "./UnifiedMasters/PeriodMaster";
-import ScaleMaster from "./UnifiedMasters/ScaleMaster";
-import MeasurementAreaMaster from "./UnifiedMasters/MeasurementAreaMaster";
-import MeasurementTypeMaster from "./UnifiedMasters/MeasurementTypeMaster";
-import FrameworkSectionMaster from "./UnifiedMasters/FrameworkSectionMaster";
-import DynamicMenuMaster from "./UnifiedMasters/DynamicMenuMaster";
-import SectionModalMaster from "./UnifiedMasters/SectionModalMaster";
-import DocumentCategoryMaster from "./UnifiedMasters/DocumentCategoryMaster";
-
-export default function AddDataMasterTable({
-  loader,
-  urlModal,
-  urlModalAccess,
-  setUrlModalAccess,
+export default function SectionCard({
+  section,
+  moto,
+  sectionIndex,
+  currentType,
+  isReadOnly,
+  type,
+  isPostBudget,
+  outputResponse,
+  outcomeResponse,
+  sectionsByType,
+  prefillData,
+  dummyIndicator,
+  dummyMeasurementTypes,
+  dummyUnits,
+  dummyScales,
+  dummyMeasurementArea,
+  dummyIndicatorRise,
+  dummyPeriod,
+  dummyCategoty,
+  dummySdg,
+  dummyFrequencies,
+  fieldErrors,
+  inputRefs,
+  handleSectionChange,
+  handleIndicatorChange,
+  handleChange,
+  handleDialogOpen,
+  handleAddIndicator,
+  handleRemoveIndicator,
+  handleMoveUp,
+  handleMoveDown,
+  handleMoveSectionUp,
+  handleMoveSectionDown,
+  handleRemoveSection,
+  hoveredSectionIdx,
+  hoveredCancelIdx,
+  setHoveredSectionIdx,
+  setHoveredCancelIdx,
+  initialTargetsMap,
+  buildTargetsByMeasurementArea,
+  computeTotals,
+  dummyDistrict,
+  dummyStates,
+  onOpenFrequencyModal,
+  selectedMinistry,
+  selectedDepartment,
+  selectedSchemeType,
+  selectedScheme,
+  selectedSubScheme,
 }) {
-  const { refreshMenu } = useLayout();
-  // list of masters
-  const [masters, setMasters] = useState([]);
-  const [selected, setSelected] = useState(null);
-
-  const [originalRow, setOriginalRow] = useState(null);
-
-  const [newRow, setNewRow] = useState({
-    status: true, // Ensure Active by default
-    // other fields...
-  });
-
-  const [loading, setLoading] = useState(false);
-  const [showAccordion, setShowAccordion] = useState(false);
-  const [isEditing, setIsEditing] = useState(false);
-  const [isViewing, setIsViewing] = useState(false);
-  const [editId, setEditId] = useState(null);
-
-  const [sectors, setSectors] = useState([]);
-  const [sdgNames, setSdgNames] = useState([]);
-  const [targetGroups, setTargetGroups] = useState([]);
-  const [associatedFrameworks, setAssociatedFramework] = useState([]);
-  const [open, setOpen] = useState(false);
-  const [schemeData, setSchemeData] = useState({});
-  const [allOomfMastersData, setAllOomfMastersData] = useState({});
-  const [permissions, setPermissions] = useState([]);
-  const [selectedDashboards, setSelectedDashboards] = useState([]);
-  const [orgTypes, setOrgTypes] = useState([]);
-  const [errors, setErrors] = useState({});
-  const [submitted, setSubmitted] = useState(false);
-  const [openDialog, setOpenDialog] = useState(false);
-  const [dialogData, setDialogData] = useState([]);
-  const [dialogTitle, setDialogTitle] = useState("");
-  const privileges = [
-    { id: 1, name: "add" },
-    { id: 2, name: "edit" },
-    { id: 3, name: "view" },
-    { id: 4, name: "audit trail" },
-  ];
-  const [dashboardsArray, setDashboardsArray] = useState([]);
-  const userData = useSelector((state) => state.config.userData);
-  const [openConfirm, setOpenConfirm] = useState(false);
-  const [pendingValue, setPendingValue] = useState(false);
-  const [auditParams, setAuditParams] = useState({});
-
-  const [auditDialogOpen, setAuditDialogOpen] = useState(false);
-  const userFrameworkMappings = userData?.userRoleMappings?.map(
-    (mapping) => mapping?.frameworkId,
-  );
-
-  const handleSwitchChange = (event) => {
-    const value = event.target.checked;
-
-    // ✅ Define URLs or modal names where confirmation is required
-    const confirmUrls = [
-      "user",
-      "sdg",
-      "targetGroup",
-      "framework",
-      "units",
-      "schemeType",
-      "district",
-    ];
-
-    const shouldShowConfirm =
-      !confirmUrls.some((url) => urlModal.includes(url)) &&
-      newRow?.status &&
-      !value &&
-      editId;
-
-    if (shouldShowConfirm) {
-      setPendingValue(value);
-      setOpenConfirm(true);
-    } else {
-      setNewRow((prev) => ({ ...prev, status: value }));
-    }
-  };
-
-  const handleConfirm = () => {
-    setNewRow((prev) => ({ ...prev, status: pendingValue }));
-    setOpenConfirm(false);
-  };
-
-  const handleCancel = () => {
-    setOpenConfirm(false);
-  };
-
-  useEffect(() => {
-    if (schemeData && Object.keys(schemeData).length > 0) {
-      setOpen(true);
-    }
-  }, [schemeData]);
-
-  const handleClose = () => {
-    setOpen(false);
-    setSchemeData({});
-  };
-
-  // load master definitions
-  useEffect(() => {
-    apiClient
-      .get("api/dynamic/masters_defination")
-      .then((res) => {
-        setMasters(res?.data); // assuming response has { data: [...] }
-      })
-      .catch((err) => console.error(err));
-  }, []);
-  const fetchMasters = async () => {
-    try {
-      const res = await apiClient.get("api/master/all-oomf-masters");
-      const data = res.data.data || [];
-      setOrgTypes(
-        data?.orgTypes
-          ?.filter((item) => item.id !== 10) // 🚫 remove id 10
-          .map((item) => ({ id: item.id, name: item.name })),
-      );
-
-      setAssociatedFramework(
-        data?.associatedFrameworks
-          ?.filter((item) => userFrameworkMappings?.includes(item.id))
-          .map((item) => ({
-            id: item.id,
-            name: item.name,
-          })),
-      );
-      setSdgNames(
-        data?.sdg?.map((item) => ({
-          id: item.id,
-          name: item.name,
-        })),
-      );
-      setTargetGroups(
-        data?.targetGroups?.map((item) => ({
-          id: item.id,
-          name: item.name,
-        })),
-      );
-    } catch (error) {
-      setAssociatedFramework([]);
-      setOrgTypes([]);
-      setSdgNames([]);
-      setTargetGroups([]);
-      console.error("Failed to fetch master:", error);
-    }
-  };
-  useEffect(() => {
-    fetchMasters();
-  }, [urlModal]);
-  useEffect(() => {
-    if (!urlModal || !masters.length) {
-      setSelected(null);
-      return;
-    }
-    const master = masters.find((m) => m.modal_name === urlModal);
-    setSelected(master);
-    setUrlModalAccess(true);
-  }, [urlModal, masters, setUrlModalAccess]);
-
-  // --- fetchDashboardsForRoles now returns the data it fetches ---
-  const fetchDashboardsForRoles = async () => {
-    try {
-      setLoading(true);
-      const response = await apiClient.get(`api/master/dashboards-role`);
-      const data = response?.data?.data ?? [];
-      const finalArray = Array.isArray(data) ? data : [];
-      const filteredFinalArray = finalArray?.filter((item) =>
-        userFrameworkMappings?.includes(item?.frameworkId),
-      );
-      setDashboardsArray(filteredFinalArray);
-      return filteredFinalArray; // <-- return it so callers can use it immediately
-    } catch (error) {
-      console.error("Failed to fetch dashboards:", error);
-      setDashboardsArray([]);
-      return [];
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    if (urlModal === "role") fetchDashboardsForRoles();
-  }, [urlModal]);
-
-  function mapRolePayloadToPermissions(frameworks = [], dashboardsArray = []) {
-    return frameworks
-      .map((fw) => {
-        if (!fw?.frameworkId) return null;
-        const frameworkData = dashboardsArray.find(
-          (d) => d.frameworkId === fw.frameworkId,
-        );
-
-        const hasSubModules =
-          Array.isArray(frameworkData?.subModulesPrivileges) &&
-          frameworkData.subModulesPrivileges.length > 0;
-
-        // Map submodules if present
-        const subModulesPrivileges = (fw?.privileges || []).map((p) => {
-          const module = frameworkData?.subModulesPrivileges?.find(
-            (m) => m?.id === p?.frameworkSectionId,
-          );
-          const accessRights = { ...(p?.accessRights || {}) };
-
-          // Extract OOMF subroles if frameworkId = 3
-          let oomfSubRoles = [];
-          if (fw.frameworkId === 3 && accessRights.oomfSubRoles) {
-            oomfSubRoles = accessRights.oomfSubRoles;
-            delete accessRights.oomfSubRoles;
-          }
-
-          return {
-            moduleId: p?.frameworkSectionId,
-            moduleName: module?.name || "",
-            ...(oomfSubRoles.length > 0 ? { oomfSubRoles } : {}),
-            privileges:
-              Object.keys(accessRights).length > 0
-                ? accessRights
-                : (module?.privileges || []).reduce((acc, curr) => {
-                    acc[curr] = false;
-                    return acc;
-                  }, {}),
-          };
-        });
-
-        // ✅ If no submodules, add dashboard-level actionRights
-        if (!hasSubModules && fw?.privileges?.length === 0 && fw.actionRights) {
-          return {
-            frameworkId: fw.frameworkId,
-            subModulesPrivileges: [
-              {
-                moduleId: null,
-                moduleName: "",
-                privileges: {}, // keep empty
-                actionRights: {
-                  hasDashboardAccess: fw.actionRights.hasDashboardAccess,
-                },
-              },
-            ],
-          };
-        }
-
-        return {
-          frameworkId: fw.frameworkId,
-          subModulesPrivileges,
-        };
-      })
-      .filter(Boolean);
-  }
-
-  // --- Updated handleEdit function ---
-  const handleEdit = async (row) => {
-    if (!row) return;
-    setOriginalRow(JSON.parse(JSON.stringify(row)));
-    setShowAccordion(true);
-    setSelected(row);
-    setIsEditing(true);
-    setEditId(row?.id || null);
-    const safeParseJSON = (json) => {
-      if (typeof json === "object") return json;
-      try {
-        return JSON.parse(json);
-      } catch {
-        return {};
-      }
-    };
-
-    const baseRow = {
-      name: row?.name || "",
-      description: row?.description || null,
-      parentId: row?.parentId || null,
-      jsonData: safeParseJSON(row?.jsonData),
-
-      status: row?.status === "Active" ? true : false,
-    };
-
-    if (urlModal === "ministry") {
-      baseRow.name = row?.name;
-      baseRow.description = row?.description;
-      baseRow.parentId = row?.parentName?.id;
-      baseRow.status = row?.status === "Active" ? true : false;
-      baseRow.jsonData = {
-        ministryShortName: row?.ministryShortName,
-        ministryType: row?.ministryType,
-        parentName: row?.parentName,
-        url: row?.url,
-        address: row?.address,
-        associatedFramework: row?.associatedFramework,
-        budgetCovered: row?.budgetCovered,
-        emailAddress: row?.emailAddress,
-        telephoneNo: row?.telephoneNo,
-        targetGroup: row?.targetGroup,
-        sdgAlignment: row?.sdgAlignment,
-        supportingDocuments: row?.supportingDocuments,
-      };
-    }
-
-    if (urlModal === "departments") {
-      baseRow.name = row?.name;
-      baseRow.description = row?.description;
-      baseRow.parentId = row?.parentName?.id;
-      baseRow.status = row?.status === "Active" ? true : false;
-      baseRow.jsonData = {
-        departmentShortName: row?.departmentShortName,
-        url: row?.url,
-        parentName: row?.parentName,
-        address: row?.address,
-        associatedFramework: row?.associatedFramework,
-        demandNo: row?.demandNo,
-        budgetCovered: row?.budgetCovered,
-        emailAddress: row?.emailAddress,
-        telephoneNo: row?.telephoneNo,
-        targetGroup: row?.targetGroup,
-        sdgAlignment: row?.sdgAlignment,
-        supportingDocuments: row?.supportingDocuments,
-      };
-    }
-    if (urlModal === "schemes") {
-      baseRow.id = row?.id;
-      baseRow.name = row?.name;
-      baseRow.description = row?.description;
-      baseRow.parentScheme = row?.parentSchemeInfo;
-      baseRow.parentId = row?.parentName?.id;
-      baseRow.status = row?.status === "Active" ? true : false;
-      ((baseRow.prayasDepartmentId = row?.prayasDepartmentId),
-        (baseRow.prayasMinistryId = row?.prayasMinistryId),
-        (baseRow.prayasSchemeId = row?.prayasSchemeId),
-        (baseRow.jsonData = {
-          ministryId: row?.ministryId,
-          schemeShortName: row?.schemeShortName,
-          schemeCode: row?.schemeCode,
-          parentName: row?.parentName,
-          schemeType: row?.schemeType,
-          associatedFramework: row?.associatedFramework,
-          schemeStartDate: row?.schemeStartDate,
-          schemeEndDate: row?.schemeEndDate,
-          budgetCovered: row?.budgetCovered,
-          isNotSubScheme: row?.isNotSubScheme,
-          nodalOfficer: row?.nodalOfficer,
-          paras: row?.paras,
-          targetGroup: row?.targetGroup,
-          sdgAlignment: row?.sdgAlignment,
-          isConvergenceScheme: row?.isConvergenceScheme,
-          nodalMinistry: row?.nodalMinistry,
-          supportingDocuments: row?.supportingDocuments,
-        }));
-    }
-
-    if (urlModal === "schemeType") {
-      baseRow.name = row?.name;
-      baseRow.description = row?.description;
-      baseRow.status = row?.status === "Active" ? true : false;
-      baseRow.jsonData = {
-        schemeTypeShortName: row?.schemeTypeShortName,
-        associatedFramework: row?.associatedFramework,
-      };
-    }
-
-    if (urlModal === "sdg") {
-      baseRow.name = row?.name || "";
-
-      baseRow.status = row?.status === "Active" ? true : false;
-      baseRow.jsonData = {
-        sdgTarget: row?.sdgTarget || "",
-        sdgNumber: row?.sdgNumber || "",
-      };
-    }
-
-    if (urlModal === "targetGroup") {
-      baseRow.name = row?.name || "";
-
-      baseRow.status = row?.status === "Active" ? true : false;
-      baseRow.jsonData = {
-        sdgTarget: row?.sdgTarget || "",
-        sdgNumber: row?.sdgNumber || "",
-      };
-    }
-
-    if (urlModal === "units") {
-      baseRow.name = row?.name || "";
-
-      baseRow.status = row?.status === "Active" ? true : false;
-    }
-
-    if (urlModal === "associatedFramework") {
-      baseRow.name = row?.name || "";
-      baseRow.status = row?.status === "Active" ? true : false;
-    }
-
-    if (urlModal === "state") {
-      baseRow.name = row?.state_name || "";
-      baseRow.status = row?.status === "Active" ? true : false;
-      baseRow.stateCode = row?.state_code || "";
-      baseRow.stateAbbr = row?.state_abbr || "";
-    }
-    if (urlModal === "documentCategory") {
-      baseRow.name = row?.name || "";
-      baseRow.status = row?.status === "Active" ? true : false;
-      baseRow.abbr = row?.abbr || "";
-      baseRow.jsonData = {
-        orgTypes: row?.orgTypes || [],
-        frameworks: row?.frameworks || [],
-      };
-    }
-    if (urlModal === "district") {
-      baseRow.name = row?.district_name || "";
-
-      baseRow.status = row?.status === "Active" ? true : false;
-      baseRow.districtCode = row?.district_code || "";
-      baseRow.districtAbbr = row?.district_abbr || "";
-      baseRow.jsonData = {
-        stateId: row?.state,
-      };
-    }
-
-    if (urlModal === "role") {
-      let dashboards =
-        Array.isArray(dashboardsArray) && dashboardsArray.length > 0
-          ? dashboardsArray
-          : await fetchDashboardsForRoles();
-      const mappedPermissions = mapRolePayloadToPermissions(
-        row?.associatedFrameworks || [],
-        dashboards,
-      );
-      setPermissions(mappedPermissions);
-
-      // UI: mark dashboards as selected
-      const dashboardsSelected = mappedPermissions.map((fw) => {
-        const dashboardData = dashboards.find(
-          (d) => d.frameworkId === fw.frameworkId,
-        );
-        return {
-          id: dashboardData?.frameworkId, // ✅ same as options.id
-          frameworkId: dashboardData?.frameworkId,
-          name: dashboardData?.frameworkName || "",
-        };
-      });
-      setSelectedDashboards(dashboardsSelected);
-
-      baseRow.orgType = row?.orgType || null;
-
-      baseRow.status = row?.status === "Active" ? true : false;
-    }
-
-    if (urlModal === "user") {
-      baseRow.firstName = row?.firstName || "";
-      baseRow.lastName = row?.lastName || "";
-      baseRow.email = row?.email || "";
-      baseRow.status = row?.status === "Active" ? true : false;
-      baseRow.mobileNo = row?.mobileNo || "";
-      baseRow.dob = row?.dob || null;
-      baseRow.landlineNo = row?.landlineNo || "";
-      baseRow.designation = row?.designation || "";
-      baseRow.jsonData = {
-        orgTypes: row?.orgType || [],
-        ministries: row?.ministries || [],
-        departments: row?.departments || [],
-        schemes: row?.schemes || [],
-        associatedFrameworks: row?.associatedFrameworks || [],
-        roles: row?.userRoleType || [],
-      };
-    }
-
-    if (urlModal === "strategyTrackingModule") {
-      baseRow.theme = row?.theme || {};
-      baseRow.scheme = row?.schemes || [];
-      baseRow.ministry = row?.ministry || {};
-      baseRow.questionnaireId = row?.questionnaire || {};
-      baseRow.department = row?.department || {};
-      baseRow.expectedCompletionDate = row?.expectedCompletionDate || null;
-      baseRow.designation = row?.designation || "";
-      baseRow.actionPointStatus = row?.actionPointStatus || "";
-      baseRow.responsiblePerson = row?.responsiblePerson || {};
-      baseRow.status = row?.status === "Active" ? true : false;
-      baseRow.jsonData.supportingDocuments = row?.supportingDocuments || [];
-    }
-    if (urlModal === "outputOutcome") {
-      baseRow.status = row?.status === "Active" ? true : false;
-      baseRow.parentScheme = row?.parentScheme;
-      baseRow.jsonData = {
-        ministry: row?.ministry,
-        department: row?.department,
-        schemeType: row?.schemeType,
-        scheme: row?.scheme,
-        subScheme: row?.subScheme,
-        statementType: row?.statementType,
-      };
-    }
-    if (urlModal === "indicator") {
-      baseRow.status = row?.status === "Active" ? true : false;
-      baseRow.parentScheme = row?.parentScheme;
-      baseRow.jsonData = {
-        ministry: row?.ministry,
-        department: row?.department,
-        schemeType: row?.schemeType,
-        scheme: row?.scheme,
-        subScheme: row?.subScheme,
-        indicatorType: row?.indicatorType,
-        indicatorRise: row?.indicatorRise,
-        period: row?.period,
-        scale: row?.scale,
-        sdg: row?.sdg,
-        category: row?.category,
-        unit: row?.unit,
-        measurementArea: row?.measurementArea,
-        measurementType: row?.measurementType,
-      };
-    }
-    if (urlModal === "frameworkSection") {
-      baseRow.status = row?.status === "Active" ? true : false;
-      const matchedPrivileges = privileges?.filter((p) =>
-        row?.privileges?.some(
-          (pr) => pr.toLowerCase() === p?.name?.toLowerCase(),
-        ),
-      );
-      baseRow.jsonData = {
-        associatedSectionFramework: row?.frameworkName,
-        privileges: matchedPrivileges,
-      };
-    }
-    if (urlModal === "dynamicMenu") {
-      baseRow.status = row?.status === "Active" ? true : false;
-      baseRow.menuUrl = row?.menuUrl;
-      baseRow.module = row?.module;
-      baseRow.parentMenu = row?.parentMenu;
-      baseRow.sortOrder = row?.sortOrder;
-      baseRow.frameworkSection = row?.frameworkSection;
-      baseRow.associatedFramework = row?.framework;
-    }
-    if (urlModal === "sectionModal") {
-      baseRow.frameworkSection = row?.frameworkSection;
-      baseRow.shortUrl = row?.shortUrl;
-    }
-
-    setNewRow(baseRow);
-  };
-
-  const uploadMultipleFiles = async (files, titles = [], docDescription) => {
-    const formData = new FormData();
-    files.forEach((file, idx) => {
-      formData.append("files", file);
-      formData.append("titles[]", titles[idx] || file.name);
-      formData.append("reference_type", "masters");
-      formData.append("user_id", userData?.id);
-      formData.append("remarks", docDescription);
-    });
-
-    try {
-      const response = await apiClient.post(
-        "api/document/upload-files",
-        formData,
-      );
-      return response.data.files;
-    } catch (err) {
-      console.error("Upload failed:", err);
-      return [];
-    }
-  };
-
-  const handleJsonDataChange = (key) => async (e) => {
-    // Your existing file/custom handling unchanged...
-
-    if (e.target.type === "file") {
-      const files = Array.from(e.target?.files);
-      const titles = files.map((f) => f.name);
-
-      const uploadedFileNames = await uploadMultipleFiles(files, titles);
-
-      setNewRow((prev) => {
-        const updatedJsonData = {
-          ...(prev.jsonData && typeof prev.jsonData === "object"
-            ? prev.jsonData
-            : {}),
-          [key]: uploadedFileNames.map((file, idx) => ({
-            title: titles[idx],
-            file,
-          })),
-        };
-
-        return {
-          ...prev,
-          jsonData: updatedJsonData,
-        };
-      });
-
-      return;
-    }
-
-    if (e.target.type === "custom") {
-      // Your existing custom repeater handling code here...
-
-      // For simplicity, let's assume you have the updated jsonData in `result`
-      // (make sure your code sets it correctly, here it's simplified):
-
-      const entries = e.target.value;
-
-      // Build the result (same as your code)
-      const result = entries.map((entry) => {
-        if (entry.file instanceof File) {
-          const index = entries.findIndex((e) => e.name === entry.name);
-          return {
-            title: entry.name,
-            file: uploadedFileNames?.[index],
-          };
-        }
-        return entry;
-      });
-
-      setNewRow((prev) => {
-        const updatedJsonData = {
-          ...(prev.jsonData && typeof prev.jsonData === "object"
-            ? prev.jsonData
-            : {}),
-          [key]: result,
-        };
-
-        return {
-          ...prev,
-          jsonData: updatedJsonData,
-        };
-      });
-
-      return;
-    }
-
-    // Default case for text/checkbox etc.
-    let value = e.target.value;
-    if (key === "weight") {
-      value = parseInt(value, 10);
-      if (isNaN(value)) value = 0;
-      value = Math.min(100, Math.max(1, value));
-    }
-    if (e.target.type === "checkbox") {
-      value = e.target.checked;
-    }
-
-    setNewRow((prev) => {
-      const updatedJsonData = {
-        ...(prev.jsonData && typeof prev.jsonData === "object"
-          ? prev.jsonData
-          : {}),
-        [key]: value,
-      };
-
-      return {
-        ...prev,
-        jsonData: updatedJsonData,
-      };
-    });
-  };
-
-  const handleNewChange = (field) => (e) => {
-    let value = e.target.value;
-
-    setNewRow((prev) => ({
-      ...prev,
-      [field]: value,
-    }));
-  };
-
-  const processedRow = useMemo(() => {
-    if (urlModal === "schemes") {
-      return {
-        ...newRow,
-        jsonData: {
-          isNotSubScheme: true,
-          ...(newRow.jsonData || {}),
-        },
-      };
-    }
-    return newRow;
-  }, [newRow, urlModal]);
-
-  const handleViewAuditTrail = async (row) => {
-    const updatedPrivileges = await refresh();
-    if (!row?.id || !updatedPrivileges?.sectionId) return;
-
-    setAuditParams({
-      auditableId: String(row.id),
-      sectionId: updatedPrivileges.sectionId,
-    });
-    setAuditDialogOpen(true);
-  };
-
-  const masterState = {
-    newRow,
-    processedRow,
-    isViewing,
-    urlModal,
-    isEditing,
-    setIsEditing,
-    setErrors,
-    setEditId,
-    editId,
-    setNewRow,
-    setIsViewing,
-    selected,
-    errors,
-    showAccordion,
-    setShowAccordion,
-    handleEdit,
-    handleViewAuditTrail,
-    setSchemeData,
-    handleSwitchChange,
-    refreshMenu,
-    permissions,
-    setPermissions,
-    setSubmitted,
-    selectedDashboards,
-    orgTypes,
-    setSelectedDashboards,
-    dashboardsArray,
-    setDashboardsArray,
-    submitted,
-    handleNewChange,
-    sectors,
-    allOomfMastersData,
-    sdgNames,
-    targetGroups,
-    associatedFrameworks,
-    jsonData: urlModal === "schemes" ? processedRow.jsonData : newRow.jsonData,
-    initialUploadDocuments: newRow?.jsonData?.supportingDocuments,
-    uploadMultipleFiles,
-    handleJsonDataChange,
-  };
+  const primaryColor = "#45154F";
+  const secondaryColor = "#F5F5F5";
+  const borderColor = "#E0E0E0";
+  const errorColor = "#D32F2F";
+
+  const totalSections = sectionsByType[currentType]?.length || 0;
+  const isOnlySection = totalSections === 1;
+  const isSmall = useMediaQuery("(max-width:600px)");
 
   return (
-    <>
-      {loading ? (
+    <Accordion
+      key={sectionIndex}
+      defaultExpanded={true}
+      sx={{
+        mt: 4,
+        py: 4,
+        borderRadius: 2,
+        border:
+          hoveredSectionIdx === sectionIndex
+            ? `2px solid ${errorColor}`
+            : `1px solid ${borderColor}`,
+        transition: "border 0.3s ease-in-out, box-shadow 0.3s ease-in-out",
+        boxShadow:
+          hoveredSectionIdx === sectionIndex
+            ? `0 4px 12px rgba(211, 47, 47, 0.15)`
+            : `0 2px 8px rgba(0, 0, 0, 0.08)`,
+        position: "relative",
+        backgroundColor: "#f7f1fa",
+        "&:before": {
+          display: "none",
+        },
+      }}
+    >
+      {/* Header */}
+      <AccordionSummary
+        expandIcon={!isReadOnly ? <ExpandMoreIcon /> : null}
+        sx={{
+          px: 4,
+          minHeight: 56,
+          "& .MuiAccordionSummary-content": {
+            my: 0,
+          },
+        }}
+      >
         <Box
-          display="flex"
-          justifyContent="center"
-          alignItems="center"
-          minHeight="200px"
+          sx={{
+            width: "100%",
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            pb: 2,
+            borderBottom: `1px solid ${borderColor}`,
+          }}
         >
-          <CircularProgress />
-        </Box>
-      ) : (
-        <Box sx={{ mt: 4 }}>
-          {urlModal === "ministry" && (
-            <MinistryMaster masterState={masterState} />
-          )}
-          {urlModal === "sector" && <SectorMaster masterState={masterState} />}
-          {urlModal === "departments" && (
-            <DepartmentMaster masterState={masterState} />
-          )}
-          {urlModal === "schemeType" && (
-            <SchemeTypeMaster masterState={masterState} />
-          )}
-          {urlModal === "schemes" && <SchemeMaster masterState={masterState} />}
-          {urlModal === "state" && <StateMaster masterState={masterState} />}
-          {urlModal === "district" && (
-            <DistrictMaster masterState={masterState} />
-          )}
-          {urlModal === "sdg" && <SDGMaster masterState={masterState} />}
-          {urlModal === "targetGroup" && (
-            <TargetGroupMaster masterState={masterState} />
-          )}
-          {urlModal === "associatedFramework" && (
-            <FrameworkMaster masterState={masterState} />
-          )}
-          {urlModal === "role" && <RoleMaster masterState={masterState} />}
-          {urlModal === "user" && <UserMaster masterState={masterState} />}
-          {urlModal === "units" && <UnitsMaster masterState={masterState} />}
-          {urlModal === "outputOutcome" && (
-            <OutputOutcomeMaster masterState={masterState} />
-          )}
-          {urlModal === "indicator" && (
-            <IndicatorMaster masterState={masterState} />
-          )}
-          {urlModal === "strategyTrackingModule" && (
-            <StrategyTrackingModuleMaster masterState={masterState} />
-          )}
-
-          {urlModal === "orgType" && (
-            <OrganizationMaster masterState={masterState} />
-          )}
-          {urlModal === "applicableCategory" && (
-            <ApplicableCategoryMaster masterState={masterState} />
-          )}
-          {urlModal === "frequency" && (
-            <FrequencyMaster masterState={masterState} />
-          )}
-          {urlModal === "indicatorRise" && (
-            <IndicatorRiseMaster masterState={masterState} />
-          )}
-          {urlModal === "indicatorType" && (
-            <IndicatorTypeMaster masterState={masterState} />
-          )}
-          {urlModal === "period" && <PeriodMaster masterState={masterState} />}
-          {urlModal === "scales" && <ScaleMaster masterState={masterState} />}
-          {urlModal === "measurementArea" && (
-            <MeasurementAreaMaster masterState={masterState} />
-          )}
-          {urlModal === "measurementType" && (
-            <MeasurementTypeMaster masterState={masterState} />
-          )}
-          {urlModal === "frameworkSection" && (
-            <FrameworkSectionMaster masterState={masterState} />
-          )}
-          {urlModal === "dynamicMenu" && (
-            <DynamicMenuMaster masterState={masterState} />
-          )}
-          {urlModal === "sectionModal" && (
-            <SectionModalMaster masterState={masterState} />
-          )}
-          {urlModal === "documentCategory" && (
-            <DocumentCategoryMaster masterState={masterState} />
-          )}
-          <UserRelatedDetailsDialog
-            open={openDialog}
-            title={dialogTitle}
-            data={dialogData}
-            onClose={() => setOpenDialog(false)}
-          />
-          {selected && (
-            <>
+          <Box
+            sx={{
+              display: isSmall ? "none" : "flex",
+              alignItems: "center",
+              gap: 2,
+            }}
+          >
+            <Box
+              sx={{
+                display: isSmall ? "none" : "flex",
+                alignItems: "center",
+                gap: 2,
+              }}
+            >
               <Box
                 sx={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  mb: 2,
-                  mt: 2,
-                  flexWrap: "wrap", // responsive wrapping
-                  gap: 2,
+                  background: primaryColor,
+                  padding: "8px 24px",
+                  borderRadius: "24px",
+                  minWidth: "fit-content",
                 }}
               >
-                {/* {auditParams?.auditableId && auditParams?.sectionId && (
-                  <AuditDataGrid
-                    {...auditParams}
-                    auditDialogOpen={auditDialogOpen}
-                    setAuditDialogOpen={setAuditDialogOpen}
-                  />
-                )} */}
+                <FormLabel
+                  sx={{
+                    color: "#fff",
+                    fontSize: "0.875rem",
+                    fontWeight: 600,
+                  }}
+                >
+                  {`${currentType} ${sectionIndex + 1}`}
+                </FormLabel>
               </Box>
 
-              <InactiveConfirmDialog
-                openConfirm={openConfirm}
-                handleCancel={handleCancel}
-                handleConfirm={handleConfirm}
-              />
-              {schemeData && Object.keys(schemeData).length > 0 && (
-                <SchemeBudgetModal
-                  open={open}
-                  onClose={handleClose}
-                  schemeData={schemeData}
-                  associatedFrameworks={associatedFrameworks}
+              <Tooltip
+                title={section.name || `Untitled ${currentType}`}
+                placement="top"
+              >
+                <Typography
+                  variant="h6"
+                  sx={{
+                    color: primaryColor,
+                    fontWeight: 600,
+                    maxWidth: {
+                      xs: "14rem",
+                      sm: "20rem",
+                      md: "40rem",
+                    },
+                    whiteSpace: "nowrap",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    display: "block",
+                    cursor: "pointer",
+                  }}
+                >
+                  {section.name || `Untitled ${currentType}`}
+                </Typography>
+              </Tooltip>
+            </Box>
+
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+              {!isReadOnly && totalSections > 1 && (
+                <>
+                  <Tooltip title="Move Up">
+                    <IconButton
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleMoveSectionUp(sectionIndex);
+                      }}
+                      disabled={sectionIndex === 0}
+                      sx={{
+                        color:
+                          sectionIndex === 0 ? "action.disabled" : primaryColor,
+                        "&:hover": {
+                          backgroundColor:
+                            sectionIndex === 0
+                              ? "transparent"
+                              : `${primaryColor}10`,
+                        },
+                      }}
+                      size="small"
+                    >
+                      <ArrowUpwardIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+
+                  <Tooltip title="Move Down">
+                    <IconButton
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleMoveSectionDown(sectionIndex);
+                      }}
+                      disabled={sectionIndex === totalSections - 1}
+                      sx={{
+                        color:
+                          sectionIndex === totalSections - 1
+                            ? "action.disabled"
+                            : primaryColor,
+                        "&:hover": {
+                          backgroundColor:
+                            sectionIndex === totalSections - 1
+                              ? "transparent"
+                              : `${primaryColor}10`,
+                        },
+                      }}
+                      size="small"
+                    >
+                      <ArrowDownwardIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                </>
+              )}
+              <Button variant="outlined">
+                Manage {currentType === "Output" ? "Output" : "Outcome"} Indicators
+              </Button>
+              
+              {/* Active Switch */}
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                <Typography
+                  variant="body2"
+                  sx={{
+                    color: "text.secondary",
+                    fontWeight: 500,
+                    cursor: "default",
+                  }}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  Active
+                </Typography>
+
+                {/* <Switch
+                  disabled={isReadOnly}
+                  checked={section.active}
+                  onClick={(e) => e.stopPropagation()}
+                  onChange={(e) =>
+                    handleSectionChange(
+                      sectionIndex,
+                      "active",
+                      e.target.checked
+                    )
+                  }
+                  size="small"
+                /> */}
+
+                {isOnlySection ? (
+                  <Tooltip
+                    title={
+                      isReadOnly
+                        ? ""
+                        : "At least two sections are required to enable activation or deactivation. This section cannot be deactivated as it is the only available one."
+                    }
+                  >
+                    <Box onClick={(e) => e.stopPropagation()}>
+                      <Switch
+                        checked
+                        disabled
+                        size="small"
+                        sx={{
+                          opacity: 0.5,
+                          cursor: "not-allowed",
+                        }}
+                      />
+                    </Box>
+                  </Tooltip>
+                ) : (
+                  <Switch
+                    checked={section.active}
+                    disabled={isReadOnly}
+                    onClick={(e) => e.stopPropagation()}
+                    onChange={(e) =>
+                      handleSectionChange(
+                        sectionIndex,
+                        "active",
+                        e.target.checked,
+                      )
+                    }
+                    size="small"
+                  />
+                )}
+              </Box>
+
+              {/* Delete Button */}
+              {!isReadOnly && totalSections > 1 && (
+                <Tooltip title={`Delete this ${currentType}`}>
+                  <IconButton
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setHoveredSectionIdx(null);
+                      handleRemoveSection(sectionIndex);
+                    }}
+                    onMouseEnter={() => setHoveredSectionIdx(sectionIndex)}
+                    onMouseLeave={() => setHoveredSectionIdx(null)}
+                    sx={{
+                      color: errorColor,
+                      "&:hover": { backgroundColor: `${errorColor}10` },
+                    }}
+                    size="small"
+                  >
+                    <DeleteOutlinedIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              )}
+            </Box>
+          </Box>
+        </Box>
+      </AccordionSummary>
+
+      <AccordionDetails sx={{ px: 4, py: 0 }}>
+        {/* Section Name Selection */}
+        <Grid
+          container
+          spacing={3}
+          alignItems="flex-end"
+          mb={4}
+          sx={{ backgroundColor: "#fff" }}
+        >
+          <Grid size={{ xs: 12, md: 12 }}>
+            <Autocomplete
+              disableClearable
+              disabled={isReadOnly}
+              fullWidth
+              options={(
+                (currentType === "Output"
+                  ? outputResponse?.outputList
+                  : outcomeResponse?.outcomeList) || []
+              ).filter(
+                (option) =>
+                  !sectionsByType[currentType]
+                    .filter((_, i) => i !== sectionIndex)
+                    .some((sec) => sec.name === option.name),
+              )}
+              value={
+                section.name
+                  ? {
+                      id:
+                        outputResponse?.outputList?.find(
+                          (x) => x.name === section.name,
+                        )?.id ||
+                        outcomeResponse?.outcomeList?.find(
+                          (x) => x.name === section.name,
+                        )?.id,
+                      name: section.name,
+                    }
+                  : null
+              }
+              onChange={(event, newValue) => {
+                handleSectionChange(
+                  sectionIndex,
+                  "name",
+                  newValue ? newValue.name : "",
+                );
+                handleSectionChange(
+                  sectionIndex,
+                  "id",
+                  newValue ? newValue.id : "",
+                );
+                handleSectionChange(sectionIndex, "footNote", "");
+              }}
+              getOptionLabel={(option) => option?.name || ""}
+              isOptionEqualToValue={(option, value) => option.id === value.id}
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  variant="outlined"
+                  label={
+                    <>
+                      Select {currentType} Name{" "}
+                      <span
+                        style={{
+                          color: "red",
+                          display: moto === "draft" ? "none" : "inline",
+                        }}
+                      >
+                        *
+                      </span>
+                    </>
+                  }
+                  sx={{ "& .MuiOutlinedInput-root": { borderRadius: 2 } }}
+                  InputProps={{
+                    ...params.InputProps,
+                    endAdornment: (
+                      <>
+                        <InputAdornment position="end">
+                          <Tooltip
+                            title={
+                              isReadOnly
+                                ? `View Footnote`
+                                : `Add a footnote for this ${currentType}`
+                            }
+                          >
+                            <IconButton
+                              onClick={() => {
+                                const matchingIndicator =
+                                  prefillData?.indicatorData?.find(
+                                    (item) =>
+                                      item.indicatorType?.name.toLowerCase() ===
+                                      currentType.toLowerCase(),
+                                  );
+
+                                handleDialogOpen({
+                                  field: currentType,
+                                  sectionIndex,
+                                  defaultValue:
+                                    sectionsByType[currentType]?.[sectionIndex]
+                                      ?.footNote ??
+                                    matchingIndicator?.indicatorType
+                                      ?.footNote ??
+                                    "",
+                                });
+                              }}
+                            >
+                              <DescriptionIcon sx={{ color: primaryColor }} />
+                            </IconButton>
+                          </Tooltip>
+                        </InputAdornment>
+
+                        {params.InputProps.endAdornment}
+                      </>
+                    ),
+                  }}
                 />
               )}
-            </>
-          )}
-        </Box>
-      )}
-    </>
+            />
+          </Grid>
+        </Grid>
+
+        {/* Indicators */}
+        {section?.indicators?.map((indicator, indicatorIndex) => (
+          <IndicatorForm
+            key={indicatorIndex}
+            moto={moto}
+            indicator={indicator}
+            sectionIndex={sectionIndex}
+            indicatorIndex={indicatorIndex}
+            section={section}
+            currentType={currentType}
+            isReadOnly={isReadOnly}
+            type={type}
+            isPostBudget={isPostBudget}
+            dummyIndicator={dummyIndicator}
+            dummyMeasurementTypes={dummyMeasurementTypes}
+            dummyUnits={dummyUnits}
+            dummyScales={dummyScales}
+            dummyMeasurementArea={dummyMeasurementArea}
+            dummyIndicatorRise={dummyIndicatorRise}
+            dummyPeriod={dummyPeriod}
+            dummyCategoty={dummyCategoty}
+            dummySdg={dummySdg}
+            dummyFrequencies={dummyFrequencies}
+            fieldErrors={fieldErrors}
+            inputRefs={inputRefs}
+            handleIndicatorChange={handleIndicatorChange}
+            handleChange={handleChange}
+            handleDialogOpen={handleDialogOpen}
+            handleAddIndicator={handleAddIndicator}
+            handleRemoveIndicator={handleRemoveIndicator}
+            handleMoveUp={handleMoveUp}
+            handleMoveDown={handleMoveDown}
+            hoveredCancelIdx={hoveredCancelIdx}
+            setHoveredCancelIdx={setHoveredCancelIdx}
+            totals={{}}
+            dummyDistrict={dummyDistrict}
+            dummyStates={dummyStates}
+            onOpenFrequencyModal={onOpenFrequencyModal}
+            initialTargetsMap={initialTargetsMap}
+            buildTargetsByMeasurementArea={buildTargetsByMeasurementArea}
+            computeTotals={computeTotals}
+          />
+        ))}
+      </AccordionDetails>
+    </Accordion>
   );
 }
