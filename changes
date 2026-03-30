@@ -1,636 +1,904 @@
-import apiClient from "@/utils/apiClient";
-import {
-  Autocomplete,
-  FormControl,
-  FormControlLabel,
-  InputLabel,
-  MenuItem,
-  Select,
-  Grid,
-  TextField,
-  Switch,
-  Tooltip,
-  Typography,
-  FormHelperText,
-  FormLabel,
-} from "@mui/material";
-import { useEffect, useState } from "react";
-import { useDispatch, useSelector } from "react-redux";
-import {
-  filterByFramework,
-  filterSchemesByFramework,
-} from "@/utils/niti/filterByFramework";
-import { oomfFrameworkId } from "@/src/constants/unified/frameworkConstants";
+"use client";
 
-const OutputOutcome = ({ modalState }) => {
-  const {
+import React, { useEffect, useMemo, useState } from "react";
+import { Box, CircularProgress } from "@mui/material";
+
+import apiClient from "@/utils/apiClient";
+import { useSelector } from "react-redux";
+import SchemeBudgetModal from "./ModalsFields/SchemeBudgetDetails";
+import { usePrivileges } from "@/src/context/privilegeContextProvider";
+import { InactiveConfirmDialog } from "./InactiveMasterConfirmDialog";
+import { useLayout } from "@/src/context/layoutContextProvider";
+import AuditDataGrid from "../AuditDetailsDialog";
+import UserRelatedDetailsDialog from "./UserRelatedDetailsDialog";
+import MinistryMaster from "./UnifiedMasters/MinistryMaster";
+import SectorMaster from "./UnifiedMasters/SectorMaster";
+import DepartmentMaster from "./UnifiedMasters/DepartmentMaster";
+import SchemeTypeMaster from "./UnifiedMasters/SchemeTypeMaster";
+import SchemeMaster from "./UnifiedMasters/SchemeMaster";
+import StateMaster from "./UnifiedMasters/StateMaster";
+import DistrictMaster from "./UnifiedMasters/DistrictMaster";
+import SDGMaster from "./UnifiedMasters/SDGMaster";
+import TargetGroupMaster from "./UnifiedMasters/TargetGroupMaster";
+import FrameworkMaster from "./UnifiedMasters/FrameworkMaster";
+import RoleMaster from "./UnifiedMasters/RoleMaster";
+import UserMaster from "./UnifiedMasters/UserMaster";
+import UnitsMaster from "./UnifiedMasters/UnitsMaster";
+import OutputOutcomeMaster from "./UnifiedMasters/OutputOutcomeMaster";
+import StrategyTrackingModuleMaster from "./UnifiedMasters/StrategyTrackingModuleMaster";
+import IndicatorMaster from "./UnifiedMasters/IndicatorMaster";
+import OrganizationMaster from "./UnifiedMasters/OrganizationMaster";
+import ApplicableCategoryMaster from "./UnifiedMasters/ApplicableCategoryMaster";
+import FrequencyMaster from "./UnifiedMasters/FrequencyMaster";
+import IndicatorRiseMaster from "./UnifiedMasters/IndicatorRiseMaster";
+import IndicatorTypeMaster from "./UnifiedMasters/IndicatorTypeMaster";
+import PeriodMaster from "./UnifiedMasters/PeriodMaster";
+import ScaleMaster from "./UnifiedMasters/ScaleMaster";
+import MeasurementAreaMaster from "./UnifiedMasters/MeasurementAreaMaster";
+import MeasurementTypeMaster from "./UnifiedMasters/MeasurementTypeMaster";
+import FrameworkSectionMaster from "./UnifiedMasters/FrameworkSectionMaster";
+import DynamicMenuMaster from "./UnifiedMasters/DynamicMenuMaster";
+import SectionModalMaster from "./UnifiedMasters/SectionModalMaster";
+import DocumentCategoryMaster from "./UnifiedMasters/DocumentCategoryMaster";
+
+export default function AddDataMasterTable({
+  loader,
+  urlModal,
+  urlModalAccess,
+  setUrlModalAccess,
+}) {
+  const { refreshMenu } = useLayout();
+  // list of masters
+  const [masters, setMasters] = useState([]);
+  const [selected, setSelected] = useState(null);
+
+  const [originalRow, setOriginalRow] = useState(null);
+
+  const [newRow, setNewRow] = useState({
+    status: true, // Ensure Active by default
+    // other fields...
+  });
+
+  const [loading, setLoading] = useState(false);
+  const [showAccordion, setShowAccordion] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [isViewing, setIsViewing] = useState(false);
+  const [editId, setEditId] = useState(null);
+
+  const [sectors, setSectors] = useState([]);
+  const [sdgNames, setSdgNames] = useState([]);
+  const [targetGroups, setTargetGroups] = useState([]);
+  const [associatedFrameworks, setAssociatedFramework] = useState([]);
+  const [open, setOpen] = useState(false);
+  const [schemeData, setSchemeData] = useState({});
+  const [allOomfMastersData, setAllOomfMastersData] = useState({});
+  const [permissions, setPermissions] = useState([]);
+  const [selectedDashboards, setSelectedDashboards] = useState([]);
+  const [orgTypes, setOrgTypes] = useState([]);
+  const [errors, setErrors] = useState({});
+  const [submitted, setSubmitted] = useState(false);
+  const [openDialog, setOpenDialog] = useState(false);
+  const [dialogData, setDialogData] = useState([]);
+  const [dialogTitle, setDialogTitle] = useState("");
+  const privileges = [
+    { id: 1, name: "add" },
+    { id: 2, name: "edit" },
+    { id: 3, name: "view" },
+    { id: 4, name: "audit trail" },
+  ];
+  const [dashboardsArray, setDashboardsArray] = useState([]);
+  const userData = useSelector((state) => state.config.userData);
+  const [openConfirm, setOpenConfirm] = useState(false);
+  const [pendingValue, setPendingValue] = useState(false);
+  const [auditParams, setAuditParams] = useState({});
+
+  const [auditDialogOpen, setAuditDialogOpen] = useState(false);
+  const userFrameworkMappings = userData?.userRoleMappings?.map(
+    (mapping) => mapping?.frameworkId,
+  );
+
+  const handleSwitchChange = (event) => {
+    const value = event.target.checked;
+
+    // ✅ Define URLs or modal names where confirmation is required
+    const confirmUrls = [
+      "user",
+      "sdg",
+      "targetGroup",
+      "framework",
+      "units",
+      "schemeType",
+      "district",
+    ];
+
+    const shouldShowConfirm =
+      !confirmUrls.some((url) => urlModal.includes(url)) &&
+      newRow?.status &&
+      !value &&
+      editId;
+
+    if (shouldShowConfirm) {
+      setPendingValue(value);
+      setOpenConfirm(true);
+    } else {
+      setNewRow((prev) => ({ ...prev, status: value }));
+    }
+  };
+
+  const handleConfirm = () => {
+    setNewRow((prev) => ({ ...prev, status: pendingValue }));
+    setOpenConfirm(false);
+  };
+
+  const handleCancel = () => {
+    setOpenConfirm(false);
+  };
+
+  useEffect(() => {
+    if (schemeData && Object.keys(schemeData).length > 0) {
+      setOpen(true);
+    }
+  }, [schemeData]);
+
+  const handleClose = () => {
+    setOpen(false);
+    setSchemeData({});
+  };
+
+  // load master definitions
+  useEffect(() => {
+    apiClient
+      .get("api/dynamic/masters_defination")
+      .then((res) => {
+        setMasters(res?.data); // assuming response has { data: [...] }
+      })
+      .catch((err) => console.error(err));
+  }, []);
+  const fetchMasters = async () => {
+    try {
+      const res = await apiClient.get("api/master/all-oomf-masters");
+      const data = res.data.data || [];
+      setOrgTypes(
+        data?.orgTypes
+          ?.filter((item) => item.id !== 10) // 🚫 remove id 10
+          .map((item) => ({ id: item.id, name: item.name })),
+      );
+
+      setAssociatedFramework(
+        data?.associatedFrameworks
+          ?.filter((item) => userFrameworkMappings?.includes(item.id))
+          .map((item) => ({
+            id: item.id,
+            name: item.name,
+          })),
+      );
+      setSdgNames(
+        data?.sdg?.map((item) => ({
+          id: item.id,
+          name: item.name,
+        })),
+      );
+      setTargetGroups(
+        data?.targetGroups?.map((item) => ({
+          id: item.id,
+          name: item.name,
+        })),
+      );
+    } catch (error) {
+      setAssociatedFramework([]);
+      setOrgTypes([]);
+      setSdgNames([]);
+      setTargetGroups([]);
+      console.error("Failed to fetch master:", error);
+    }
+  };
+  useEffect(() => {
+    fetchMasters();
+  }, [urlModal]);
+  useEffect(() => {
+    if (!urlModal || !masters.length) {
+      setSelected(null);
+      return;
+    }
+    const master = masters.find((m) => m.modal_name === urlModal);
+    setSelected(master);
+    setUrlModalAccess(true);
+  }, [urlModal, masters, setUrlModalAccess]);
+
+  // --- fetchDashboardsForRoles now returns the data it fetches ---
+  const fetchDashboardsForRoles = async () => {
+    try {
+      setLoading(true);
+      const response = await apiClient.get(`api/master/dashboards-role`);
+      const data = response?.data?.data ?? [];
+      const finalArray = Array.isArray(data) ? data : [];
+      const filteredFinalArray = finalArray?.filter((item) =>
+        userFrameworkMappings?.includes(item?.frameworkId),
+      );
+      setDashboardsArray(filteredFinalArray);
+      return filteredFinalArray; // <-- return it so callers can use it immediately
+    } catch (error) {
+      console.error("Failed to fetch dashboards:", error);
+      setDashboardsArray([]);
+      return [];
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (urlModal === "role") fetchDashboardsForRoles();
+  }, [urlModal]);
+
+  function mapRolePayloadToPermissions(frameworks = [], dashboardsArray = []) {
+    return frameworks
+      .map((fw) => {
+        if (!fw?.frameworkId) return null;
+        const frameworkData = dashboardsArray.find(
+          (d) => d.frameworkId === fw.frameworkId,
+        );
+
+        const hasSubModules =
+          Array.isArray(frameworkData?.subModulesPrivileges) &&
+          frameworkData.subModulesPrivileges.length > 0;
+
+        // Map submodules if present
+        const subModulesPrivileges = (fw?.privileges || []).map((p) => {
+          const module = frameworkData?.subModulesPrivileges?.find(
+            (m) => m?.id === p?.frameworkSectionId,
+          );
+          const accessRights = { ...(p?.accessRights || {}) };
+
+          // Extract OOMF subroles if frameworkId = 3
+          let oomfSubRoles = [];
+          if (fw.frameworkId === 3 && accessRights.oomfSubRoles) {
+            oomfSubRoles = accessRights.oomfSubRoles;
+            delete accessRights.oomfSubRoles;
+          }
+
+          return {
+            moduleId: p?.frameworkSectionId,
+            moduleName: module?.name || "",
+            ...(oomfSubRoles.length > 0 ? { oomfSubRoles } : {}),
+            privileges:
+              Object.keys(accessRights).length > 0
+                ? accessRights
+                : (module?.privileges || []).reduce((acc, curr) => {
+                    acc[curr] = false;
+                    return acc;
+                  }, {}),
+          };
+        });
+
+        // ✅ If no submodules, add dashboard-level actionRights
+        if (!hasSubModules && fw?.privileges?.length === 0 && fw.actionRights) {
+          return {
+            frameworkId: fw.frameworkId,
+            subModulesPrivileges: [
+              {
+                moduleId: null,
+                moduleName: "",
+                privileges: {}, // keep empty
+                actionRights: {
+                  hasDashboardAccess: fw.actionRights.hasDashboardAccess,
+                },
+              },
+            ],
+          };
+        }
+
+        return {
+          frameworkId: fw.frameworkId,
+          subModulesPrivileges,
+        };
+      })
+      .filter(Boolean);
+  }
+
+  // --- Updated handleEdit function ---
+  const handleEdit = async (row) => {
+    if (!row) return;
+    setOriginalRow(JSON.parse(JSON.stringify(row)));
+    setShowAccordion(true);
+    setSelected(row);
+    setIsEditing(true);
+    setEditId(row?.id || null);
+    const safeParseJSON = (json) => {
+      if (typeof json === "object") return json;
+      try {
+        return JSON.parse(json);
+      } catch {
+        return {};
+      }
+    };
+
+    const baseRow = {
+      name: row?.name || "",
+      description: row?.description || null,
+      parentId: row?.parentId || null,
+      jsonData: safeParseJSON(row?.jsonData),
+
+      status: row?.status === "Active" ? true : false,
+    };
+
+    if (urlModal === "ministry") {
+      baseRow.name = row?.name;
+      baseRow.description = row?.description;
+      baseRow.parentId = row?.parentName?.id;
+      baseRow.status = row?.status === "Active" ? true : false;
+      baseRow.jsonData = {
+        ministryShortName: row?.ministryShortName,
+        ministryType: row?.ministryType,
+        parentName: row?.parentName,
+        url: row?.url,
+        address: row?.address,
+        associatedFramework: row?.associatedFramework,
+        budgetCovered: row?.budgetCovered,
+        emailAddress: row?.emailAddress,
+        telephoneNo: row?.telephoneNo,
+        targetGroup: row?.targetGroup,
+        sdgAlignment: row?.sdgAlignment,
+        supportingDocuments: row?.supportingDocuments,
+      };
+    }
+
+    if (urlModal === "departments") {
+      baseRow.name = row?.name;
+      baseRow.description = row?.description;
+      baseRow.parentId = row?.parentName?.id;
+      baseRow.status = row?.status === "Active" ? true : false;
+      baseRow.jsonData = {
+        departmentShortName: row?.departmentShortName,
+        url: row?.url,
+        parentName: row?.parentName,
+        address: row?.address,
+        associatedFramework: row?.associatedFramework,
+        demandNo: row?.demandNo,
+        budgetCovered: row?.budgetCovered,
+        emailAddress: row?.emailAddress,
+        telephoneNo: row?.telephoneNo,
+        targetGroup: row?.targetGroup,
+        sdgAlignment: row?.sdgAlignment,
+        supportingDocuments: row?.supportingDocuments,
+      };
+    }
+    if (urlModal === "schemes") {
+      baseRow.id = row?.id;
+      baseRow.name = row?.name;
+      baseRow.description = row?.description;
+      baseRow.parentScheme = row?.parentSchemeInfo;
+      baseRow.parentId = row?.parentName?.id;
+      baseRow.status = row?.status === "Active" ? true : false;
+      ((baseRow.prayasDepartmentId = row?.prayasDepartmentId),
+        (baseRow.prayasMinistryId = row?.prayasMinistryId),
+        (baseRow.prayasSchemeId = row?.prayasSchemeId),
+        (baseRow.jsonData = {
+          ministryId: row?.ministryId,
+          schemeShortName: row?.schemeShortName,
+          schemeCode: row?.schemeCode,
+          parentName: row?.parentName,
+          schemeType: row?.schemeType,
+          associatedFramework: row?.associatedFramework,
+          schemeStartDate: row?.schemeStartDate,
+          schemeEndDate: row?.schemeEndDate,
+          budgetCovered: row?.budgetCovered,
+          isNotSubScheme: row?.isNotSubScheme,
+          nodalOfficer: row?.nodalOfficer,
+          paras: row?.paras,
+          targetGroup: row?.targetGroup,
+          sdgAlignment: row?.sdgAlignment,
+          isConvergenceScheme: row?.isConvergenceScheme,
+          nodalMinistry: row?.nodalMinistry,
+          supportingDocuments: row?.supportingDocuments,
+        }));
+    }
+
+    if (urlModal === "schemeType") {
+      baseRow.name = row?.name;
+      baseRow.description = row?.description;
+      baseRow.status = row?.status === "Active" ? true : false;
+      baseRow.jsonData = {
+        schemeTypeShortName: row?.schemeTypeShortName,
+        associatedFramework: row?.associatedFramework,
+      };
+    }
+
+    if (urlModal === "sdg") {
+      baseRow.name = row?.name || "";
+
+      baseRow.status = row?.status === "Active" ? true : false;
+      baseRow.jsonData = {
+        sdgTarget: row?.sdgTarget || "",
+        sdgNumber: row?.sdgNumber || "",
+      };
+    }
+
+    if (urlModal === "targetGroup") {
+      baseRow.name = row?.name || "";
+
+      baseRow.status = row?.status === "Active" ? true : false;
+      baseRow.jsonData = {
+        sdgTarget: row?.sdgTarget || "",
+        sdgNumber: row?.sdgNumber || "",
+      };
+    }
+
+    if (urlModal === "units") {
+      baseRow.name = row?.name || "";
+
+      baseRow.status = row?.status === "Active" ? true : false;
+    }
+
+    if (urlModal === "associatedFramework") {
+      baseRow.name = row?.name || "";
+      baseRow.status = row?.status === "Active" ? true : false;
+    }
+
+    if (urlModal === "state") {
+      baseRow.name = row?.state_name || "";
+      baseRow.status = row?.status === "Active" ? true : false;
+      baseRow.stateCode = row?.state_code || "";
+      baseRow.stateAbbr = row?.state_abbr || "";
+    }
+    if (urlModal === "documentCategory") {
+      baseRow.name = row?.name || "";
+      baseRow.status = row?.status === "Active" ? true : false;
+      baseRow.abbr = row?.abbr || "";
+      baseRow.jsonData = {
+        orgTypes: row?.orgTypes || [],
+        frameworks: row?.frameworks || [],
+      };
+    }
+    if (urlModal === "district") {
+      baseRow.name = row?.district_name || "";
+
+      baseRow.status = row?.status === "Active" ? true : false;
+      baseRow.districtCode = row?.district_code || "";
+      baseRow.districtAbbr = row?.district_abbr || "";
+      baseRow.jsonData = {
+        stateId: row?.state,
+      };
+    }
+
+    if (urlModal === "role") {
+      let dashboards =
+        Array.isArray(dashboardsArray) && dashboardsArray.length > 0
+          ? dashboardsArray
+          : await fetchDashboardsForRoles();
+      const mappedPermissions = mapRolePayloadToPermissions(
+        row?.associatedFrameworks || [],
+        dashboards,
+      );
+      setPermissions(mappedPermissions);
+
+      // UI: mark dashboards as selected
+      const dashboardsSelected = mappedPermissions.map((fw) => {
+        const dashboardData = dashboards.find(
+          (d) => d.frameworkId === fw.frameworkId,
+        );
+        return {
+          id: dashboardData?.frameworkId, // ✅ same as options.id
+          frameworkId: dashboardData?.frameworkId,
+          name: dashboardData?.frameworkName || "",
+        };
+      });
+      setSelectedDashboards(dashboardsSelected);
+
+      baseRow.orgType = row?.orgType || null;
+
+      baseRow.status = row?.status === "Active" ? true : false;
+    }
+
+    if (urlModal === "user") {
+      baseRow.firstName = row?.firstName || "";
+      baseRow.lastName = row?.lastName || "";
+      baseRow.email = row?.email || "";
+      baseRow.status = row?.status === "Active" ? true : false;
+      baseRow.mobileNo = row?.mobileNo || "";
+      baseRow.dob = row?.dob || null;
+      baseRow.landlineNo = row?.landlineNo || "";
+      baseRow.designation = row?.designation || "";
+      baseRow.jsonData = {
+        orgTypes: row?.orgType || [],
+        ministries: row?.ministries || [],
+        departments: row?.departments || [],
+        schemes: row?.schemes || [],
+        associatedFrameworks: row?.associatedFrameworks || [],
+        roles: row?.userRoleType || [],
+      };
+    }
+
+    if (urlModal === "strategyTrackingModule") {
+      baseRow.theme = row?.theme || {};
+      baseRow.scheme = row?.schemes || [];
+      baseRow.ministry = row?.ministry || {};
+      baseRow.questionnaireId = row?.questionnaire || {};
+      baseRow.department = row?.department || {};
+      baseRow.expectedCompletionDate = row?.expectedCompletionDate || null;
+      baseRow.designation = row?.designation || "";
+      baseRow.actionPointStatus = row?.actionPointStatus || "";
+      baseRow.responsiblePerson = row?.responsiblePerson || {};
+      baseRow.status = row?.status === "Active" ? true : false;
+      baseRow.jsonData.supportingDocuments = row?.supportingDocuments || [];
+    }
+    if (urlModal === "outputOutcome") {
+      baseRow.status = row?.status === "Active" ? true : false;
+      baseRow.parentScheme = row?.parentScheme;
+      baseRow.jsonData = {
+        ministry: row?.ministry,
+        department: row?.department,
+        schemeType: row?.schemeType,
+        scheme: row?.scheme,
+        subScheme: row?.subScheme,
+        statementType: row?.statementType,
+      };
+    }
+    if (urlModal === "indicator") {
+      baseRow.status = row?.status === "Active" ? true : false;
+      baseRow.parentScheme = row?.parentScheme;
+      baseRow.jsonData = {
+        ministry: row?.ministry,
+        department: row?.department,
+        schemeType: row?.schemeType,
+        scheme: row?.scheme,
+        subScheme: row?.subScheme,
+        indicatorType: row?.indicatorType,
+        indicatorRise: row?.indicatorRise,
+        period: row?.period,
+        scale: row?.scale,
+        sdg: row?.sdg,
+        category: row?.category,
+        unit: row?.unit,
+        measurementArea: row?.measurementArea,
+        measurementType: row?.measurementType,
+      };
+    }
+    if (urlModal === "frameworkSection") {
+      baseRow.status = row?.status === "Active" ? true : false;
+      const matchedPrivileges = privileges?.filter((p) =>
+        row?.privileges?.some(
+          (pr) => pr.toLowerCase() === p?.name?.toLowerCase(),
+        ),
+      );
+      baseRow.jsonData = {
+        associatedSectionFramework: row?.frameworkName,
+        privileges: matchedPrivileges,
+      };
+    }
+    if (urlModal === "dynamicMenu") {
+      baseRow.status = row?.status === "Active" ? true : false;
+      baseRow.menuUrl = row?.menuUrl;
+      baseRow.module = row?.module;
+      baseRow.parentMenu = row?.parentMenu;
+      baseRow.sortOrder = row?.sortOrder;
+      baseRow.frameworkSection = row?.frameworkSection;
+      baseRow.associatedFramework = row?.framework;
+    }
+    if (urlModal === "sectionModal") {
+      baseRow.frameworkSection = row?.frameworkSection;
+      baseRow.shortUrl = row?.shortUrl;
+    }
+
+    setNewRow(baseRow);
+  };
+
+  const uploadMultipleFiles = async (files, titles = [], docDescription) => {
+    const formData = new FormData();
+    files.forEach((file, idx) => {
+      formData.append("files", file);
+      formData.append("titles[]", titles[idx] || file.name);
+      formData.append("reference_type", "masters");
+      formData.append("user_id", userData?.id);
+      formData.append("remarks", docDescription);
+    });
+
+    try {
+      const response = await apiClient.post(
+        "api/document/upload-files",
+        formData,
+      );
+      return response.data.files;
+    } catch (err) {
+      console.error("Upload failed:", err);
+      return [];
+    }
+  };
+
+  const handleJsonDataChange = (key) => async (e) => {
+    // Your existing file/custom handling unchanged...
+
+    if (e.target.type === "file") {
+      const files = Array.from(e.target?.files);
+      const titles = files.map((f) => f.name);
+
+      const uploadedFileNames = await uploadMultipleFiles(files, titles);
+
+      setNewRow((prev) => {
+        const updatedJsonData = {
+          ...(prev.jsonData && typeof prev.jsonData === "object"
+            ? prev.jsonData
+            : {}),
+          [key]: uploadedFileNames.map((file, idx) => ({
+            title: titles[idx],
+            file,
+          })),
+        };
+
+        return {
+          ...prev,
+          jsonData: updatedJsonData,
+        };
+      });
+
+      return;
+    }
+
+    if (e.target.type === "custom") {
+      // Your existing custom repeater handling code here...
+
+      // For simplicity, let's assume you have the updated jsonData in `result`
+      // (make sure your code sets it correctly, here it's simplified):
+
+      const entries = e.target.value;
+
+      // Build the result (same as your code)
+      const result = entries.map((entry) => {
+        if (entry.file instanceof File) {
+          const index = entries.findIndex((e) => e.name === entry.name);
+          return {
+            title: entry.name,
+            file: uploadedFileNames?.[index],
+          };
+        }
+        return entry;
+      });
+
+      setNewRow((prev) => {
+        const updatedJsonData = {
+          ...(prev.jsonData && typeof prev.jsonData === "object"
+            ? prev.jsonData
+            : {}),
+          [key]: result,
+        };
+
+        return {
+          ...prev,
+          jsonData: updatedJsonData,
+        };
+      });
+
+      return;
+    }
+
+    // Default case for text/checkbox etc.
+    let value = e.target.value;
+    if (key === "weight") {
+      value = parseInt(value, 10);
+      if (isNaN(value)) value = 0;
+      value = Math.min(100, Math.max(1, value));
+    }
+    if (e.target.type === "checkbox") {
+      value = e.target.checked;
+    }
+
+    setNewRow((prev) => {
+      const updatedJsonData = {
+        ...(prev.jsonData && typeof prev.jsonData === "object"
+          ? prev.jsonData
+          : {}),
+        [key]: value,
+      };
+
+      return {
+        ...prev,
+        jsonData: updatedJsonData,
+      };
+    });
+  };
+
+  const handleNewChange = (field) => (e) => {
+    let value = e.target.value;
+
+    setNewRow((prev) => ({
+      ...prev,
+      [field]: value,
+    }));
+  };
+
+  const processedRow = useMemo(() => {
+    if (urlModal === "schemes") {
+      return {
+        ...newRow,
+        jsonData: {
+          isNotSubScheme: true,
+          ...(newRow.jsonData || {}),
+        },
+      };
+    }
+    return newRow;
+  }, [newRow, urlModal]);
+
+  const handleViewAuditTrail = async (row) => {
+    const updatedPrivileges = await refresh();
+    if (!row?.id || !updatedPrivileges?.sectionId) return;
+
+    setAuditParams({
+      auditableId: String(row.id),
+      sectionId: updatedPrivileges.sectionId,
+    });
+    setAuditDialogOpen(true);
+  };
+
+  const masterState = {
     newRow,
+    processedRow,
     isViewing,
+    urlModal,
+    isEditing,
+    setIsEditing,
+    setErrors,
+    setEditId,
+    editId,
+    setNewRow,
+    setIsViewing,
+    selected,
     errors,
-    handleNewChange,
-    jsonData,
+    showAccordion,
+    setShowAccordion,
+    handleEdit,
+    handleViewAuditTrail,
+    setSchemeData,
     handleSwitchChange,
-    ministryNames,
-    initialUploadDocuments,
+    refreshMenu,
+    permissions,
+    setPermissions,
+    setSubmitted,
+    selectedDashboards,
+    orgTypes,
+    setSelectedDashboards,
+    dashboardsArray,
+    setDashboardsArray,
+    submitted,
+    handleNewChange,
+    sectors,
+    allOomfMastersData,
+    sdgNames,
+    targetGroups,
+    associatedFrameworks,
+    jsonData: urlModal === "schemes" ? processedRow.jsonData : newRow.jsonData,
+    initialUploadDocuments: newRow?.jsonData?.supportingDocuments,
     uploadMultipleFiles,
     handleJsonDataChange,
-  } = modalState;
-  const [departmentList, setDepartmentList] = useState([]);
-  const [schemeTypes, setSchemeTypes] = useState([]);
-  const [schemeList, setSchemeList] = useState([]);
-  const [subSchemeList, setSubSchemeList] = useState([]);
-  const [isSubScheme, setIsSubScheme] = useState(false);
-  const userData = useSelector((state) => state.config.userData);
-  const userMinistryIds = userData?.userRelationships[0]?.ministryIds;
-  const userDepartmentIds = userData?.userRelationships[0]?.departmentIds;
-  const userSchemeIds = userData?.userRelationships[0]?.schemeIds;
-
-  // Auto-enable Is Sub-scheme switch if jsonData.subScheme exists
-  useEffect(() => {
-    if (jsonData?.subScheme) {
-      setIsSubScheme(true);
-    } else {
-      setIsSubScheme(false);
-    }
-  }, [jsonData?.subScheme]);
-
-  useEffect(() => {
-    const fetchDepartmentNames = async () => {
-      const selectedType = jsonData?.ministry;
-      if (!selectedType) {
-        setDepartmentList([]);
-        return;
-      }
-
-      const ministryIds = selectedType ? [selectedType.id] : [];
-
-      try {
-        const response = await apiClient.post(
-          `api/master/get-departments-for-ministry`,
-          { ministryIds },
-        );
-
-        const { data } = response?.data || {};
-
-        if (Array.isArray(data)) {
-          const formattedData = data
-            ?.filter((item) => userDepartmentIds?.includes(item?.id))
-            ?.map((item) => ({
-              id: item?.id,
-              name: item?.name,
-              associatedFramework: item?.jsonData?.associatedFramework,
-            }));
-
-          setDepartmentList(formattedData);
-        }
-      } catch (error) {
-        console.error("Failed to fetch department list:", error);
-        setDepartmentList([]);
-      }
-    };
-    fetchDepartmentNames();
-  }, [jsonData?.ministry]);
-
-  useEffect(() => {
-    if (!jsonData?.ministry) {
-      setDepartmentList([]);
-      handleJsonDataChange("department")({ target: { value: null } });
-    }
-  }, [jsonData?.ministry]);
-
-  useEffect(() => {
-    if (!jsonData?.department || !jsonData?.schemeType) return;
-    async function getData() {
-      try {
-        const payload = {
-          id: jsonData?.department?.id,
-          schemeTypeId: jsonData?.schemeType?.id,
-          financialYear: "",
-        };
-        const res = await apiClient.post(`/api/master/get-active-schemes`, payload);
-        const schemesData = res.data?.data;
-
-        setSchemeList(
-          schemesData
-            ?.filter((item) => userSchemeIds?.includes(item?.id))
-            ?.map((item) => ({
-              id: item.id,
-              name: item.name,
-              associatedFramework:
-                item?.jsonData?.schemeFinancialYearWiseBudgetDetails?.map(
-                  (item) => item?.associatedFrameworks,
-                ),
-            })),
-        );
-      } catch (err) {
-        console.log(err.message);
-      }
-    }
-
-    if (jsonData?.department !== null && jsonData?.schemeType !== null)
-      getData();
-  }, [jsonData?.department, jsonData?.schemeType]);
-
-  useEffect(() => {
-    const fetchSubSchemeList = async () => {
-      const selectedType = jsonData?.scheme;
-      if (!selectedType) {
-        setSubSchemeList([]);
-        return;
-      }
-
-      const schemeIds = [selectedType.id];
-
-      try {
-        const response = await apiClient.post(
-          `api/master/get-subschemes-for-schemes`,
-          { schemeIds },
-        );
-
-        const { data } = response?.data || {};
-        if (Array.isArray(data)) {
-          const formattedData = data?.map((item) => ({
-            id: item?.id,
-            name: item?.name,
-          }));
-          setSubSchemeList(formattedData);
-        }
-      } catch (error) {
-        console.error("Failed to fetch scheme list:", error);
-        setSubSchemeList([]);
-      }
-    };
-    fetchSubSchemeList();
-  }, [jsonData?.scheme]);
-
-  useEffect(() => {
-    const fetchSchemeTypeByFramework = async () => {
-      try {
-        const response = await apiClient.post(
-          `api/master/schemeType/by-framework`,
-          {
-            associatedFrameworks: [oomfFrameworkId],
-          },
-        );
-
-        const { data } = response?.data || {};
-        if (Array.isArray(data)) {
-          const formattedData = data?.map((item) => ({
-            id: item?.id,
-            name: item?.name,
-          }));
-          setSchemeTypes(formattedData);
-        }
-      } catch (error) {
-        console.error("Failed to fetch scheme-type list:", error);
-        setSchemeTypes([]);
-      }
-    };
-    fetchSchemeTypeByFramework();
-  }, [jsonData?.ministry]);
-
-  // Auto-select Ministry when only ONE ministry exists
-  useEffect(() => {
-    const filteredMinistries =
-      filterByFramework(
-        (ministryNames || []).filter((m) => userMinistryIds?.includes(m?.id)),
-        oomfFrameworkId,
-      ) || [];
-
-    if (
-      filteredMinistries.length === 1 &&
-      !jsonData?.ministry && // only auto-select if user has not selected
-      !isViewing // do not auto-select in view mode
-    ) {
-      handleJsonDataChange("ministry")({
-        target: { value: filteredMinistries[0] },
-      });
-    }
-  }, [ministryNames, jsonData?.ministry]);
-
-  // Auto-select Department when only ONE department exists
-  // useEffect(() => {
-  //   const filteredDepartments =
-  //     filterByFramework(departmentList, oomfFrameworkId) || [];
-
-  //   if (
-  //     filteredDepartments.length === 1 &&
-  //     !jsonData?.department && // only auto-select if not selected already
-  //     !isViewing
-  //   ) {
-  //     handleJsonDataChange("department")({
-  //       target: { value: filteredDepartments[0] },
-  //     });
-  //   }
-  // }, [departmentList, jsonData?.department]);
-  useEffect(() => {
-    const filteredDepartments =
-      filterByFramework(departmentList, oomfFrameworkId) || [];
-
-    if (
-      filteredDepartments.length === 1 &&
-      jsonData?.department === null &&
-      !isViewing
-    ) {
-      handleJsonDataChange("department")({
-        target: { value: filteredDepartments[0] },
-      });
-    }
-  }, [departmentList, jsonData?.department, isViewing]);
+  };
 
   return (
     <>
-      <Grid container spacing={2}>
-        <Grid size={{ xs: 12, sm: 6 }}>
-          <FormControl fullWidth required>
-            <Autocomplete
-              disabled={isViewing}
-              options={
-                filterByFramework(
-                  ministryNames?.filter((m) =>
-                    userMinistryIds?.includes(m?.id),
-                  ),
-                  oomfFrameworkId,
-                ) || []
-              }
-              value={jsonData?.ministry || null}
-              getOptionLabel={(option) => option.name}
-              isOptionEqualToValue={(option, value) => option.id === value.id}
-              onChange={(event, newValue) => {
-                handleJsonDataChange("ministry")({
-                  target: { value: newValue },
-                });     
-                // ✅ ensure department resets cleanly
-                setDepartmentList([]);  
-                handleJsonDataChange("department")({ target: { value: null } });
-               
-                // Reset schemeType when department changes
-                handleJsonDataChange("schemeType")({
-                  target: { value: null },
-                });
-                // Reset scheme when schemeType changes
-                handleJsonDataChange("scheme")({
-                  target: { value: null },
-                });   
-              }}
-              renderOption={(props, option) => {
-                const { key, ...rest } = props;
-                return (
-                  <li key={key} {...rest}>
-                    {option.name}
-                  </li>
-                );
-              }}
-              renderInput={(params) => {
-                const { key, ...rest } = params;
-                return (
-                  <TextField
-                    key={key}
-                    {...rest}
-                    label="Ministry"
-                    placeholder="Select Ministry"
-                    required
-                    error={Boolean(errors?.ministry)}
-                    helperText={errors?.ministry || ""}
-                  />
-                );
-              }}
-            />
-          </FormControl>
-        </Grid>
-        <Grid size={{ xs: 12, sm: 6 }}>
-          <FormControl fullWidth required>
-            <Tooltip
-              title={
-                !jsonData?.ministry ? "Please select a Ministry first" : ""
-              }
-              arrow
-              placement="top"
-            >
-              <span>
-                <Autocomplete
-                  disabled={isViewing || !jsonData?.ministry}
-                  options={filterByFramework(departmentList, oomfFrameworkId)}
-                  value={jsonData?.department || null}
-                  getOptionLabel={(option) => option.name}
-                  isOptionEqualToValue={(option, value) =>
-                    option.id === value.id
-                  }
-                  onChange={(event, newValue) => {
-                    handleJsonDataChange("department")({
-                      target: { value: newValue },
-                    });
-                    // Reset schemeType when department changes
-                    handleJsonDataChange("schemeType")({
-                      target: { value: null },
-                    });
-                        // Reset scheme when schemeType changes
-                    handleJsonDataChange("scheme")({
-                    target: { value: null },
-                  });
-                  }}
-                  renderOption={(props, option) => {
-                    const { key, ...rest } = props;
-                    return (
-                      <li key={key} {...rest}>
-                        {option.name}
-                      </li>
-                    );
-                  }}
-                  renderInput={(params) => (
-                    <TextField
-                      {...params}
-                      label="Department"
-                      placeholder="Select Department"
-                      required
-                      error={Boolean(errors?.department)}
-                      helperText={errors?.department || ""}
-                    />
-                  )}
-                />
-              </span>
-            </Tooltip>
-          </FormControl>
-        </Grid>
-        <Grid size={{ xs: 12, sm: 6 }}>
-          <Tooltip
-            title={
-              // selectedDepartmentId?.length <= 0
-              !jsonData?.department ? "Please select a Department first" : ""
-            }
-            arrow
-            placement="top"
-          >
-            <span>
-              <Autocomplete
-                disabled={isViewing || !jsonData?.department}
-                options={schemeTypes?.map((item) => ({
-                  id: item.id,
-                  name: item.name,
-                }))}
-                value={jsonData?.schemeType || null}
-                getOptionLabel={(option) => option?.name || ""}
-                isOptionEqualToValue={(option, value) => option.id === value.id}
-                onChange={(event, newValue) => {
-                  handleJsonDataChange("schemeType")({
-                    target: { value: newValue },
-                  });
-                  // Reset scheme when schemeType changes
-                  handleJsonDataChange("scheme")({
-                    target: { value: null },
-                  });
-                }}
-                renderOption={(props, option) => {
-                  const { key, ...rest } = props;
-                  return (
-                    <li key={key} {...rest}>
-                      {option.name}
-                    </li>
-                  );
-                }}
-                renderInput={(params) => (
-                  <TextField
-                    {...params}
-                    label="Scheme Type"
-                    placeholder="Select Scheme Type"
-                    required
-                    error={Boolean(errors?.schemeType)}
-                    helperText={errors?.schemeType || ""}
-                  />
-                )}
-              />
-            </span>
-          </Tooltip>
-        </Grid>
-        <Grid size={{ xs: 12, sm: 6 }}>
-          <Tooltip
-            title={
-              !jsonData?.department
-                ? "Please select a Department first"
-                : !jsonData?.schemeType?.name
-                  ? "Please select a Scheme Type first"
-                  : ""
-            }
-            arrow
-            placement="top"
-          >
-            <span>
-              <Autocomplete
-                disabled={
-                  isViewing ||
-                  !jsonData?.department ||
-                  !jsonData?.schemeType?.name
-                }
-                options={
-                  filterSchemesByFramework(schemeList, oomfFrameworkId) || []
-                }
-                value={jsonData?.scheme || null}
-                getOptionLabel={(option) => option.name}
-                isOptionEqualToValue={(option, value) => option.id === value.id}
-                onChange={(event, newValue) => {
-                  handleJsonDataChange("scheme")({
-                    target: { value: newValue },
-                  });
-                  handleNewChange("parentId")({
-                    target: { value: newValue ? Number(newValue.id) : null },
-                  });
-                  // Reset sub-scheme & disable toggle when scheme changes
-                  setIsSubScheme(false);
-                  handleJsonDataChange("subScheme")({
-                    target: { value: null },
-                  });
-                }}
-                renderOption={(props, option) => {
-                  const { key, ...rest } = props;
-                  return (
-                    <li key={key} {...rest}>
-                      {option.name}
-                    </li>
-                  );
-                }}
-                renderInput={(params) => (
-                  <TextField
-                    {...params}
-                    label="Scheme"
-                    placeholder="Select Scheme"
-                    required
-                    error={Boolean(errors?.scheme)}
-                    helperText={errors?.scheme || ""}
-                  />
-                )}
-              />
-            </span>
-          </Tooltip>
-        </Grid>
-        <Grid size={{ xs: 12, sm: 6 }}>
-          <Tooltip
-            title={
-              !jsonData?.scheme?.name
-                ? "Please select a scheme first to enable this option"
-                : ""
-            }
-            arrow
-          >
-            <span>
-              <FormControlLabel
-                control={
-                  <Switch
-                    checked={isSubScheme}
-                    onChange={(e) => {
-                      setIsSubScheme(e.target.checked);
-                      handleJsonDataChange("isSubScheme")({
-                        target: { value: e.target.checked },
-                      });
-                      if (!e.target.checked) {
-                        handleJsonDataChange("subScheme")({
-                          target: { value: null },
-                        });
-                      }
-                    }}
-                    disabled={isViewing || !jsonData?.scheme?.name}
-                  />
-                }
-                label="Is Sub-scheme"
-              />
-            </span>
-          </Tooltip>
-        </Grid>
-        <Grid size={{ xs: 12, sm: 6 }}>
-          {isSubScheme && (
+      {loading ? (
+        <Box
+          display="flex"
+          justifyContent="center"
+          alignItems="center"
+          minHeight="200px"
+        >
+          <CircularProgress />
+        </Box>
+      ) : (
+        <Box sx={{ mt: 4 }}>
+          {urlModal === "ministry" && (
+            <MinistryMaster masterState={masterState} />
+          )}
+          {urlModal === "sector" && <SectorMaster masterState={masterState} />}
+          {urlModal === "departments" && (
+            <DepartmentMaster masterState={masterState} />
+          )}
+          {urlModal === "schemeType" && (
+            <SchemeTypeMaster masterState={masterState} />
+          )}
+          {urlModal === "schemes" && <SchemeMaster masterState={masterState} />}
+          {urlModal === "state" && <StateMaster masterState={masterState} />}
+          {urlModal === "district" && (
+            <DistrictMaster masterState={masterState} />
+          )}
+          {urlModal === "sdg" && <SDGMaster masterState={masterState} />}
+          {urlModal === "targetGroup" && (
+            <TargetGroupMaster masterState={masterState} />
+          )}
+          {urlModal === "associatedFramework" && (
+            <FrameworkMaster masterState={masterState} />
+          )}
+          {urlModal === "role" && <RoleMaster masterState={masterState} />}
+          {urlModal === "user" && <UserMaster masterState={masterState} />}
+          {urlModal === "units" && <UnitsMaster masterState={masterState} />}
+          {urlModal === "outputOutcome" && (
+            <OutputOutcomeMaster masterState={masterState} />
+          )}
+          {urlModal === "indicator" && (
+            <IndicatorMaster masterState={masterState} />
+          )}
+          {urlModal === "strategyTrackingModule" && (
+            <StrategyTrackingModuleMaster masterState={masterState} />
+          )}
+
+          {urlModal === "orgType" && (
+            <OrganizationMaster masterState={masterState} />
+          )}
+          {urlModal === "applicableCategory" && (
+            <ApplicableCategoryMaster masterState={masterState} />
+          )}
+          {urlModal === "frequency" && (
+            <FrequencyMaster masterState={masterState} />
+          )}
+          {urlModal === "indicatorRise" && (
+            <IndicatorRiseMaster masterState={masterState} />
+          )}
+          {urlModal === "indicatorType" && (
+            <IndicatorTypeMaster masterState={masterState} />
+          )}
+          {urlModal === "period" && <PeriodMaster masterState={masterState} />}
+          {urlModal === "scales" && <ScaleMaster masterState={masterState} />}
+          {urlModal === "measurementArea" && (
+            <MeasurementAreaMaster masterState={masterState} />
+          )}
+          {urlModal === "measurementType" && (
+            <MeasurementTypeMaster masterState={masterState} />
+          )}
+          {urlModal === "frameworkSection" && (
+            <FrameworkSectionMaster masterState={masterState} />
+          )}
+          {urlModal === "dynamicMenu" && (
+            <DynamicMenuMaster masterState={masterState} />
+          )}
+          {urlModal === "sectionModal" && (
+            <SectionModalMaster masterState={masterState} />
+          )}
+          {urlModal === "documentCategory" && (
+            <DocumentCategoryMaster masterState={masterState} />
+          )}
+          <UserRelatedDetailsDialog
+            open={openDialog}
+            title={dialogTitle}
+            data={dialogData}
+            onClose={() => setOpenDialog(false)}
+          />
+          {selected && (
             <>
-              {subSchemeList?.length > 0 ? (
-                <Autocomplete
-                  options={subSchemeList}
-                  value={jsonData?.subScheme || null}
-                  getOptionLabel={(option) => option.name}
-                  isOptionEqualToValue={(option, value) =>
-                    option.id === value.id
-                  }
-                  onChange={(event, newValue) => {
-                    handleJsonDataChange("subScheme")({
-                      target: { value: newValue },
-                    });
-                    handleNewChange("parentScheme")({
-                      target: { value: jsonData?.scheme?.id || "" },
-                    });
-                  }}
-                  renderInput={(params) => (
-                    <TextField
-                      {...params}
-                      label="Sub-scheme"
-                      placeholder="Select Sub-scheme"
-                      required={isSubScheme} // mandatory only if switch is on
-                      error={Boolean(errors?.subScheme) && isSubScheme} // optional: only show error if switch is on
-                      helperText={isSubScheme ? errors?.subScheme || "" : ""}
-                    />
-                  )}
+              <Box
+                sx={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  mb: 2,
+                  mt: 2,
+                  flexWrap: "wrap", // responsive wrapping
+                  gap: 2,
+                }}
+              >
+                {/* {auditParams?.auditableId && auditParams?.sectionId && (
+                  <AuditDataGrid
+                    {...auditParams}
+                    auditDialogOpen={auditDialogOpen}
+                    setAuditDialogOpen={setAuditDialogOpen}
+                  />
+                )} */}
+              </Box>
+
+              <InactiveConfirmDialog
+                openConfirm={openConfirm}
+                handleCancel={handleCancel}
+                handleConfirm={handleConfirm}
+              />
+              {schemeData && Object.keys(schemeData).length > 0 && (
+                <SchemeBudgetModal
+                  open={open}
+                  onClose={handleClose}
+                  schemeData={schemeData}
+                  associatedFrameworks={associatedFrameworks}
                 />
-              ) : (
-                <Typography color="error" sx={{ mt: 1, fontWeight: 600 }}>
-                  No sub-scheme exists
-                </Typography>
               )}
             </>
           )}
-        </Grid>
-
-        <Grid size={{ xs: 12, sm: 6 }}>
-          <Tooltip title="" arrow placement="top">
-            <span>
-              <Autocomplete
-                disabled={isViewing}
-                options={[
-                  { label: "Output", value: "output" },
-                  { label: "Outcome", value: "outcome" },
-                ]}
-                // value={
-                //   jsonData?.statementType
-                //     ? {
-                //         label: jsonData.statementType,
-                //         value: jsonData.statementType,
-                //       }
-                //     : null
-                // }
-                value={
-                  jsonData?.statementType
-                    ? {
-                        value: jsonData.statementType,
-                        label:
-                          jsonData.statementType.charAt(0).toUpperCase() +
-                          jsonData.statementType.slice(1),
-                      }
-                    : null
-                }
-                getOptionLabel={(option) => option.label}
-                isOptionEqualToValue={(option, value) =>
-                  option.value === value.value
-                }
-                onChange={(event, newValue) => {
-                  handleJsonDataChange("statementType")({
-                    target: {
-                      value: newValue ? newValue?.value?.toLowerCase() : "",
-                    },
-                  });
-                }}
-                renderOption={(props, option) => {
-                  const { key, ...rest } = props;
-                  return (
-                    <li key={key} {...rest}>
-                      {option.label}
-                    </li>
-                  );
-                }}
-                renderInput={(params) => (
-                  <TextField
-                    {...params}
-                    label="Statement Type"
-                    placeholder="Select Statement Type"
-                    required
-                    error={Boolean(errors?.statementType)}
-                    helperText={errors?.statementType || ""}
-                  />
-                )}
-              />
-            </span>
-          </Tooltip>
-        </Grid>
-
-        <Grid size={{ xs: 12, sm: 6 }}>
-          <TextField
-            disabled={isViewing}
-            label="Output/Outcome Name"
-            value={newRow.name || ""}
-            onChange={handleNewChange("name")}
-            fullWidth
-            required
-            error={Boolean(errors?.name)}
-            helperText={errors?.name || ""}
-            inputProps={{
-              pattern: "[a-zA-Z0-9\\-_,.()/ ]*",
-              onInput: (e) => {
-                e.target.value = e.target.value.replace(
-                  /[^a-zA-Z0-9\-_,.()/ ]/g,
-                  "",
-                );
-              },
-            }}
-          />
-        </Grid>
-        <FormControl component="fieldset" disabled={isViewing}>
-          <FormLabel component="legend">Status</FormLabel>
-          <FormControlLabel
-            control={
-              <Switch
-                checked={newRow?.status}
-                onChange={handleSwitchChange}
-                color="primary"
-              />
-            }
-            label={newRow?.status ? "Active" : "In Active"}
-          />
-        </FormControl>
-      </Grid>
+        </Box>
+      )}
     </>
   );
-};
-export default OutputOutcome;
+}
