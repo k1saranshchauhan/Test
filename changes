@@ -1,904 +1,913 @@
-"use client";
-
-import React, { useEffect, useMemo, useState } from "react";
-import { Box, CircularProgress } from "@mui/material";
-
+import React, { useState, useEffect, useRef } from "react";
+import {
+  Box,
+  Typography,
+  TextField,
+  Button,
+  CircularProgress,
+  Card,
+  Divider,
+  Grid,
+  Stack,
+  Paper,
+} from "@mui/material";
+import AddIcon from "@mui/icons-material/Add";
+import SearchIcon from "@mui/icons-material/Search";
+import RestartAltIcon from "@mui/icons-material/RestartAlt";
+import { DataGrid } from "@mui/x-data-grid";
 import apiClient from "@/utils/apiClient";
-import { useSelector } from "react-redux";
-import SchemeBudgetModal from "./ModalsFields/SchemeBudgetDetails";
+import ExportCsvButton from "../ExportCSV";
+import Ministry from "../ModalsFields/Ministry";
+import AddRecordDialog from "./AddRecordDialog";
+import { getMasterColumns } from "../UnifiedMastersDataGridTables";
+import { deepSearch, generateRowsForColumns } from "@/utils/unifiedHelpers";
+import { getMasterExampleRow } from "../UnifiedMastersDataGridRows";
+import { ColumnReorderManager } from "@/utils/columnReorderManager";
+import { useDispatch, useSelector } from "react-redux";
+import { setError, setSuccess } from "@/store/slices/errorSlice";
+import {
+  validateDistrictFields,
+  validateOutputOutcomeFields,
+  validateUnitsFields,
+} from "../ModalsFields/Validation";
+import District from "../ModalsFields/District";
+import MainFormHeader from "../../DashboardUI/MainFormHeader";
+import { CustomAutoCompleteWithoutFormik } from "../CustomAutoCompleteWithoutFormik";
+import Units from "../ModalsFields/Units";
+import OutputOutcome from "../ModalsFields/OutputOutcome";
+import CommonViewMasterDialog from "../commonViewProfileDialog";
 import { usePrivileges } from "@/src/context/privilegeContextProvider";
-import { InactiveConfirmDialog } from "./InactiveMasterConfirmDialog";
-import { useLayout } from "@/src/context/layoutContextProvider";
-import AuditDataGrid from "../AuditDetailsDialog";
-import UserRelatedDetailsDialog from "./UserRelatedDetailsDialog";
-import MinistryMaster from "./UnifiedMasters/MinistryMaster";
-import SectorMaster from "./UnifiedMasters/SectorMaster";
-import DepartmentMaster from "./UnifiedMasters/DepartmentMaster";
-import SchemeTypeMaster from "./UnifiedMasters/SchemeTypeMaster";
-import SchemeMaster from "./UnifiedMasters/SchemeMaster";
-import StateMaster from "./UnifiedMasters/StateMaster";
-import DistrictMaster from "./UnifiedMasters/DistrictMaster";
-import SDGMaster from "./UnifiedMasters/SDGMaster";
-import TargetGroupMaster from "./UnifiedMasters/TargetGroupMaster";
-import FrameworkMaster from "./UnifiedMasters/FrameworkMaster";
-import RoleMaster from "./UnifiedMasters/RoleMaster";
-import UserMaster from "./UnifiedMasters/UserMaster";
-import UnitsMaster from "./UnifiedMasters/UnitsMaster";
-import OutputOutcomeMaster from "./UnifiedMasters/OutputOutcomeMaster";
-import StrategyTrackingModuleMaster from "./UnifiedMasters/StrategyTrackingModuleMaster";
-import IndicatorMaster from "./UnifiedMasters/IndicatorMaster";
-import OrganizationMaster from "./UnifiedMasters/OrganizationMaster";
-import ApplicableCategoryMaster from "./UnifiedMasters/ApplicableCategoryMaster";
-import FrequencyMaster from "./UnifiedMasters/FrequencyMaster";
-import IndicatorRiseMaster from "./UnifiedMasters/IndicatorRiseMaster";
-import IndicatorTypeMaster from "./UnifiedMasters/IndicatorTypeMaster";
-import PeriodMaster from "./UnifiedMasters/PeriodMaster";
-import ScaleMaster from "./UnifiedMasters/ScaleMaster";
-import MeasurementAreaMaster from "./UnifiedMasters/MeasurementAreaMaster";
-import MeasurementTypeMaster from "./UnifiedMasters/MeasurementTypeMaster";
-import FrameworkSectionMaster from "./UnifiedMasters/FrameworkSectionMaster";
-import DynamicMenuMaster from "./UnifiedMasters/DynamicMenuMaster";
-import SectionModalMaster from "./UnifiedMasters/SectionModalMaster";
-import DocumentCategoryMaster from "./UnifiedMasters/DocumentCategoryMaster";
+import { SECTION_KEY } from "@/src/constants/privilegesSectionKeys/sectionKeys";
+import AuditDataGrid from "../../AuditDetailsDialog";
+import { AuditTrailDialog } from "../../audit";
+import axios from "axios";
+import { applyCustomLogic } from "@/utils/niti/datagridUtils";
+import { useSearchParams } from "next/navigation";
 
-export default function AddDataMasterTable({
-  loader,
-  urlModal,
-  urlModalAccess,
-  setUrlModalAccess,
-}) {
-  const { refreshMenu } = useLayout();
-  // list of masters
-  const [masters, setMasters] = useState([]);
-  const [selected, setSelected] = useState(null);
+const OutputOutcomeMaster = ({ masterState }) => {
+  const {
+    newRow,
+    handleNewChange,
+    isViewing,
+    isEditing,
+    setIsEditing,
+    setIsViewing,
+    editId,
+    setEditId,
+    setNewRow,
+    handleEdit,
+    setSchemeData,
+    urlModal,
+    handleSwitchChange,
+    selected,
+    jsonData,
+    setErrors,
+    showAccordion,
+    setShowAccordion,
+    handleJsonDataChange,
+    uploadMultipleFiles,
+    errors,
+  } = masterState;
 
-  const [originalRow, setOriginalRow] = useState(null);
-
-  const [newRow, setNewRow] = useState({
-    status: true, // Ensure Active by default
-    // other fields...
-  });
-
-  const [loading, setLoading] = useState(false);
-  const [showAccordion, setShowAccordion] = useState(false);
-  const [isEditing, setIsEditing] = useState(false);
-  const [isViewing, setIsViewing] = useState(false);
-  const [editId, setEditId] = useState(null);
-
-  const [sectors, setSectors] = useState([]);
-  const [sdgNames, setSdgNames] = useState([]);
-  const [targetGroups, setTargetGroups] = useState([]);
-  const [associatedFrameworks, setAssociatedFramework] = useState([]);
-  const [open, setOpen] = useState(false);
-  const [schemeData, setSchemeData] = useState({});
-  const [allOomfMastersData, setAllOomfMastersData] = useState({});
-  const [permissions, setPermissions] = useState([]);
-  const [selectedDashboards, setSelectedDashboards] = useState([]);
-  const [orgTypes, setOrgTypes] = useState([]);
-  const [errors, setErrors] = useState({});
-  const [submitted, setSubmitted] = useState(false);
-  const [openDialog, setOpenDialog] = useState(false);
-  const [dialogData, setDialogData] = useState([]);
-  const [dialogTitle, setDialogTitle] = useState("");
-  const privileges = [
-    { id: 1, name: "add" },
-    { id: 2, name: "edit" },
-    { id: 3, name: "view" },
-    { id: 4, name: "audit trail" },
-  ];
-  const [dashboardsArray, setDashboardsArray] = useState([]);
-  const userData = useSelector((state) => state.config.userData);
-  const [openConfirm, setOpenConfirm] = useState(false);
-  const [pendingValue, setPendingValue] = useState(false);
+  const dispatch = useDispatch();
+  const [ministryNames, SetMinistryNames] = useState([]);
+  const [departments, setDepartments] = useState([]);
+  const [schemes, setSchemes] = useState([]);
+  const [isSubSchemes, setIsSubSchemes] = useState([
+    { id: 1, name: "Yes" },
+    { id: 2, name: "No" },
+  ]);
+  const [statementTypes, setStatementTypes] = useState([
+    { id: 1, name: "Output" },
+    { id: 2, name: "Outcome" },
+  ]);
+  const [selectedMinistries, setSelectedMinistries] = useState([]);
+  const [selectedDepartments, setSelectedDepartments] = useState([]);
+  const [selectedSchemes, setSelectedSchemes] = useState([]);
+  const [selectedIsSubScheme, setSelectedIsSubScheme] = useState(null);
+  const [selectedStatement, setSelectedStatement] = useState();
+  const [outputOutcomes, setOutputOutcomes] = useState([]);
+  const [filteredOutputOutcomes, setFilteredOutputOutcomes] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [auditParams, setAuditParams] = useState({});
-
+  const [search, setSearch] = useState("");
   const [auditDialogOpen, setAuditDialogOpen] = useState(false);
-  const userFrameworkMappings = userData?.userRoleMappings?.map(
-    (mapping) => mapping?.frameworkId,
+  const [paginationModel, setPaginationModel] = useState({
+    page: 0, // MUI is 0-based
+    pageSize: 10, // number of rows per page
+  });
+  const [totalRows, setTotalRows] = useState(0);
+  const {
+    mappedPrivileges,
+    hasAddAccess,
+    hasEditAccess,
+    hasViewAccess,
+    hasAuditTrailViewAccess,
+    refresh,
+  } = usePrivileges(SECTION_KEY.OUTPUT_OUTCOME_STATEMENT);
+  const abortRef = useRef(null);
+  const inFlightRef = useRef(false);
+  const firstLoadRef = useRef(true);
+  const userData = useSelector((state) => state.config.userData);
+  const handleViewAuditTrail = async (row) => {
+    if (!row?.id || !mappedPrivileges?.sectionId) return;
+
+    setAuditParams({
+      auditableId: String(row.id),
+      sectionId: mappedPrivileges.sectionId,
+    });
+    setAuditDialogOpen(true);
+  };
+  const actionsConfig = React.useMemo(
+    () => ({
+      hasAddAccess,
+      hasEditAccess,
+      hasViewAccess,
+      hasAuditTrailViewAccess,
+      handleEdit,
+      handleViewAuditTrail,
+      setIsViewing,
+      urlModal,
+      setSchemeData,
+    }),
+    [
+      hasAddAccess,
+      hasEditAccess,
+      hasViewAccess,
+      handleEdit,
+      hasAuditTrailViewAccess,
+      setIsViewing,
+      urlModal,
+      setSchemeData,
+    ],
   );
 
-  const handleSwitchChange = (event) => {
-    const value = event.target.checked;
+  const userMinistryIds = userData?.userRelationships[0]?.ministryIds;
+  const userDepartmentIds = userData?.userRelationships[0]?.departmentIds;
+  const userSchemeIds = userData?.userRelationships[0]?.schemeIds;
 
-    // ✅ Define URLs or modal names where confirmation is required
-    const confirmUrls = [
-      "user",
-      "sdg",
-      "targetGroup",
-      "framework",
-      "units",
-      "schemeType",
-      "district",
-    ];
+  const searchParams = useSearchParams();
+const prefillMinistryId = searchParams.get("ministryId");
+const prefillMinistryName = searchParams.get("ministryName");
 
-    const shouldShowConfirm =
-      !confirmUrls.some((url) => urlModal.includes(url)) &&
-      newRow?.status &&
-      !value &&
-      editId;
+const prefillDepartmentId = searchParams.get("departmentId");
+const prefillDepartmentName = searchParams.get("departmentName");
 
-    if (shouldShowConfirm) {
-      setPendingValue(value);
-      setOpenConfirm(true);
-    } else {
-      setNewRow((prev) => ({ ...prev, status: value }));
+const prefillSchemeTypeId = searchParams.get("schemeTypeId");
+const prefillSchemeTypeName = searchParams.get("schemeTypeName");
+
+const prefillSchemeId = searchParams.get("schemeId");
+const prefillSchemeName = searchParams.get("schemeName");
+
+const prefillSubSchemeId = searchParams.get("subSchemeId");
+const prefillSubSchemeName = searchParams.get("subSchemeName");
+
+const prefillIsSubScheme = searchParams.get("isSubScheme");
+const prefillStatementType = searchParams.get("statementType");
+
+useEffect(() => {
+  if (!prefillMinistryId || ministryNames.length === 0) return;
+
+  const matchedMinistry = ministryNames.find(
+    (item) => String(item.id) === String(prefillMinistryId),
+  );
+
+  if (matchedMinistry) {
+    setSelectedMinistries([matchedMinistry]);
+  }
+}, [prefillMinistryId, ministryNames]);
+
+useEffect(() => {
+  if (!prefillDepartmentId || departments.length === 0) return;
+
+  const matchedDepartment = departments.find(
+    (item) => String(item.id) === String(prefillDepartmentId),
+  );
+
+  if (matchedDepartment) {
+    setSelectedDepartments([matchedDepartment]);
+  }
+}, [prefillDepartmentId, departments]);
+
+useEffect(() => {
+  if (!prefillSchemeId || schemes.length === 0) return;
+
+  const matchedScheme = schemes.find(
+    (item) => String(item.id) === String(prefillSchemeId),
+  );
+
+  if (matchedScheme) {
+    setSelectedSchemes([matchedScheme]);
+  }
+}, [prefillSchemeId, schemes]);
+useEffect(() => {
+  if (prefillStatementType) {
+    const matchedStatement = statementTypes.find(
+      (item) =>
+        item.name.toLowerCase() === prefillStatementType.toLowerCase(),
+    );
+
+    if (matchedStatement) {
+      setSelectedStatement(matchedStatement);
     }
-  };
+  }
 
-  const handleConfirm = () => {
-    setNewRow((prev) => ({ ...prev, status: pendingValue }));
-    setOpenConfirm(false);
-  };
+  if (prefillIsSubScheme === "true") {
+    const yesOption = isSubSchemes.find((item) => item.name === "Yes");
+    if (yesOption) setSelectedIsSubScheme(yesOption);
+  } else if (prefillIsSubScheme === "false") {
+    const noOption = isSubSchemes.find((item) => item.name === "No");
+    if (noOption) setSelectedIsSubScheme(noOption);
+  }
+}, [prefillStatementType, prefillIsSubScheme]);
 
-  const handleCancel = () => {
-    setOpenConfirm(false);
+  //helper
+  const pickIdName = (obj) => {
+    if (!obj) return null;
+    return {
+      id: obj.id,
+      name: obj.name,
+    };
   };
 
   useEffect(() => {
-    if (schemeData && Object.keys(schemeData).length > 0) {
-      setOpen(true);
-    }
-  }, [schemeData]);
-
-  const handleClose = () => {
-    setOpen(false);
-    setSchemeData({});
-  };
-
-  // load master definitions
-  useEffect(() => {
-    apiClient
-      .get("api/dynamic/masters_defination")
-      .then((res) => {
-        setMasters(res?.data); // assuming response has { data: [...] }
-      })
-      .catch((err) => console.error(err));
-  }, []);
-  const fetchMasters = async () => {
-    try {
-      const res = await apiClient.get("api/master/all-oomf-masters");
-      const data = res.data.data || [];
-      setOrgTypes(
-        data?.orgTypes
-          ?.filter((item) => item.id !== 10) // 🚫 remove id 10
-          .map((item) => ({ id: item.id, name: item.name })),
-      );
-
-      setAssociatedFramework(
-        data?.associatedFrameworks
-          ?.filter((item) => userFrameworkMappings?.includes(item.id))
-          .map((item) => ({
-            id: item.id,
-            name: item.name,
-          })),
-      );
-      setSdgNames(
-        data?.sdg?.map((item) => ({
-          id: item.id,
-          name: item.name,
-        })),
-      );
-      setTargetGroups(
-        data?.targetGroups?.map((item) => ({
-          id: item.id,
-          name: item.name,
-        })),
-      );
-    } catch (error) {
-      setAssociatedFramework([]);
-      setOrgTypes([]);
-      setSdgNames([]);
-      setTargetGroups([]);
-      console.error("Failed to fetch master:", error);
-    }
-  };
-  useEffect(() => {
-    fetchMasters();
-  }, [urlModal]);
-  useEffect(() => {
-    if (!urlModal || !masters.length) {
-      setSelected(null);
+    // 🔥 Skip FIRST RUN
+    if (firstLoadRef.current) {
+      firstLoadRef.current = false;
       return;
     }
-    const master = masters.find((m) => m.modal_name === urlModal);
-    setSelected(master);
-    setUrlModalAccess(true);
-  }, [urlModal, masters, setUrlModalAccess]);
 
-  // --- fetchDashboardsForRoles now returns the data it fetches ---
-  const fetchDashboardsForRoles = async () => {
+    const handle = setTimeout(() => {
+      if (!search?.trim() || search.trim().length >= 3)
+        fetchOutputOutcomes({
+          page: paginationModel.page,
+          pageSize: paginationModel.pageSize,
+        });
+    }, 400); // debounce 400ms
+
+    return () => {
+      clearTimeout(handle);
+    };
+  }, [search]);
+
+  const fetchMinistries = async () => {
     try {
-      setLoading(true);
-      const response = await apiClient.get(`api/master/dashboards-role`);
-      const data = response?.data?.data ?? [];
-      const finalArray = Array.isArray(data) ? data : [];
-      const filteredFinalArray = finalArray?.filter((item) =>
-        userFrameworkMappings?.includes(item?.frameworkId),
+      const response = await apiClient.get(
+        "api/master/fetch-ministries-dropdown",
       );
-      setDashboardsArray(filteredFinalArray);
-      return filteredFinalArray; // <-- return it so callers can use it immediately
-    } catch (error) {
-      console.error("Failed to fetch dashboards:", error);
-      setDashboardsArray([]);
-      return [];
+      const res = response?.data?.result || [];
+      const formattedRes = res?.map((item) => ({
+        id: item?.id,
+        name: item?.name,
+        associatedFramework: item?.jsonData?.associatedFramework,
+      }));
+      SetMinistryNames(formattedRes);
+    } catch (err) {
+      console.error("Error fetching ministries:", err);
+    }
+  };
+
+  const fetchDepartments = async (selectedMinistryIds = []) => {
+    setLoading(true);
+    try {
+      const response = await apiClient.post(
+        "api/master/get-departments-for-ministry",
+        { ministryIds: selectedMinistryIds || [] },
+      );
+
+      const filteredRes = response?.data?.data || [];
+      const res = filteredRes?.map((item) => ({
+        id: item?.id,
+        name: item?.name,
+        associatedFramework: item?.jsonData?.associatedFramework,
+      }));
+
+      // ✅ Step 1: Extract user-allowed department IDs
+      const allowedDeptIds =
+        userData?.userRelationships?.[0]?.departmentIds || [];
+
+      // ✅ Step 2: Apply filtering if user has department restrictions
+      const filteredDepartments =
+        allowedDeptIds.length > 0
+          ? res.filter((dept) => allowedDeptIds.includes(dept.id))
+          : res;
+      setDepartments(filteredDepartments);
+
+      // ✅ Step 3: Auto-select if there’s only one allowed department
+      if (filteredDepartments.length === 1) {
+        const onlyDept = filteredDepartments;
+        setSelectedDepartments(onlyDept);
+      }
+    } catch (err) {
+      console.error("Error fetching departments:", err);
+      setDepartments([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchSchemes = async (selectedDepartmentIds = []) => {
+    setLoading(true);
+    try {
+      const response = await apiClient.post(
+        "api/master/get-schemes-for-departments",
+        { departmentIds: selectedDepartmentIds || [] },
+      );
+
+      const filteredRes = response?.data?.data || [];
+      const res = filteredRes?.map((item) => ({
+        id: item?.id,
+        name: item?.name,
+        associatedFramework: item?.jsonData?.associatedFramework,
+      }));
+
+      // ✅ Step 1: Extract user-allowed department IDs
+      const allowedSchemeIds =
+        userData?.userRelationships?.[0]?.schemeIds || [];
+
+      // ✅ Step 2: Apply filtering if user has department restrictions
+      const filteredSchemes =
+        allowedSchemeIds.length > 0
+          ? res.filter((scheme) => allowedSchemeIds.includes(scheme.id))
+          : res;
+      setSchemes(filteredSchemes);
+
+      // ✅ Step 3: Auto-select if there’s only one allowed department
+      if (filteredSchemes.length === 1) {
+        const onlyScheme = filteredSchemes;
+        setSelectedSchemes(onlyScheme);
+      }
+    } catch (err) {
+      console.error("Error fetching schemes:", err);
+      setSchemes([]);
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    if (urlModal === "role") fetchDashboardsForRoles();
-  }, [urlModal]);
+    const selectedMinistryIds =
+      selectedMinistries?.map((item) => item?.id) || [];
+    setSelectedDepartments([]);
 
-  function mapRolePayloadToPermissions(frameworks = [], dashboardsArray = []) {
-    return frameworks
-      .map((fw) => {
-        if (!fw?.frameworkId) return null;
-        const frameworkData = dashboardsArray.find(
-          (d) => d.frameworkId === fw.frameworkId,
-        );
+    // Fetch departments for selected ministries
+    fetchDepartments(selectedMinistryIds);
+  }, [selectedMinistries]);
 
-        const hasSubModules =
-          Array.isArray(frameworkData?.subModulesPrivileges) &&
-          frameworkData.subModulesPrivileges.length > 0;
+  useEffect(() => {
+    const selectedDepartmentIds =
+      selectedDepartments?.map((item) => item?.id) || [];
+    setSelectedSchemes([]);
 
-        // Map submodules if present
-        const subModulesPrivileges = (fw?.privileges || []).map((p) => {
-          const module = frameworkData?.subModulesPrivileges?.find(
-            (m) => m?.id === p?.frameworkSectionId,
-          );
-          const accessRights = { ...(p?.accessRights || {}) };
+    // Fetch departments for selected ministries
+    fetchSchemes(selectedDepartmentIds);
+  }, [selectedDepartments]);
 
-          // Extract OOMF subroles if frameworkId = 3
-          let oomfSubRoles = [];
-          if (fw.frameworkId === 3 && accessRights.oomfSubRoles) {
-            oomfSubRoles = accessRights.oomfSubRoles;
-            delete accessRights.oomfSubRoles;
-          }
+  const fetchOutputOutcomes = async ({
+    page = paginationModel.page,
+    pageSize = paginationModel.pageSize,
+    isReset = false,
+  } = {}) => {
+    setLoading(true);
 
-          return {
-            moduleId: p?.frameworkSectionId,
-            moduleName: module?.name || "",
-            ...(oomfSubRoles.length > 0 ? { oomfSubRoles } : {}),
-            privileges:
-              Object.keys(accessRights).length > 0
-                ? accessRights
-                : (module?.privileges || []).reduce((acc, curr) => {
-                    acc[curr] = false;
-                    return acc;
-                  }, {}),
-          };
-        });
+    // 💥 SAFE & CORRECT ABORT
+    if (
+      inFlightRef.current &&
+      abortRef.current &&
+      !abortRef.current.signal.aborted
+    ) {
+      abortRef.current.abort();
+    }
 
-        // ✅ If no submodules, add dashboard-level actionRights
-        if (!hasSubModules && fw?.privileges?.length === 0 && fw.actionRights) {
-          return {
-            frameworkId: fw.frameworkId,
-            subModulesPrivileges: [
-              {
-                moduleId: null,
-                moduleName: "",
-                privileges: {}, // keep empty
-                actionRights: {
-                  hasDashboardAccess: fw.actionRights.hasDashboardAccess,
-                },
-              },
-            ],
-          };
-        }
+    abortRef.current = new AbortController();
+    const signal = abortRef.current.signal;
+    inFlightRef.current = true;
+    const apiPage = page + 1;
+    const selectedMinistryIds = isReset
+      ? userMinistryIds
+      : selectedMinistries?.map((item) => item?.id);
 
-        return {
-          frameworkId: fw.frameworkId,
-          subModulesPrivileges,
-        };
-      })
-      .filter(Boolean);
-  }
+    const selectedDepartmentIds = isReset
+      ? userDepartmentIds
+      : selectedDepartments?.map((item) => item?.id);
 
-  // --- Updated handleEdit function ---
-  const handleEdit = async (row) => {
-    if (!row) return;
-    setOriginalRow(JSON.parse(JSON.stringify(row)));
-    setShowAccordion(true);
-    setSelected(row);
-    setIsEditing(true);
-    setEditId(row?.id || null);
-    const safeParseJSON = (json) => {
-      if (typeof json === "object") return json;
-      try {
-        return JSON.parse(json);
-      } catch {
-        return {};
-      }
+    const selectedSchemeIds = isReset
+      ? userSchemeIds
+      : selectedSchemes?.map((item) => item?.id);
+
+    const isSubScheme = isReset
+      ? null
+      : !selectedIsSubScheme?.name
+        ? null
+        : selectedIsSubScheme.name.trim() === "Yes";
+
+    const statementType = isReset
+      ? null
+      : selectedStatement?.name?.trim() || "";
+
+    const payload = {
+      ministryIds: selectedMinistryIds,
+      departmentIds: selectedDepartmentIds,
+      schemeIds: selectedSchemeIds,
+      isSubScheme,
+      statementType: statementType?.toLowerCase().trim(),
+      page: apiPage,
+      limit: pageSize,
+      searchQuery: search.trim(),
+      searchParams: [],
     };
-
-    const baseRow = {
-      name: row?.name || "",
-      description: row?.description || null,
-      parentId: row?.parentId || null,
-      jsonData: safeParseJSON(row?.jsonData),
-
-      status: row?.status === "Active" ? true : false,
-    };
-
-    if (urlModal === "ministry") {
-      baseRow.name = row?.name;
-      baseRow.description = row?.description;
-      baseRow.parentId = row?.parentName?.id;
-      baseRow.status = row?.status === "Active" ? true : false;
-      baseRow.jsonData = {
-        ministryShortName: row?.ministryShortName,
-        ministryType: row?.ministryType,
-        parentName: row?.parentName,
-        url: row?.url,
-        address: row?.address,
-        associatedFramework: row?.associatedFramework,
-        budgetCovered: row?.budgetCovered,
-        emailAddress: row?.emailAddress,
-        telephoneNo: row?.telephoneNo,
-        targetGroup: row?.targetGroup,
-        sdgAlignment: row?.sdgAlignment,
-        supportingDocuments: row?.supportingDocuments,
-      };
-    }
-
-    if (urlModal === "departments") {
-      baseRow.name = row?.name;
-      baseRow.description = row?.description;
-      baseRow.parentId = row?.parentName?.id;
-      baseRow.status = row?.status === "Active" ? true : false;
-      baseRow.jsonData = {
-        departmentShortName: row?.departmentShortName,
-        url: row?.url,
-        parentName: row?.parentName,
-        address: row?.address,
-        associatedFramework: row?.associatedFramework,
-        demandNo: row?.demandNo,
-        budgetCovered: row?.budgetCovered,
-        emailAddress: row?.emailAddress,
-        telephoneNo: row?.telephoneNo,
-        targetGroup: row?.targetGroup,
-        sdgAlignment: row?.sdgAlignment,
-        supportingDocuments: row?.supportingDocuments,
-      };
-    }
-    if (urlModal === "schemes") {
-      baseRow.id = row?.id;
-      baseRow.name = row?.name;
-      baseRow.description = row?.description;
-      baseRow.parentScheme = row?.parentSchemeInfo;
-      baseRow.parentId = row?.parentName?.id;
-      baseRow.status = row?.status === "Active" ? true : false;
-      ((baseRow.prayasDepartmentId = row?.prayasDepartmentId),
-        (baseRow.prayasMinistryId = row?.prayasMinistryId),
-        (baseRow.prayasSchemeId = row?.prayasSchemeId),
-        (baseRow.jsonData = {
-          ministryId: row?.ministryId,
-          schemeShortName: row?.schemeShortName,
-          schemeCode: row?.schemeCode,
-          parentName: row?.parentName,
-          schemeType: row?.schemeType,
-          associatedFramework: row?.associatedFramework,
-          schemeStartDate: row?.schemeStartDate,
-          schemeEndDate: row?.schemeEndDate,
-          budgetCovered: row?.budgetCovered,
-          isNotSubScheme: row?.isNotSubScheme,
-          nodalOfficer: row?.nodalOfficer,
-          paras: row?.paras,
-          targetGroup: row?.targetGroup,
-          sdgAlignment: row?.sdgAlignment,
-          isConvergenceScheme: row?.isConvergenceScheme,
-          nodalMinistry: row?.nodalMinistry,
-          supportingDocuments: row?.supportingDocuments,
-        }));
-    }
-
-    if (urlModal === "schemeType") {
-      baseRow.name = row?.name;
-      baseRow.description = row?.description;
-      baseRow.status = row?.status === "Active" ? true : false;
-      baseRow.jsonData = {
-        schemeTypeShortName: row?.schemeTypeShortName,
-        associatedFramework: row?.associatedFramework,
-      };
-    }
-
-    if (urlModal === "sdg") {
-      baseRow.name = row?.name || "";
-
-      baseRow.status = row?.status === "Active" ? true : false;
-      baseRow.jsonData = {
-        sdgTarget: row?.sdgTarget || "",
-        sdgNumber: row?.sdgNumber || "",
-      };
-    }
-
-    if (urlModal === "targetGroup") {
-      baseRow.name = row?.name || "";
-
-      baseRow.status = row?.status === "Active" ? true : false;
-      baseRow.jsonData = {
-        sdgTarget: row?.sdgTarget || "",
-        sdgNumber: row?.sdgNumber || "",
-      };
-    }
-
-    if (urlModal === "units") {
-      baseRow.name = row?.name || "";
-
-      baseRow.status = row?.status === "Active" ? true : false;
-    }
-
-    if (urlModal === "associatedFramework") {
-      baseRow.name = row?.name || "";
-      baseRow.status = row?.status === "Active" ? true : false;
-    }
-
-    if (urlModal === "state") {
-      baseRow.name = row?.state_name || "";
-      baseRow.status = row?.status === "Active" ? true : false;
-      baseRow.stateCode = row?.state_code || "";
-      baseRow.stateAbbr = row?.state_abbr || "";
-    }
-    if (urlModal === "documentCategory") {
-      baseRow.name = row?.name || "";
-      baseRow.status = row?.status === "Active" ? true : false;
-      baseRow.abbr = row?.abbr || "";
-      baseRow.jsonData = {
-        orgTypes: row?.orgTypes || [],
-        frameworks: row?.frameworks || [],
-      };
-    }
-    if (urlModal === "district") {
-      baseRow.name = row?.district_name || "";
-
-      baseRow.status = row?.status === "Active" ? true : false;
-      baseRow.districtCode = row?.district_code || "";
-      baseRow.districtAbbr = row?.district_abbr || "";
-      baseRow.jsonData = {
-        stateId: row?.state,
-      };
-    }
-
-    if (urlModal === "role") {
-      let dashboards =
-        Array.isArray(dashboardsArray) && dashboardsArray.length > 0
-          ? dashboardsArray
-          : await fetchDashboardsForRoles();
-      const mappedPermissions = mapRolePayloadToPermissions(
-        row?.associatedFrameworks || [],
-        dashboards,
-      );
-      setPermissions(mappedPermissions);
-
-      // UI: mark dashboards as selected
-      const dashboardsSelected = mappedPermissions.map((fw) => {
-        const dashboardData = dashboards.find(
-          (d) => d.frameworkId === fw.frameworkId,
-        );
-        return {
-          id: dashboardData?.frameworkId, // ✅ same as options.id
-          frameworkId: dashboardData?.frameworkId,
-          name: dashboardData?.frameworkName || "",
-        };
-      });
-      setSelectedDashboards(dashboardsSelected);
-
-      baseRow.orgType = row?.orgType || null;
-
-      baseRow.status = row?.status === "Active" ? true : false;
-    }
-
-    if (urlModal === "user") {
-      baseRow.firstName = row?.firstName || "";
-      baseRow.lastName = row?.lastName || "";
-      baseRow.email = row?.email || "";
-      baseRow.status = row?.status === "Active" ? true : false;
-      baseRow.mobileNo = row?.mobileNo || "";
-      baseRow.dob = row?.dob || null;
-      baseRow.landlineNo = row?.landlineNo || "";
-      baseRow.designation = row?.designation || "";
-      baseRow.jsonData = {
-        orgTypes: row?.orgType || [],
-        ministries: row?.ministries || [],
-        departments: row?.departments || [],
-        schemes: row?.schemes || [],
-        associatedFrameworks: row?.associatedFrameworks || [],
-        roles: row?.userRoleType || [],
-      };
-    }
-
-    if (urlModal === "strategyTrackingModule") {
-      baseRow.theme = row?.theme || {};
-      baseRow.scheme = row?.schemes || [];
-      baseRow.ministry = row?.ministry || {};
-      baseRow.questionnaireId = row?.questionnaire || {};
-      baseRow.department = row?.department || {};
-      baseRow.expectedCompletionDate = row?.expectedCompletionDate || null;
-      baseRow.designation = row?.designation || "";
-      baseRow.actionPointStatus = row?.actionPointStatus || "";
-      baseRow.responsiblePerson = row?.responsiblePerson || {};
-      baseRow.status = row?.status === "Active" ? true : false;
-      baseRow.jsonData.supportingDocuments = row?.supportingDocuments || [];
-    }
-    if (urlModal === "outputOutcome") {
-      baseRow.status = row?.status === "Active" ? true : false;
-      baseRow.parentScheme = row?.parentScheme;
-      baseRow.jsonData = {
-        ministry: row?.ministry,
-        department: row?.department,
-        schemeType: row?.schemeType,
-        scheme: row?.scheme,
-        subScheme: row?.subScheme,
-        statementType: row?.statementType,
-      };
-    }
-    if (urlModal === "indicator") {
-      baseRow.status = row?.status === "Active" ? true : false;
-      baseRow.parentScheme = row?.parentScheme;
-      baseRow.jsonData = {
-        ministry: row?.ministry,
-        department: row?.department,
-        schemeType: row?.schemeType,
-        scheme: row?.scheme,
-        subScheme: row?.subScheme,
-        indicatorType: row?.indicatorType,
-        indicatorRise: row?.indicatorRise,
-        period: row?.period,
-        scale: row?.scale,
-        sdg: row?.sdg,
-        category: row?.category,
-        unit: row?.unit,
-        measurementArea: row?.measurementArea,
-        measurementType: row?.measurementType,
-      };
-    }
-    if (urlModal === "frameworkSection") {
-      baseRow.status = row?.status === "Active" ? true : false;
-      const matchedPrivileges = privileges?.filter((p) =>
-        row?.privileges?.some(
-          (pr) => pr.toLowerCase() === p?.name?.toLowerCase(),
-        ),
-      );
-      baseRow.jsonData = {
-        associatedSectionFramework: row?.frameworkName,
-        privileges: matchedPrivileges,
-      };
-    }
-    if (urlModal === "dynamicMenu") {
-      baseRow.status = row?.status === "Active" ? true : false;
-      baseRow.menuUrl = row?.menuUrl;
-      baseRow.module = row?.module;
-      baseRow.parentMenu = row?.parentMenu;
-      baseRow.sortOrder = row?.sortOrder;
-      baseRow.frameworkSection = row?.frameworkSection;
-      baseRow.associatedFramework = row?.framework;
-    }
-    if (urlModal === "sectionModal") {
-      baseRow.frameworkSection = row?.frameworkSection;
-      baseRow.shortUrl = row?.shortUrl;
-    }
-
-    setNewRow(baseRow);
-  };
-
-  const uploadMultipleFiles = async (files, titles = [], docDescription) => {
-    const formData = new FormData();
-    files.forEach((file, idx) => {
-      formData.append("files", file);
-      formData.append("titles[]", titles[idx] || file.name);
-      formData.append("reference_type", "masters");
-      formData.append("user_id", userData?.id);
-      formData.append("remarks", docDescription);
-    });
 
     try {
       const response = await apiClient.post(
-        "api/document/upload-files",
-        formData,
+        "/api/master/get-all-output-outcomes",
+        payload,
+        { signal, throwIfAborted: false },
       );
-      return response.data.files;
+
+      const { data: rows, total } = response?.data?.data || {};
+      setTotalRows(total ?? 0);
+
+      if (!rows?.length) {
+        setOutputOutcomes([]);
+        setFilteredOutputOutcomes([]);
+        return;
+      }
+
+      const offset = page * pageSize;
+      const withSerial = rows.map((row, index) => ({
+        ...row,
+        serial: offset + index + 1,
+      }));
+
+      const masterRow = getMasterExampleRow(urlModal) || {};
+      const finalRows = generateRowsForColumns(
+        withSerial,
+        gridColumns,
+        masterRow,
+      );
+
+      setOutputOutcomes(finalRows);
+      setFilteredOutputOutcomes(finalRows);
     } catch (err) {
-      console.error("Upload failed:", err);
-      return [];
+      if (axios.isCancel(err) || err.code === "ERR_CANCELED") {
+        // 🔇 Silent — do not log, do not show error
+        return;
+      }
+
+      console.error("Error fetching indicators:", err);
+    } finally {
+      inFlightRef.current = false; // 💥 finished
+      setLoading(false);
     }
   };
 
-  const handleJsonDataChange = (key) => async (e) => {
-    // Your existing file/custom handling unchanged...
+  async function handleOutputOutcomeSubmit() {
+    if (urlModal === "outputOutcome") {
+      const validationErrors = validateOutputOutcomeFields(
+        newRow,
+        jsonData || {},
+      );
+      setErrors(validationErrors);
 
-    if (e.target.type === "file") {
-      const files = Array.from(e.target?.files);
-      const titles = files.map((f) => f.name);
+      if (Object.keys(validationErrors).length > 0) {
+        dispatch(setError("Please fill required fields before submitting."));
+        // ❌ Invalid → show errors, don’t submit
+        return;
+      }
 
-      const uploadedFileNames = await uploadMultipleFiles(files, titles);
-
-      setNewRow((prev) => {
-        const updatedJsonData = {
-          ...(prev.jsonData && typeof prev.jsonData === "object"
-            ? prev.jsonData
-            : {}),
-          [key]: uploadedFileNames.map((file, idx) => ({
-            title: titles[idx],
-            file,
-          })),
+      try {
+        const cleanedJsonData = {
+          ...jsonData,
+          ministry: pickIdName(jsonData?.ministry),
+          department: pickIdName(jsonData?.department),
+          scheme: pickIdName(jsonData?.scheme),
+          subScheme: pickIdName(jsonData?.subScheme),
         };
 
-        return {
-          ...prev,
-          jsonData: updatedJsonData,
+        const payload = {
+          name: newRow?.name?.trim(),
+          description: newRow?.description?.trim() || null,
+          status: newRow?.status,
+          parentScheme: newRow?.parentScheme,
+          jsonData: cleanedJsonData,
+          createdBy: userData?.id,
         };
-      });
 
-      return;
-    }
-
-    if (e.target.type === "custom") {
-      // Your existing custom repeater handling code here...
-
-      // For simplicity, let's assume you have the updated jsonData in `result`
-      // (make sure your code sets it correctly, here it's simplified):
-
-      const entries = e.target.value;
-
-      // Build the result (same as your code)
-      const result = entries.map((entry) => {
-        if (entry.file instanceof File) {
-          const index = entries.findIndex((e) => e.name === entry.name);
-          return {
-            title: entry.name,
-            file: uploadedFileNames?.[index],
-          };
+        if (editId) {
+          payload.id = editId;
+          payload.updatedBy = userData?.id;
         }
-        return entry;
-      });
 
-      setNewRow((prev) => {
-        const updatedJsonData = {
-          ...(prev.jsonData && typeof prev.jsonData === "object"
-            ? prev.jsonData
-            : {}),
-          [key]: result,
-        };
+        const response = await apiClient.post(
+          `api/master/create-or-update-output-outcome`,
+          payload,
+        );
 
-        return {
-          ...prev,
-          jsonData: updatedJsonData,
-        };
-      });
+        const result = response?.data;
 
-      return;
+        // ✅ Handle backend validation / duplicate errors
+        if (!result?.success) {
+          dispatch(
+            setError(result?.message || "Failed to save Output outcome"),
+          );
+          return;
+        }
+
+        dispatch(setSuccess(result?.message));
+        setShowAccordion(false);
+        setNewRow({
+          status: true, // Ensure Active by default
+          // other fields...
+        });
+        setEditId(null);
+        setErrors({});
+        // Refresh associated framework data
+        fetchOutputOutcomes();
+      } catch (error) {
+        console.error("Failed to add Output outcome:", error);
+        dispatch(setError("Server error while saving Output outcome"));
+      }
     }
+  }
 
-    // Default case for text/checkbox etc.
-    let value = e.target.value;
-    if (key === "weight") {
-      value = parseInt(value, 10);
-      if (isNaN(value)) value = 0;
-      value = Math.min(100, Math.max(1, value));
-    }
-    if (e.target.type === "checkbox") {
-      value = e.target.checked;
-    }
+  useEffect(() => {
+    fetchMinistries();
+    fetchOutputOutcomes();
+  }, []);
 
-    setNewRow((prev) => {
-      const updatedJsonData = {
-        ...(prev.jsonData && typeof prev.jsonData === "object"
-          ? prev.jsonData
-          : {}),
-        [key]: value,
-      };
+  const gridColumns = React.useMemo(() => {
+    return getMasterColumns(urlModal, actionsConfig);
+  }, [urlModal, actionsConfig]);
 
-      return {
-        ...prev,
-        jsonData: updatedJsonData,
-      };
+  // // 🔹 Search Filter
+  // useEffect(() => {
+  //   const trimmedSearch = (search || "").trim().toLowerCase();
+  //   if (!trimmedSearch) {
+  //     setFilteredOutputOutcomes(outputOutcomes || []);
+  //     return;
+  //   }
+  //   const filtered = (outputOutcomes || []).filter((item) =>
+  //     deepSearch(item, trimmedSearch),
+  //   );
+  //   setFilteredOutputOutcomes(filtered);
+  // }, [search, outputOutcomes]);
+
+  // 🔹 Column Management
+
+  const handleSearch = () => {
+    fetchOutputOutcomes();
+  };
+  const [columns, setColumns] = useState([]);
+  const [columnVisibilityModel, setColumnVisibilityModel] = useState({});
+
+  useEffect(() => {
+    setColumns(gridColumns);
+
+    const visibilityModel = {};
+    gridColumns.forEach((col) => {
+      visibilityModel[col.field] = true;
     });
-  };
 
-  const handleNewChange = (field) => (e) => {
-    let value = e.target.value;
+    setColumnVisibilityModel(visibilityModel);
+  }, [gridColumns]);
 
-    setNewRow((prev) => ({
-      ...prev,
-      [field]: value,
-    }));
-  };
-
-  const processedRow = useMemo(() => {
-    if (urlModal === "schemes") {
-      return {
-        ...newRow,
-        jsonData: {
-          isNotSubScheme: true,
-          ...(newRow.jsonData || {}),
-        },
-      };
-    }
-    return newRow;
-  }, [newRow, urlModal]);
-
-  const handleViewAuditTrail = async (row) => {
-    const updatedPrivileges = await refresh();
-    if (!row?.id || !updatedPrivileges?.sectionId) return;
-
-    setAuditParams({
-      auditableId: String(row.id),
-      sectionId: updatedPrivileges.sectionId,
-    });
-    setAuditDialogOpen(true);
-  };
-
-  const masterState = {
+  const modalState = {
     newRow,
-    processedRow,
     isViewing,
-    urlModal,
-    isEditing,
-    setIsEditing,
-    setErrors,
-    setEditId,
-    editId,
-    setNewRow,
-    setIsViewing,
-    selected,
     errors,
-    showAccordion,
-    setShowAccordion,
-    handleEdit,
-    handleViewAuditTrail,
-    setSchemeData,
-    handleSwitchChange,
-    refreshMenu,
-    permissions,
-    setPermissions,
-    setSubmitted,
-    selectedDashboards,
-    orgTypes,
-    setSelectedDashboards,
-    dashboardsArray,
-    setDashboardsArray,
-    submitted,
     handleNewChange,
-    sectors,
-    allOomfMastersData,
-    sdgNames,
-    targetGroups,
-    associatedFrameworks,
-    jsonData: urlModal === "schemes" ? processedRow.jsonData : newRow.jsonData,
+    handleSwitchChange,
+    ministryNames,
+    jsonData: newRow.jsonData,
     initialUploadDocuments: newRow?.jsonData?.supportingDocuments,
     uploadMultipleFiles,
     handleJsonDataChange,
   };
 
   return (
-    <>
-      {loading ? (
-        <Box
-          display="flex"
-          justifyContent="center"
-          alignItems="center"
-          minHeight="200px"
-        >
-          <CircularProgress />
-        </Box>
-      ) : (
-        <Box sx={{ mt: 4 }}>
-          {urlModal === "ministry" && (
-            <MinistryMaster masterState={masterState} />
-          )}
-          {urlModal === "sector" && <SectorMaster masterState={masterState} />}
-          {urlModal === "departments" && (
-            <DepartmentMaster masterState={masterState} />
-          )}
-          {urlModal === "schemeType" && (
-            <SchemeTypeMaster masterState={masterState} />
-          )}
-          {urlModal === "schemes" && <SchemeMaster masterState={masterState} />}
-          {urlModal === "state" && <StateMaster masterState={masterState} />}
-          {urlModal === "district" && (
-            <DistrictMaster masterState={masterState} />
-          )}
-          {urlModal === "sdg" && <SDGMaster masterState={masterState} />}
-          {urlModal === "targetGroup" && (
-            <TargetGroupMaster masterState={masterState} />
-          )}
-          {urlModal === "associatedFramework" && (
-            <FrameworkMaster masterState={masterState} />
-          )}
-          {urlModal === "role" && <RoleMaster masterState={masterState} />}
-          {urlModal === "user" && <UserMaster masterState={masterState} />}
-          {urlModal === "units" && <UnitsMaster masterState={masterState} />}
-          {urlModal === "outputOutcome" && (
-            <OutputOutcomeMaster masterState={masterState} />
-          )}
-          {urlModal === "indicator" && (
-            <IndicatorMaster masterState={masterState} />
-          )}
-          {urlModal === "strategyTrackingModule" && (
-            <StrategyTrackingModuleMaster masterState={masterState} />
-          )}
+    <Box>
+      <Card
+        elevation={3}
+        sx={{
+          p: 3,
+          mb: 4,
+          borderRadius: 3,
+        }}
+      >
+        <MainFormHeader title="Filter Statements by Ministries and Departments" />
+        <Divider sx={{ my: 2 }} />
 
-          {urlModal === "orgType" && (
-            <OrganizationMaster masterState={masterState} />
-          )}
-          {urlModal === "applicableCategory" && (
-            <ApplicableCategoryMaster masterState={masterState} />
-          )}
-          {urlModal === "frequency" && (
-            <FrequencyMaster masterState={masterState} />
-          )}
-          {urlModal === "indicatorRise" && (
-            <IndicatorRiseMaster masterState={masterState} />
-          )}
-          {urlModal === "indicatorType" && (
-            <IndicatorTypeMaster masterState={masterState} />
-          )}
-          {urlModal === "period" && <PeriodMaster masterState={masterState} />}
-          {urlModal === "scales" && <ScaleMaster masterState={masterState} />}
-          {urlModal === "measurementArea" && (
-            <MeasurementAreaMaster masterState={masterState} />
-          )}
-          {urlModal === "measurementType" && (
-            <MeasurementTypeMaster masterState={masterState} />
-          )}
-          {urlModal === "frameworkSection" && (
-            <FrameworkSectionMaster masterState={masterState} />
-          )}
-          {urlModal === "dynamicMenu" && (
-            <DynamicMenuMaster masterState={masterState} />
-          )}
-          {urlModal === "sectionModal" && (
-            <SectionModalMaster masterState={masterState} />
-          )}
-          {urlModal === "documentCategory" && (
-            <DocumentCategoryMaster masterState={masterState} />
-          )}
-          <UserRelatedDetailsDialog
-            open={openDialog}
-            title={dialogTitle}
-            data={dialogData}
-            onClose={() => setOpenDialog(false)}
-          />
-          {selected && (
-            <>
-              <Box
-                sx={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  mb: 2,
-                  mt: 2,
-                  flexWrap: "wrap", // responsive wrapping
-                  gap: 2,
+        <Grid container spacing={2} alignItems="center">
+          <Grid size={{ xs: 12, md: 6 }}>
+            <CustomAutoCompleteWithoutFormik
+              name="ministries"
+              multiple
+              selectAll
+              label="Choose Ministries"
+              options={ministryNames}
+              value={selectedMinistries ?? []}
+              fullWidth
+              onChange={(event, newValue) =>
+                setSelectedMinistries(newValue || [])
+              }
+            />
+          </Grid>
+          <Grid size={{ xs: 12, md: 6 }}>
+            <CustomAutoCompleteWithoutFormik
+              name="departments"
+              multiple
+              selectAll
+              label="Choose Departments"
+              options={departments}
+              value={selectedDepartments ?? []}
+              fullWidth
+              onChange={(event, newValue) =>
+                setSelectedDepartments(newValue || [])
+              }
+            />
+          </Grid>
+          <Grid size={{ xs: 12, md: 6 }}>
+            <CustomAutoCompleteWithoutFormik
+              name="schemes"
+              multiple
+              selectAll
+              label="Choose Schemes"
+              options={schemes}
+              value={selectedSchemes ?? []}
+              fullWidth
+              onChange={(event, newValue) => setSelectedSchemes(newValue || [])}
+            />
+          </Grid>
+          <Grid size={{ xs: 12, md: 6 }}>
+            <CustomAutoCompleteWithoutFormik
+              name="isSubScheme"
+              multiple={false}
+              selectAll={false}
+              label="Choose Is Sub Scheme"
+              options={isSubSchemes}
+              value={selectedIsSubScheme ?? null}
+              fullWidth
+              onChange={(event, newValue) =>
+                setSelectedIsSubScheme(newValue || null)
+              }
+            />
+          </Grid>
+          <Grid size={{ xs: 12, md: 6 }}>
+            <CustomAutoCompleteWithoutFormik
+              name="statementType"
+              label="Choose Statement Type"
+              selectAll={false}
+              multiple={false}
+              options={statementTypes}
+              value={selectedStatement ?? {}}
+              fullWidth
+              onChange={(event, newValue) =>
+                setSelectedStatement(newValue || {})
+              }
+            />
+          </Grid>
+
+          <Grid size={{ xs: 12 }}>
+            <Stack
+              direction="row"
+              spacing={2}
+              justifyContent="center"
+              sx={{ mt: 2 }}
+            >
+              <Button
+                variant="contained"
+                color="primary"
+                startIcon={<SearchIcon />}
+                onClick={handleSearch}
+                sx={{ minWidth: 150 }}
+              >
+                Search
+              </Button>
+              <Button
+                variant="outlined"
+                sx={{ color: "#45154F" }}
+                startIcon={<RestartAltIcon />}
+                onClick={() => {
+                  setSelectedMinistries([]);
+                  setSelectedDepartments([]);
+                  setSelectedSchemes([]);
+                  setSelectedIsSubScheme(null);
+                  setSelectedStatement({});
+                  fetchOutputOutcomes({ isReset: true });
                 }}
               >
-                {/* {auditParams?.auditableId && auditParams?.sectionId && (
-                  <AuditDataGrid
-                    {...auditParams}
-                    auditDialogOpen={auditDialogOpen}
-                    setAuditDialogOpen={setAuditDialogOpen}
-                  />
-                )} */}
-              </Box>
+                Reset
+              </Button>
+            </Stack>
+          </Grid>
+        </Grid>
+      </Card>
+      {/* Add/Edit Dialog */}
+      <AddRecordDialog
+        open={!isViewing ? showAccordion : false}
+        onClose={() => {
+          setShowAccordion(false);
+          setNewRow({
+            status: true, // Ensure Active by default
+            // other fields...
+          });
+          setEditId(null);
+          setErrors({});
+        }}
+        onSubmit={handleOutputOutcomeSubmit}
+        isViewing={isViewing}
+        isEditing={isEditing}
+        urlModal={urlModal}
+        selected={selected}
+      >
+        <OutputOutcome modalState={modalState} />
+      </AddRecordDialog>
+      {isViewing && (
+        <CommonViewMasterDialog
+          open={showAccordion}
+          handleClose={() => {
+            setShowAccordion(false);
+            setNewRow({
+              status: true, // Ensure Active by default
+              // other fields...
+            });
+            setEditId(null);
+            setErrors({});
+          }}
+          title="Output Outcome Details"
+          data={{
+            ...selected,
+            subScheme: selected?.subScheme?.name,
+            statementType: selected?.statementType
+              ? selected.statementType.charAt(0).toUpperCase() +
+                selected.statementType.slice(1)
+              : selected?.statementType,
+          }}
+          exampleRow={gridColumns}
+        />
+      )}
 
-              <InactiveConfirmDialog
-                openConfirm={openConfirm}
-                handleCancel={handleCancel}
-                handleConfirm={handleConfirm}
+      <Paper
+        elevation={3}
+        sx={{ p: 2, borderRadius: 3, backgroundColor: "#ffffff" }}
+      >
+        {/* Header */}
+        <Box
+          sx={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            mb: 2,
+            mt: 2,
+            flexWrap: "wrap",
+            gap: 2,
+          }}
+        >
+          {/* Left: Search + Export */}
+          <Box
+            sx={{
+              display: "flex",
+              gap: 2,
+              flexDirection: { xs: "column", sm: "row" },
+            }}
+          >
+            <Box display="flex" alignItems="center">
+              <SearchIcon sx={{ mr: 1 }} />
+              <TextField
+                size="small"
+                placeholder="Search..."
+                value={search}
+                disabled={loading ? true : false}
+                onChange={(e) => setSearch(e.target.value)}
+                error={search.trim().length > 0 && search.trim().length < 3}
+                helperText={
+                  search.trim().length > 0 && search.trim().length < 3
+                    ? "Enter at least 3 characters to search"
+                    : ""
+                }
+                sx={{ width: { xs: "100%", sm: "auto" } }}
               />
-              {schemeData && Object.keys(schemeData).length > 0 && (
-                <SchemeBudgetModal
-                  open={open}
-                  onClose={handleClose}
-                  schemeData={schemeData}
-                  associatedFrameworks={associatedFrameworks}
-                />
-              )}
-            </>
+            </Box>
+            <ExportCsvButton
+              modal={urlModal}
+              columns={columns}
+              // rows={filteredOutputOutcomes}
+              rows={filteredOutputOutcomes.map((row) => ({
+                ...row,
+                subScheme: row?.subScheme?.label || "",
+              }))}
+              columnVisibilityModel={columnVisibilityModel}
+              fileName={urlModal}
+            />
+          </Box>
+
+          {/* Right: Add Record Button */}
+          {hasAddAccess && (
+            <Button
+              variant="outlined"
+              onClick={() => {
+                setIsEditing(false);
+                setIsViewing(false);
+                setShowAccordion(true);
+              }}
+              disabled={!selected}
+              startIcon={<AddIcon />}
+              sx={{ whiteSpace: "nowrap" }}
+            >
+              Add Record in{" "}
+              {`${urlModal
+                ?.replace(/([a-z])([A-Z])/g, "$1 $2")
+                ?.replace(/\b\w/g, (char) => char.toUpperCase())} Master`}
+            </Button>
           )}
         </Box>
-      )}
-    </>
+
+        <Box
+          sx={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            mb: 2,
+            mt: 2,
+            flexWrap: "wrap", // responsive wrapping
+            gap: 2,
+          }}
+        >
+          {auditParams?.auditableId && auditParams?.sectionId && (
+            // <AuditDataGrid
+            //   {...auditParams}
+            //   auditDialogOpen={auditDialogOpen}
+            //   setAuditDialogOpen={setAuditDialogOpen}
+            // />
+            <AuditTrailDialog
+              auditDialogOpen={auditDialogOpen}
+              setAuditDialogOpen={setAuditDialogOpen}
+              auditableId={auditParams.auditableId}
+              sectionId={auditParams.sectionId}
+            />
+          )}
+        </Box>
+        <Box
+          sx={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            mb: 2,
+          }}
+        >
+          <MainFormHeader title="Output Outcome List" />
+          <Divider sx={{ my: 2 }} />
+          <ColumnReorderManager
+            gridColumns={gridColumns}
+            columns={columns}
+            setColumns={setColumns}
+            columnVisibilityModel={columnVisibilityModel}
+            setColumnVisibilityModel={setColumnVisibilityModel}
+          />
+        </Box>
+
+        {/* DataGrid */}
+        {loading ? (
+          <Box
+            display="flex"
+            justifyContent="center"
+            alignItems="center"
+            minHeight="300px"
+          >
+            <CircularProgress />
+          </Box>
+        ) : (
+          <div style={{ height: 450, width: "100%" }}>
+            <DataGrid
+              sortingOrder={["asc", "desc"]}
+              rows={filteredOutputOutcomes}
+              columns={applyCustomLogic(columns)}
+              rowCount={totalRows} // 🔥 total rows from backend
+              paginationMode="server" // 🔥 important
+              paginationModel={paginationModel}
+              onPaginationModelChange={(model) => {
+                setPaginationModel(model);
+                fetchOutputOutcomes({
+                  page: model.page,
+                  pageSize: model.pageSize,
+                }); // <— pass fresh values
+              }}
+              pageSizeOptions={[10, 20, 30, 40, 50, 100]}
+              disableSelectionOnClick
+              columnVisibilityModel={columnVisibilityModel}
+              onColumnVisibilityModelChange={(newModel) =>
+                setColumnVisibilityModel(newModel)
+              }
+              localeText={{
+                columnMenuSortAsc: "Sort as A to Z",
+                columnMenuSortDesc: "Sort as Z to A",
+              }}
+            />
+          </div>
+        )}
+      </Paper>
+    </Box>
   );
-}
+};
+
+export default OutputOutcomeMaster;
