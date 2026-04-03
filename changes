@@ -1,23 +1,251 @@
-function generateMDThemeChartColumns(sortedThemes) {
-  return [
-    {
-      field: "ministryName",
-      headerName: "Ministry",
-      flex: 1,
-      minWidth: 200,
-    },
-    {
-      field: "departmentName",
-      headerName: "Department",
-      flex: 1,
-      minWidth: 220,
-    },
-    ...sortedThemes.map((theme) => ({
-      field: theme.theme_name,
-      headerName: theme.theme_name,
-      flex: 1,
-      minWidth: 180,
-      type: "number",
-    })),
+function generateMDThemeChartConfig(apiResponse, Highcharts) {
+  if (!apiResponse || !Array.isArray(apiResponse)) return {};
+
+  // Fixed color palette for themes
+  const themeColors = [
+    "#1f77b4",
+    "#ff7f0e",
+    "#2ca02c",
+    "#d62728",
+    "#9467bd",
+    "#8c564b",
+    "#e377c2",
+    "#7f7f7f",
+    "#bcbd22",
+    "#17becf",
+    "#393b79",
+    "#637939",
+    "#8c6d31",
+    "#843c39",
+    "#7b4173",
   ];
+
+  // Step 1: Sort departments - those with theme_scores first
+  const sortedData = [...apiResponse].sort((a, b) => {
+    const aHasScores =
+      Array.isArray(a.theme_scores) && a.theme_scores.length > 0;
+    const bHasScores =
+      Array.isArray(b.theme_scores) && b.theme_scores.length > 0;
+
+    if (aHasScores === bHasScores) return 0;
+    return aHasScores ? -1 : 1;
+  });
+
+  // Step 2: Build department -> ministry + theme totals
+  const departmentThemeTotals = {};
+  const departmentMinistryMap = {};
+  const departmentDataMap = {};
+
+  sortedData.forEach((item) => {
+    const ministry = item.ministry_name?.trim();
+    const department = item.department_name?.trim();
+    if (!department) return;
+
+    departmentMinistryMap[department] = ministry || "-";
+    departmentDataMap[department] = item;
+
+    if (!departmentThemeTotals[department]) {
+      departmentThemeTotals[department] = {};
+    }
+
+    (item.theme_scores || []).forEach((theme) => {
+      if (!theme.theme_name || theme.theme_id == null) return;
+
+      if (!departmentThemeTotals[department][theme.theme_id]) {
+        departmentThemeTotals[department][theme.theme_id] = {
+          theme_id: theme.theme_id,
+          theme_name: theme.theme_name,
+          total: 0,
+          count: 0,
+        };
+      }
+
+      departmentThemeTotals[department][theme.theme_id].total += Number(
+        theme.avg_score || 0,
+      );
+      departmentThemeTotals[department][theme.theme_id].count += 1;
+    });
+  });
+
+  // Step 3: Use unique sorted department order
+  const departments = [...new Set(
+    sortedData.map((item) => item.department_name?.trim()).filter(Boolean),
+  )];
+
+  // Step 4: Collect all unique themes and sort by theme_id
+  const themeMap = new Map();
+
+  sortedData.forEach((item) => {
+    (item.theme_scores || []).forEach((theme) => {
+      if (!theme.theme_name || theme.theme_id == null) return;
+
+      if (!themeMap.has(theme.theme_id)) {
+        themeMap.set(theme.theme_id, {
+          theme_id: theme.theme_id,
+          theme_name: theme.theme_name,
+        });
+      }
+    });
+  });
+
+  const sortedThemes = Array.from(themeMap.values()).sort(
+    (a, b) => a.theme_id - b.theme_id,
+  );
+
+  // Step 5: Fixed color mapping by theme_id
+  const themeColorMap = {};
+  sortedThemes.forEach((theme, idx) => {
+    themeColorMap[theme.theme_id] = themeColors[idx % themeColors.length];
+  });
+
+  // Step 6: Build series in fixed theme_id order
+  const series = sortedThemes.map((theme) => {
+    const data = departments.map((dept) => {
+      const obj = departmentThemeTotals[dept]?.[theme.theme_id];
+
+      return {
+        y: obj ? parseFloat((obj.total / obj.count).toFixed(2)) : null,
+        department: dept,
+        ministry: departmentMinistryMap[dept],
+        themeId: theme.theme_id,
+        themeName: theme.theme_name,
+      };
+    });
+
+    return {
+      name: theme.theme_name,
+      themeId: theme.theme_id,
+      data,
+      color: themeColorMap[theme.theme_id], // fixed color per theme
+    };
+  });
+
+  return {
+    chart: {
+      type: "column",
+      backgroundColor: "transparent",
+      zoomType: "x",
+      panning: true,
+      panKey: "shift",
+    },
+    title: { text: null },
+    subtitle: {
+      text: "Click and drag to zoom in. Hold Shift and Click/Drag to move the chart.",
+      align: "center",
+      style: { fontSize: "12px", color: "#666" },
+    },
+    xAxis: {
+      categories: departments,
+      crosshair: true,
+      min: 0,
+      max: departments.length > 3 ? 2 : departments.length - 1,
+      scrollbar: { enabled: departments.length > 3 },
+      labels: {
+        rotation: 0,
+        style: { fontSize: "11px" },
+      },
+    },
+    yAxis: {
+      min: 0,
+      tickInterval: 0.5,
+      title: { text: "Score" },
+      gridLineColor: "#eee",
+      maxPadding: 0.2,
+    },
+    tooltip: {
+      shared: true,
+      useHTML: true,
+      headerFormat: "<b>{point.key}</b><br/>",
+      pointFormatter: function () {
+        if (this.y === null) return "";
+        return `
+          <span style="color:${this.color}">●</span>
+          <b>${this.series.name}</b>: <b>${this.y.toFixed(2)}</b><br/>
+        `;
+      },
+      footerFormat: "Click to view more details",
+    },
+    plotOptions: {
+      column: {
+        grouping: true,
+        borderWidth: 0,
+        pointPadding: 0.1,
+        groupPadding: 0.1,
+        minPointLength: 0,
+        dataLabels: {
+          enabled: true,
+          format: "{point.y:.2f}",
+          style: { fontWeight: "bold" },
+        },
+        point: {
+          events: {
+            click: function () {
+              const clickedDepartment = this.department;
+              const clickedMinistry = this.ministry;
+
+              const departmentData = departmentDataMap[clickedDepartment];
+              if (!departmentData) return;
+
+              const row = {
+                id: departmentData.department_id || Math.random(),
+                ministryName: clickedMinistry,
+                departmentName: clickedDepartment,
+              };
+
+              // Put row data also in fixed theme_id order
+              sortedThemes.forEach((themeObj) => {
+                const theme = (departmentData.theme_scores || []).find(
+                  (t) => t.theme_id === themeObj.theme_id,
+                );
+
+                if (theme?.theme_name) {
+                  const value = Number(theme.avg_score);
+                  row[theme.theme_name] = Number.isFinite(value)
+                    ? Number(value.toFixed(2))
+                    : 0;
+                } else {
+                  row[themeObj.theme_name] = 0;
+                }
+              });
+
+              setColsData(generateMDThemeChartColumns(sortedThemes));
+              setRowData([row]);
+              setOpen(true);
+            },
+          },
+        },
+      },
+    },
+    exporting: {
+      buttons: {
+        contextButton: {
+          menuItems: [
+            "viewFullscreen",
+            "printChart",
+            "separator",
+            "downloadPNG",
+            "downloadJPEG",
+            "downloadSVG",
+            "downloadCSV",
+            "downloadXLS",
+            "viewData",
+          ],
+        },
+      },
+      csv: {
+        columnHeaderFormatter: function (item) {
+          if (item && item.isXAxis) {
+            return "M/D";
+          }
+          return item?.name;
+        },
+      },
+    },
+    legend: {
+      align: "center",
+      verticalAlign: "bottom",
+      itemStyle: { fontWeight: "500", color: "#333" },
+    },
+    series,
+  };
 }
