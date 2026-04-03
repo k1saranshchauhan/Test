@@ -1,636 +1,226 @@
-import apiClient from "@/utils/apiClient";
-import {
-  Autocomplete,
-  FormControl,
-  FormControlLabel,
-  InputLabel,
-  MenuItem,
-  Select,
-  Grid,
-  TextField,
-  Switch,
-  Tooltip,
-  Typography,
-  FormHelperText,
-  FormLabel,
-} from "@mui/material";
-import { useEffect, useState } from "react";
-import { useDispatch, useSelector } from "react-redux";
-import {
-  filterByFramework,
-  filterSchemesByFramework,
-} from "@/utils/niti/filterByFramework";
-import { oomfFrameworkId } from "@/src/constants/unified/frameworkConstants";
+  function generateMDThemeChartConfig(apiResponse, Highcharts) {
+    if (!apiResponse) return {};
 
-const OutputOutcome = ({ modalState }) => {
-  const {
-    newRow,
-    isViewing,
-    errors,
-    handleNewChange,
-    jsonData,
-    handleSwitchChange,
-    ministryNames,
-    initialUploadDocuments,
-    uploadMultipleFiles,
-    handleJsonDataChange,
-  } = modalState;
-  const [departmentList, setDepartmentList] = useState([]);
-  const [schemeTypes, setSchemeTypes] = useState([]);
-  const [schemeList, setSchemeList] = useState([]);
-  const [subSchemeList, setSubSchemeList] = useState([]);
-  const [isSubScheme, setIsSubScheme] = useState(false);
-  const userData = useSelector((state) => state.config.userData);
-  const userMinistryIds = userData?.userRelationships[0]?.ministryIds;
-  const userDepartmentIds = userData?.userRelationships[0]?.departmentIds;
-  const userSchemeIds = userData?.userRelationships[0]?.schemeIds;
+    // Step 1. Sort departments - those with theme_scores first
+    const sortedData = [...apiResponse].sort((a, b) => {
+      const aHasScores =
+        Array.isArray(a.theme_scores) && a.theme_scores.length > 0;
+      const bHasScores =
+        Array.isArray(b.theme_scores) && b.theme_scores.length > 0;
+      if (aHasScores === bHasScores) return 0;
+      return aHasScores ? -1 : 1; // non-empty theme_scores first
+    });
 
-  // Auto-enable Is Sub-scheme switch if jsonData.subScheme exists
-  useEffect(() => {
-    if (jsonData?.subScheme) {
-      setIsSubScheme(true);
-    } else {
-      setIsSubScheme(false);
-    }
-  }, [jsonData?.subScheme]);
+    // Step 2: Build department -> ministry + theme totals
+    const departmentThemeTotals = {};
+    const departmentMinistryMap = {};
 
-  useEffect(() => {
-    const fetchDepartmentNames = async () => {
-      const selectedType = jsonData?.ministry;
-      if (!selectedType) {
-        setDepartmentList([]);
-        return;
-      }
+    sortedData.forEach((item) => {
+      const ministry = item.ministry_name?.trim();
+      const department = item.department_name?.trim();
+      if (!ministry || !department) return;
 
-      const ministryIds = selectedType ? [selectedType.id] : [];
+      departmentMinistryMap[department] = ministry;
 
-      try {
-        const response = await apiClient.post(
-          `api/master/get-departments-for-ministry`,
-          { ministryIds },
-        );
+      if (!departmentThemeTotals[department])
+        departmentThemeTotals[department] = {};
 
-        const { data } = response?.data || {};
+      (item.theme_scores || []).forEach((theme) => {
+        if (!theme.theme_name) return;
+        if (!departmentThemeTotals[department][theme.theme_name])
+          departmentThemeTotals[department][theme.theme_name] = {
+            total: 0,
+            count: 0,
+          };
+        departmentThemeTotals[department][theme.theme_name].total +=
+          theme.avg_score;
+        departmentThemeTotals[department][theme.theme_name].count += 1;
+      });
+    });
 
-        if (Array.isArray(data)) {
-          const formattedData = data
-            ?.filter((item) => userDepartmentIds?.includes(item?.id))
-            ?.map((item) => ({
-              id: item?.id,
-              name: item?.name,
-              associatedFramework: item?.jsonData?.associatedFramework,
-            }));
+    // Step 3: Use the sorted department order
+    const departments = sortedData
+      .map((item) => item.department_name?.trim())
+      .filter(Boolean);
 
-          setDepartmentList(formattedData);
-        }
-      } catch (error) {
-        console.error("Failed to fetch department list:", error);
-        setDepartmentList([]);
-      }
-    };
-    fetchDepartmentNames();
-  }, [jsonData?.ministry]);
+    // Step 4: Collect all unique themes
+    const themeSet = new Set();
+    Object.values(departmentThemeTotals).forEach((themeMap) =>
+      Object.keys(themeMap).forEach((theme) => themeSet.add(theme)),
+    );
+    const themes = Array.from(themeSet);
 
-  useEffect(() => {
-    if (!jsonData?.ministry) {
-      setDepartmentList([]);
-      handleJsonDataChange("department")({ target: { value: null } });
-    }
-  }, [jsonData?.ministry]);
-
-  useEffect(() => {
-    if (!jsonData?.department || !jsonData?.schemeType) return;
-    async function getData() {
-      try {
-        const payload = {
-          id: jsonData?.department?.id,
-          schemeTypeId: jsonData?.schemeType?.id,
-          financialYear: "",
+    // Step 5: Build series
+    const series = themes.map((themeName, idx) => {
+      const data = departments.map((dept) => {
+        const obj = departmentThemeTotals[dept]?.[themeName];
+        return {
+          y: obj ? parseFloat((obj.total / obj.count)?.toFixed(2)) : null,
+          department: dept,
+          ministry: departmentMinistryMap[dept],
         };
-        const res = await apiClient.post(`/api/master/get-active-schemes`, payload);
-        const schemesData = res.data?.data;
+      });
 
-        setSchemeList(
-          schemesData
-            ?.filter((item) => userSchemeIds?.includes(item?.id))
-            ?.map((item) => ({
-              id: item.id,
-              name: item.name,
-              associatedFramework:
-                item?.jsonData?.schemeFinancialYearWiseBudgetDetails?.map(
-                  (item) => item?.associatedFrameworks,
-                ),
-            })),
-        );
-      } catch (err) {
-        console.log(err.message);
-      }
-    }
+      return {
+        name: themeName,
+        data,
+        color:
+          Highcharts.getOptions().colors[
+            idx % Highcharts.getOptions().colors.length
+          ],
+      };
+    });
 
-    if (jsonData?.department !== null && jsonData?.schemeType !== null)
-      getData();
-  }, [jsonData?.department, jsonData?.schemeType]);
-
-  useEffect(() => {
-    const fetchSubSchemeList = async () => {
-      const selectedType = jsonData?.scheme;
-      if (!selectedType) {
-        setSubSchemeList([]);
-        return;
-      }
-
-      const schemeIds = [selectedType.id];
-
-      try {
-        const response = await apiClient.post(
-          `api/master/get-subschemes-for-schemes`,
-          { schemeIds },
-        );
-
-        const { data } = response?.data || {};
-        if (Array.isArray(data)) {
-          const formattedData = data?.map((item) => ({
-            id: item?.id,
-            name: item?.name,
-          }));
-          setSubSchemeList(formattedData);
-        }
-      } catch (error) {
-        console.error("Failed to fetch scheme list:", error);
-        setSubSchemeList([]);
-      }
-    };
-    fetchSubSchemeList();
-  }, [jsonData?.scheme]);
-
-  useEffect(() => {
-    const fetchSchemeTypeByFramework = async () => {
-      try {
-        const response = await apiClient.post(
-          `api/master/schemeType/by-framework`,
-          {
-            associatedFrameworks: [oomfFrameworkId],
+    // Step 6: Chart config
+    return {
+      chart: {
+        type: "column",
+        backgroundColor: "transparent",
+        zoomType: "x",
+        panning: true,
+        panKey: "shift",
+      },
+      title: { text: null },
+      subtitle: {
+        text: "Click and drag to zoom in. Hold Shift and Click/Drag to move the chart.",
+        align: "center",
+        style: { fontSize: "12px", color: "#666" },
+      },
+      xAxis: {
+        categories: departments, //  sorted order applied
+        crosshair: true,
+        min: 0,
+        max: departments.length > 3 ? 2 : departments.length - 1,
+        scrollbar: { enabled: departments.length > 3 },
+        labels: { rotation: 0, style: { fontSize: "11px" } },
+      },
+      yAxis: {
+        min: 0,
+        tickInterval: 0.5,
+        title: { text: "Score" },
+        gridLineColor: "#eee",
+        maxPadding: 0.2,
+      },
+      tooltip: {
+        shared: true,
+        useHTML: true,
+        pointFormatter: function () {
+          if (this.y === null) return "";
+          return `
+<span style="color:${this.color}">●</span>
+<b>${this.series.name}</b> Score: <b>${this.y?.toFixed(2)}</b><br/>
+        `;
+        },
+        footerFormat: "Click to view more details",
+      },
+      plotOptions: {
+        column: {
+          grouping: true,
+          borderWidth: 0,
+          pointPadding: 0.1,
+          groupPadding: 0.1,
+          minPointLength: 0,
+          dataLabels: {
+            enabled: true,
+            format: "{point.y:.2f}",
+            style: { fontWeight: "bold" },
           },
-        );
+          // point: {
+          //   events: {
+          //     click: function () {
+          //       const clickedDepartment = this.department;
+          //       const clickedMinistry = this.ministry;
 
-        const { data } = response?.data || {};
-        if (Array.isArray(data)) {
-          const formattedData = data?.map((item) => ({
-            id: item?.id,
-            name: item?.name,
-          }));
-          setSchemeTypes(formattedData);
-        }
-      } catch (error) {
-        console.error("Failed to fetch scheme-type list:", error);
-        setSchemeTypes([]);
-      }
-    };
-    fetchSchemeTypeByFramework();
-  }, [jsonData?.ministry]);
+          //       const departmentData = apiResponse.find(
+          //         (d) => d.department_name?.trim() === clickedDepartment,
+          //       );
 
-  // Auto-select Ministry when only ONE ministry exists
-  useEffect(() => {
-    const filteredMinistries =
-      filterByFramework(
-        (ministryNames || []).filter((m) => userMinistryIds?.includes(m?.id)),
-        oomfFrameworkId,
-      ) || [];
+          //       if (!departmentData) return;
 
-    if (
-      filteredMinistries.length === 1 &&
-      !jsonData?.ministry && // only auto-select if user has not selected
-      !isViewing // do not auto-select in view mode
-    ) {
-      handleJsonDataChange("ministry")({
-        target: { value: filteredMinistries[0] },
-      });
-    }
-  }, [ministryNames, jsonData?.ministry]);
+          //       // Add unique ID for DataGrid
+          //       const row = {
+          //         id: departmentData.department_id || Math.random(),
+          //         ministryName: clickedMinistry,
+          //         departmentName: clickedDepartment,
+          //       };
 
-  // Auto-select Department when only ONE department exists
-  // useEffect(() => {
-  //   const filteredDepartments =
-  //     filterByFramework(departmentList, oomfFrameworkId) || [];
+          //       (departmentData.theme_scores || []).forEach((theme) => {
+          //         if (theme.theme_name) row[theme.theme_name] = theme.avg_score;
+          //       });
 
-  //   if (
-  //     filteredDepartments.length === 1 &&
-  //     !jsonData?.department && // only auto-select if not selected already
-  //     !isViewing
-  //   ) {
-  //     handleJsonDataChange("department")({
-  //       target: { value: filteredDepartments[0] },
-  //     });
-  //   }
-  // }, [departmentList, jsonData?.department]);
-  useEffect(() => {
-    const filteredDepartments =
-      filterByFramework(departmentList, oomfFrameworkId) || [];
+          //       setColsData(generateMDThemeChartColumns(themes));
+          //       setRowData([row]);
+          //       setOpen(true);
+          //     },
+          //   },
+          // },
+          point: {
+            events: {
+              click: function () {
+                const clickedDepartment = this.department;
+                const clickedMinistry = this.ministry;
 
-    if (
-      filteredDepartments.length === 1 &&
-      jsonData?.department === null &&
-      !isViewing
-    ) {
-      handleJsonDataChange("department")({
-        target: { value: filteredDepartments[0] },
-      });
-    }
-  }, [departmentList, jsonData?.department, isViewing]);
+                const departmentData = apiResponse.find(
+                  (d) => d.department_name?.trim() === clickedDepartment,
+                );
 
-  return (
-    <>
-      <Grid container spacing={2}>
-        <Grid size={{ xs: 12, sm: 6 }}>
-          <FormControl fullWidth required>
-            <Autocomplete
-              disabled={isViewing}
-              options={
-                filterByFramework(
-                  ministryNames?.filter((m) =>
-                    userMinistryIds?.includes(m?.id),
-                  ),
-                  oomfFrameworkId,
-                ) || []
-              }
-              value={jsonData?.ministry || null}
-              getOptionLabel={(option) => option.name}
-              isOptionEqualToValue={(option, value) => option.id === value.id}
-              onChange={(event, newValue) => {
-                handleJsonDataChange("ministry")({
-                  target: { value: newValue },
-                });     
-                // ✅ ensure department resets cleanly
-                setDepartmentList([]);  
-                handleJsonDataChange("department")({ target: { value: null } });
-               
-                // Reset schemeType when department changes
-                handleJsonDataChange("schemeType")({
-                  target: { value: null },
+                if (!departmentData) return;
+
+                // Add unique ID for DataGrid
+                const row = {
+                  id: departmentData.department_id || Math.random(),
+                  ministryName: clickedMinistry,
+                  departmentName: clickedDepartment,
+                };
+
+                (departmentData.theme_scores || []).forEach((theme) => {
+                  if (theme.theme_name) {
+                    const value = Number(theme.avg_score);
+                    row[theme.theme_name] = Number.isFinite(value)
+                      ? Number(value?.toFixed(2))
+                      : 0;
+                  }
                 });
-                // Reset scheme when schemeType changes
-                handleJsonDataChange("scheme")({
-                  target: { value: null },
-                });   
-              }}
-              renderOption={(props, option) => {
-                const { key, ...rest } = props;
-                return (
-                  <li key={key} {...rest}>
-                    {option.name}
-                  </li>
-                );
-              }}
-              renderInput={(params) => {
-                const { key, ...rest } = params;
-                return (
-                  <TextField
-                    key={key}
-                    {...rest}
-                    label="Ministry"
-                    placeholder="Select Ministry"
-                    required
-                    error={Boolean(errors?.ministry)}
-                    helperText={errors?.ministry || ""}
-                  />
-                );
-              }}
-            />
-          </FormControl>
-        </Grid>
-        <Grid size={{ xs: 12, sm: 6 }}>
-          <FormControl fullWidth required>
-            <Tooltip
-              title={
-                !jsonData?.ministry ? "Please select a Ministry first" : ""
-              }
-              arrow
-              placement="top"
-            >
-              <span>
-                <Autocomplete
-                  disabled={isViewing || !jsonData?.ministry}
-                  options={filterByFramework(departmentList, oomfFrameworkId)}
-                  value={jsonData?.department || null}
-                  getOptionLabel={(option) => option.name}
-                  isOptionEqualToValue={(option, value) =>
-                    option.id === value.id
-                  }
-                  onChange={(event, newValue) => {
-                    handleJsonDataChange("department")({
-                      target: { value: newValue },
-                    });
-                    // Reset schemeType when department changes
-                    handleJsonDataChange("schemeType")({
-                      target: { value: null },
-                    });
-                        // Reset scheme when schemeType changes
-                    handleJsonDataChange("scheme")({
-                    target: { value: null },
-                  });
-                  }}
-                  renderOption={(props, option) => {
-                    const { key, ...rest } = props;
-                    return (
-                      <li key={key} {...rest}>
-                        {option.name}
-                      </li>
-                    );
-                  }}
-                  renderInput={(params) => (
-                    <TextField
-                      {...params}
-                      label="Department"
-                      placeholder="Select Department"
-                      required
-                      error={Boolean(errors?.department)}
-                      helperText={errors?.department || ""}
-                    />
-                  )}
-                />
-              </span>
-            </Tooltip>
-          </FormControl>
-        </Grid>
-        <Grid size={{ xs: 12, sm: 6 }}>
-          <Tooltip
-            title={
-              // selectedDepartmentId?.length <= 0
-              !jsonData?.department ? "Please select a Department first" : ""
-            }
-            arrow
-            placement="top"
-          >
-            <span>
-              <Autocomplete
-                disabled={isViewing || !jsonData?.department}
-                options={schemeTypes?.map((item) => ({
-                  id: item.id,
-                  name: item.name,
-                }))}
-                value={jsonData?.schemeType || null}
-                getOptionLabel={(option) => option?.name || ""}
-                isOptionEqualToValue={(option, value) => option.id === value.id}
-                onChange={(event, newValue) => {
-                  handleJsonDataChange("schemeType")({
-                    target: { value: newValue },
-                  });
-                  // Reset scheme when schemeType changes
-                  handleJsonDataChange("scheme")({
-                    target: { value: null },
-                  });
-                }}
-                renderOption={(props, option) => {
-                  const { key, ...rest } = props;
-                  return (
-                    <li key={key} {...rest}>
-                      {option.name}
-                    </li>
-                  );
-                }}
-                renderInput={(params) => (
-                  <TextField
-                    {...params}
-                    label="Scheme Type"
-                    placeholder="Select Scheme Type"
-                    required
-                    error={Boolean(errors?.schemeType)}
-                    helperText={errors?.schemeType || ""}
-                  />
-                )}
-              />
-            </span>
-          </Tooltip>
-        </Grid>
-        <Grid size={{ xs: 12, sm: 6 }}>
-          <Tooltip
-            title={
-              !jsonData?.department
-                ? "Please select a Department first"
-                : !jsonData?.schemeType?.name
-                  ? "Please select a Scheme Type first"
-                  : ""
-            }
-            arrow
-            placement="top"
-          >
-            <span>
-              <Autocomplete
-                disabled={
-                  isViewing ||
-                  !jsonData?.department ||
-                  !jsonData?.schemeType?.name
-                }
-                options={
-                  filterSchemesByFramework(schemeList, oomfFrameworkId) || []
-                }
-                value={jsonData?.scheme || null}
-                getOptionLabel={(option) => option.name}
-                isOptionEqualToValue={(option, value) => option.id === value.id}
-                onChange={(event, newValue) => {
-                  handleJsonDataChange("scheme")({
-                    target: { value: newValue },
-                  });
-                  handleNewChange("parentId")({
-                    target: { value: newValue ? Number(newValue.id) : null },
-                  });
-                  // Reset sub-scheme & disable toggle when scheme changes
-                  setIsSubScheme(false);
-                  handleJsonDataChange("subScheme")({
-                    target: { value: null },
-                  });
-                }}
-                renderOption={(props, option) => {
-                  const { key, ...rest } = props;
-                  return (
-                    <li key={key} {...rest}>
-                      {option.name}
-                    </li>
-                  );
-                }}
-                renderInput={(params) => (
-                  <TextField
-                    {...params}
-                    label="Scheme"
-                    placeholder="Select Scheme"
-                    required
-                    error={Boolean(errors?.scheme)}
-                    helperText={errors?.scheme || ""}
-                  />
-                )}
-              />
-            </span>
-          </Tooltip>
-        </Grid>
-        <Grid size={{ xs: 12, sm: 6 }}>
-          <Tooltip
-            title={
-              !jsonData?.scheme?.name
-                ? "Please select a scheme first to enable this option"
-                : ""
-            }
-            arrow
-          >
-            <span>
-              <FormControlLabel
-                control={
-                  <Switch
-                    checked={isSubScheme}
-                    onChange={(e) => {
-                      setIsSubScheme(e.target.checked);
-                      handleJsonDataChange("isSubScheme")({
-                        target: { value: e.target.checked },
-                      });
-                      if (!e.target.checked) {
-                        handleJsonDataChange("subScheme")({
-                          target: { value: null },
-                        });
-                      }
-                    }}
-                    disabled={isViewing || !jsonData?.scheme?.name}
-                  />
-                }
-                label="Is Sub-scheme"
-              />
-            </span>
-          </Tooltip>
-        </Grid>
-        <Grid size={{ xs: 12, sm: 6 }}>
-          {isSubScheme && (
-            <>
-              {subSchemeList?.length > 0 ? (
-                <Autocomplete
-                  options={subSchemeList}
-                  value={jsonData?.subScheme || null}
-                  getOptionLabel={(option) => option.name}
-                  isOptionEqualToValue={(option, value) =>
-                    option.id === value.id
-                  }
-                  onChange={(event, newValue) => {
-                    handleJsonDataChange("subScheme")({
-                      target: { value: newValue },
-                    });
-                    handleNewChange("parentScheme")({
-                      target: { value: jsonData?.scheme?.id || "" },
-                    });
-                  }}
-                  renderInput={(params) => (
-                    <TextField
-                      {...params}
-                      label="Sub-scheme"
-                      placeholder="Select Sub-scheme"
-                      required={isSubScheme} // mandatory only if switch is on
-                      error={Boolean(errors?.subScheme) && isSubScheme} // optional: only show error if switch is on
-                      helperText={isSubScheme ? errors?.subScheme || "" : ""}
-                    />
-                  )}
-                />
-              ) : (
-                <Typography color="error" sx={{ mt: 1, fontWeight: 600 }}>
-                  No sub-scheme exists
-                </Typography>
-              )}
-            </>
-          )}
-        </Grid>
 
-        <Grid size={{ xs: 12, sm: 6 }}>
-          <Tooltip title="" arrow placement="top">
-            <span>
-              <Autocomplete
-                disabled={isViewing}
-                options={[
-                  { label: "Output", value: "output" },
-                  { label: "Outcome", value: "outcome" },
-                ]}
-                // value={
-                //   jsonData?.statementType
-                //     ? {
-                //         label: jsonData.statementType,
-                //         value: jsonData.statementType,
-                //       }
-                //     : null
-                // }
-                value={
-                  jsonData?.statementType
-                    ? {
-                        value: jsonData.statementType,
-                        label:
-                          jsonData.statementType.charAt(0).toUpperCase() +
-                          jsonData.statementType.slice(1),
-                      }
-                    : null
-                }
-                getOptionLabel={(option) => option.label}
-                isOptionEqualToValue={(option, value) =>
-                  option.value === value.value
-                }
-                onChange={(event, newValue) => {
-                  handleJsonDataChange("statementType")({
-                    target: {
-                      value: newValue ? newValue?.value?.toLowerCase() : "",
-                    },
-                  });
-                }}
-                renderOption={(props, option) => {
-                  const { key, ...rest } = props;
-                  return (
-                    <li key={key} {...rest}>
-                      {option.label}
-                    </li>
-                  );
-                }}
-                renderInput={(params) => (
-                  <TextField
-                    {...params}
-                    label="Statement Type"
-                    placeholder="Select Statement Type"
-                    required
-                    error={Boolean(errors?.statementType)}
-                    helperText={errors?.statementType || ""}
-                  />
-                )}
-              />
-            </span>
-          </Tooltip>
-        </Grid>
-
-        <Grid size={{ xs: 12, sm: 6 }}>
-          <TextField
-            disabled={isViewing}
-            label="Output/Outcome Name"
-            value={newRow.name || ""}
-            onChange={handleNewChange("name")}
-            fullWidth
-            required
-            error={Boolean(errors?.name)}
-            helperText={errors?.name || ""}
-            inputProps={{
-              pattern: "[a-zA-Z0-9\\-_,.()/ ]*",
-              onInput: (e) => {
-                e.target.value = e.target.value.replace(
-                  /[^a-zA-Z0-9\-_,.()/ ]/g,
-                  "",
-                );
+                setColsData(generateMDThemeChartColumns(themes));
+                setRowData([row]);
+                setOpen(true);
               },
-            }}
-          />
-        </Grid>
-        <FormControl component="fieldset" disabled={isViewing}>
-          <FormLabel component="legend">Status</FormLabel>
-          <FormControlLabel
-            control={
-              <Switch
-                checked={newRow?.status}
-                onChange={handleSwitchChange}
-                color="primary"
-              />
+            },
+          },
+        },
+      },
+      exporting: {
+        buttons: {
+          contextButton: {
+            menuItems: [
+              "viewFullscreen",
+              "printChart",
+              "separator",
+              "downloadPNG",
+              "downloadJPEG",
+              // "downloadPDF",
+              "downloadSVG",
+              "downloadCSV",
+              "downloadXLS",
+              "viewData",
+            ],
+          },
+        },
+        csv: {
+          columnHeaderFormatter: function (item) {
+            if (item && item.isXAxis) {
+              return "M/D";
             }
-            label={newRow?.status ? "Active" : "In Active"}
-          />
-        </FormControl>
-      </Grid>
-    </>
-  );
-};
-export default OutputOutcome;
+            return item?.name;
+          },
+        },
+      },
+      legend: {
+        align: "center",
+        verticalAlign: "bottom",
+        itemStyle: { fontWeight: "500", color: "#333" },
+      },
+      series,
+    };
+  }
