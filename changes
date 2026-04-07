@@ -1,9 +1,13 @@
 import apiClient from "@/utils/apiClient";
 import {
   Autocomplete,
+  Box,
+  Checkbox,
   FormControl,
   FormControlLabel,
+  FormLabel,
   InputLabel,
+  ListItemText,
   MenuItem,
   Select,
   Grid,
@@ -12,9 +16,12 @@ import {
   Tooltip,
   Typography,
   FormHelperText,
-  FormLabel,
+  Accordion,
+  AccordionSummary,
+  AccordionDetails,
   Button,
 } from "@mui/material";
+import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import { useEffect, useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import {
@@ -23,22 +30,21 @@ import {
 } from "@/utils/niti/filterByFramework";
 import { oomfFrameworkId } from "@/src/constants/unified/frameworkConstants";
 
-const OutputOutcome = ({ modalState, populateReadOnly=false }) => {
+const Indicator = ({ modalState }) => {
   const {
+    jsonData,
+    handleJsonDataChange,
+    ministryNames,
+    selectedDepartmentId,
+    allOomfMastersData,
     newRow,
     isViewing,
-    errors,
-    handleNewChange,
-    jsonData,
     handleSwitchChange,
-    ministryNames,
-    initialUploadDocuments,
-    uploadMultipleFiles,
-    handleJsonDataChange,
-    statements,
-    setStatements,
+    handleNewChange,
+    errors = {},
+    indicatorList,
+    setIndicatorList,
   } = modalState;
-  console.log("NewRow::",newRow);
   const [departmentList, setDepartmentList] = useState([]);
   const [schemeTypes, setSchemeTypes] = useState([]);
   const [schemeList, setSchemeList] = useState([]);
@@ -75,15 +81,16 @@ const OutputOutcome = ({ modalState, populateReadOnly=false }) => {
         );
 
         const { data } = response?.data || {};
-
         if (Array.isArray(data)) {
-          const formattedData = data
-            ?.filter((item) => userDepartmentIds?.includes(item?.id))
-            ?.map((item) => ({
-              id: item?.id,
-              name: item?.name,
-              associatedFramework: item?.jsonData?.associatedFramework,
-            }));
+          const filteredData = data?.filter((item) =>
+            userDepartmentIds?.includes(item?.id),
+          );
+
+          const formattedData = filteredData?.map((item) => ({
+            id: item?.id,
+            name: item?.name,
+            associatedFramework: item?.jsonData?.associatedFramework,
+          }));
 
           setDepartmentList(formattedData);
         }
@@ -93,13 +100,6 @@ const OutputOutcome = ({ modalState, populateReadOnly=false }) => {
       }
     };
     fetchDepartmentNames();
-  }, [jsonData?.ministry]);
-
-  useEffect(() => {
-    if (!jsonData?.ministry) {
-      setDepartmentList([]);
-      handleJsonDataChange("department")({ target: { value: null } });
-    }
   }, [jsonData?.ministry]);
 
   useEffect(() => {
@@ -113,7 +113,6 @@ const OutputOutcome = ({ modalState, populateReadOnly=false }) => {
         };
         const res = await apiClient.post(`/api/master/get-active-schemes`, payload);
         const schemesData = res.data?.data;
-
         setSchemeList(
           schemesData
             ?.filter((item) => userSchemeIds?.includes(item?.id))
@@ -193,54 +192,35 @@ const OutputOutcome = ({ modalState, populateReadOnly=false }) => {
     fetchSchemeTypeByFramework();
   }, [jsonData?.ministry]);
 
-  // Auto-select Ministry when only ONE ministry exists
+  // Auto-select Ministry when only ONE is available
   useEffect(() => {
     const filteredMinistries =
       filterByFramework(
-        (ministryNames || []).filter((m) => userMinistryIds?.includes(m?.id)),
+        ministryNames?.filter((m) => userMinistryIds?.includes(m?.id)),
         oomfFrameworkId,
       ) || [];
 
-    if (
-      filteredMinistries.length === 1 &&
-      !jsonData?.ministry && // only auto-select if user has not selected
-      !isViewing // do not auto-select in view mode
-    ) {
+    if (filteredMinistries.length === 1 && !jsonData?.ministry) {
       handleJsonDataChange("ministry")({
         target: { value: filteredMinistries[0] },
       });
     }
   }, [ministryNames, jsonData?.ministry]);
-
-  // Auto-select Department when only ONE department exists
-  // useEffect(() => {
-  //   const filteredDepartments =
-  //     filterByFramework(departmentList, oomfFrameworkId) || [];
-
-  //   if (
-  //     filteredDepartments.length === 1 &&
-  //     !jsonData?.department && // only auto-select if not selected already
-  //     !isViewing
-  //   ) {
-  //     handleJsonDataChange("department")({
-  //       target: { value: filteredDepartments[0] },
-  //     });
-  //   }
-  // }, [departmentList, jsonData?.department]);
+  // Auto-select Department when only ONE exists for the selected ministry
   useEffect(() => {
     const filteredDepartments =
       filterByFramework(departmentList, oomfFrameworkId) || [];
 
     if (
+      jsonData?.ministry &&
       filteredDepartments.length === 1 &&
-      jsonData?.department === null &&
-      !isViewing
+      !jsonData?.department
     ) {
       handleJsonDataChange("department")({
         target: { value: filteredDepartments[0] },
       });
     }
-  }, [departmentList, jsonData?.department, isViewing]);
+  }, [departmentList, jsonData?.ministry, jsonData?.department]);
 
   return (
     <>
@@ -248,7 +228,7 @@ const OutputOutcome = ({ modalState, populateReadOnly=false }) => {
         <Grid size={{ xs: 12, sm: 6 }}>
           <FormControl fullWidth required>
             <Autocomplete
-              disabled={isViewing || populateReadOnly}
+              disabled={isViewing}
               options={
                 filterByFramework(
                   ministryNames?.filter((m) =>
@@ -263,19 +243,18 @@ const OutputOutcome = ({ modalState, populateReadOnly=false }) => {
               onChange={(event, newValue) => {
                 handleJsonDataChange("ministry")({
                   target: { value: newValue },
-                });     
-                // ✅ ensure department resets cleanly
-                setDepartmentList([]);  
-                handleJsonDataChange("department")({ target: { value: null } });
-               
-                // Reset schemeType when department changes
-                handleJsonDataChange("schemeType")({
-                  target: { value: null },
                 });
-                // Reset scheme when schemeType changes
-                handleJsonDataChange("scheme")({
-                  target: { value: null },
-                });   
+              // ✅ ensure department resets cleanly
+              setDepartmentList([]);  
+              handleJsonDataChange("department")({ target: { value: null } });
+              // Reset schemeType when department changes
+              handleJsonDataChange("schemeType")({
+                target: { value: null },
+              });
+              // Reset scheme when schemeType changes
+              handleJsonDataChange("scheme")({
+                target: { value: null },
+              }); 
               }}
               renderOption={(props, option) => {
                 const { key, ...rest } = props;
@@ -313,8 +292,10 @@ const OutputOutcome = ({ modalState, populateReadOnly=false }) => {
             >
               <span>
                 <Autocomplete
-                  disabled={isViewing || !jsonData?.ministry || populateReadOnly}
-                  options={filterByFramework(departmentList, oomfFrameworkId)}
+                  disabled={isViewing || !jsonData?.ministry}
+                  options={
+                    filterByFramework(departmentList, oomfFrameworkId) || []
+                  }
                   value={jsonData?.department || null}
                   getOptionLabel={(option) => option.name}
                   isOptionEqualToValue={(option, value) =>
@@ -328,10 +309,10 @@ const OutputOutcome = ({ modalState, populateReadOnly=false }) => {
                     handleJsonDataChange("schemeType")({
                       target: { value: null },
                     });
-                        // Reset scheme when schemeType changes
+                    // Reset scheme when schemeType changes
                     handleJsonDataChange("scheme")({
-                    target: { value: null },
-                  });
+                      target: { value: null },
+                    }); 
                   }}
                   renderOption={(props, option) => {
                     const { key, ...rest } = props;
@@ -367,7 +348,7 @@ const OutputOutcome = ({ modalState, populateReadOnly=false }) => {
           >
             <span>
               <Autocomplete
-                disabled={isViewing || !jsonData?.department || populateReadOnly}
+                disabled={isViewing || !jsonData?.department}
                 options={schemeTypes?.map((item) => ({
                   id: item.id,
                   name: item.name,
@@ -406,6 +387,7 @@ const OutputOutcome = ({ modalState, populateReadOnly=false }) => {
             </span>
           </Tooltip>
         </Grid>
+
         <Grid size={{ xs: 12, sm: 6 }}>
           <Tooltip
             title={
@@ -423,8 +405,7 @@ const OutputOutcome = ({ modalState, populateReadOnly=false }) => {
                 disabled={
                   isViewing ||
                   !jsonData?.department ||
-                  !jsonData?.schemeType?.name ||
-                  populateReadOnly
+                  !jsonData?.schemeType?.name
                 }
                 options={
                   filterSchemesByFramework(schemeList, oomfFrameworkId) || []
@@ -486,7 +467,7 @@ const OutputOutcome = ({ modalState, populateReadOnly=false }) => {
                       handleJsonDataChange("isSubScheme")({
                         target: { value: e.target.checked },
                       });
-                      if (!e.target.checked) {
+                      if (!e.target.checked && subSchemeList.length > 0) {
                         handleJsonDataChange("subScheme")({
                           target: { value: null },
                         });
@@ -539,88 +520,359 @@ const OutputOutcome = ({ modalState, populateReadOnly=false }) => {
           )}
         </Grid>
 
-        {/* Statements Section */}
+        {/* Indicators Section */}
         <Grid size={12}>
           <Typography variant="h6" sx={{ mt: 2, mb: 1 }}>
-            Statements
+            Indicators
           </Typography>
-          {statements.map((statement, index) => (
-            <Grid container spacing={2} key={index} sx={{ mb: 2, p: 2, border: '1px solid #ddd', borderRadius: 1 }}>
-              <Grid size={{ xs: 12, sm: 5 }}>
-                <Autocomplete
-                  disabled={isViewing}
-                  options={[
-                    { label: "Output", value: "output" },
-                    { label: "Outcome", value: "outcome" },
-                  ]}
-                  value={
-                    statement.statementType
-                      ? {
-                          value: statement.statementType,
-                          label: statement.statementType.charAt(0).toUpperCase() + statement.statementType.slice(1),
-                        }
-                      : null
-                  }
-                  getOptionLabel={(option) => option.label}
-                  isOptionEqualToValue={(option, value) => option.value === value.value}
-                  onChange={(event, newValue) => {
-                    const updatedStatements = [...statements];
-                    updatedStatements[index].statementType = newValue ? newValue.value.toLowerCase() : "";
-                    setStatements(updatedStatements);
-                  }}
-                  renderInput={(params) => (
-                    <TextField
-                      {...params}
-                      label="Statement Type"
-                      placeholder="Select Statement Type"
-                      required
-                        error={Boolean(errors?.[`statementType_${index}`])}
-                        helperText={errors?.[`statementType_${index}`] || ""}
+          {indicatorList.map((indicator, index) => (
+            <Accordion key={index} sx={{ mb: 2 }}>
+              <AccordionSummary
+                expandIcon={<ExpandMoreIcon />}
+                aria-controls={`indicator-${index}-content`}
+                id={`indicator-${index}-header`}
+              >
+                <Typography>
+                  Indicator {index + 1}: {indicator.indicatorName || "New Indicator"}
+                </Typography>
+              </AccordionSummary>
+              <AccordionDetails>
+                <Grid container spacing={2}>
+                  <Grid size={{ xs: 12, sm: 6 }}>
+                    <Autocomplete
+                      disabled={isViewing}
+                      options={[
+                        { label: "Output", value: "output" },
+                        { label: "Outcome", value: "outcome" },
+                      ]}
+                      value={
+                        indicator.indicatorType
+                          ? {
+                              value: indicator.indicatorType,
+                              label: indicator.indicatorType.charAt(0).toUpperCase() + indicator.indicatorType.slice(1),
+                            }
+                          : null
+                      }
+                      getOptionLabel={(option) => option.label}
+                      isOptionEqualToValue={(option, value) => option.value === value.value}
+                      onChange={(event, newValue) => {
+                        const updatedIndicators = [...indicatorList];
+                        updatedIndicators[index].indicatorType = newValue ? newValue.value.toLowerCase() : "";
+                        setIndicatorList(updatedIndicators);
+                      }}
+                      renderInput={(params) => (
+                        <TextField
+                          {...params}
+                          label="Indicator Type"
+                          placeholder="Select Indicator Type"
+                          required
+                          error={Boolean(errors?.[`indicatorList[${index}].indicatorType`])}
+                          helperText={errors?.[`indicatorList[${index}].indicatorType`] || ""}
+                        />
+                      )}
                     />
+                  </Grid>
+                  <Grid size={{ xs: 12, sm: 6 }}>
+                    <TextField
+                      fullWidth
+                      label="Indicator Name"
+                      placeholder="Enter Indicator Name"
+                      value={indicator.indicatorName || ""}
+                      onChange={(e) => {
+                        const updatedIndicators = [...indicatorList];
+                        updatedIndicators[index].indicatorName = e.target.value;
+                        setIndicatorList(updatedIndicators);
+                      }}
+                      required
+                      error={Boolean(errors?.[`indicatorList[${index}].indicatorName`])}
+                      helperText={errors?.[`indicatorList[${index}].indicatorName`] || ""}
+                      disabled={isViewing}
+                    />
+                  </Grid>
+                  <Grid size={{ xs: 12, sm: 6 }}>
+                    <Autocomplete
+                      disabled={isViewing}
+                      options={
+                        allOomfMastersData?.measurementTypes?.map((item) => ({
+                          id: item.id,
+                          name: item.name,
+                        })) || []
+                      }
+                      value={indicator.measurementType || null}
+                      getOptionLabel={(option) => option?.name || ""}
+                      isOptionEqualToValue={(option, value) => option.id === value.id}
+                      onChange={(event, newValue) => {
+                        const updatedIndicators = [...indicatorList];
+                        updatedIndicators[index].measurementType = newValue || null;
+                        if (newValue?.id === 1) {
+                          const metricTonne =
+                            allOomfMastersData?.units?.find((item) => item.id === 8) || {
+                              id: 8,
+                              name: "Metric Tonne",
+                            };
+                          updatedIndicators[index].unit = metricTonne;
+                          updatedIndicators[index].scale = null;
+                        } else {
+                          updatedIndicators[index].unit = null;
+                          updatedIndicators[index].scale = null;
+                        }
+                        setIndicatorList(updatedIndicators);
+                      }}
+                      renderInput={(params) => (
+                        <TextField
+                          {...params}
+                          label="Measurement Type"
+                          placeholder="Select Measurement Type"
+                          required
+                          error={Boolean(errors?.[`indicatorList[${index}].measurementType`])}
+                          helperText={errors?.[`indicatorList[${index}].measurementType`] || ""}
+                        />
+                      )}
+                    />
+                  </Grid>
+                  <Grid size={{ xs: 12, sm: 6 }}>
+                    <Autocomplete
+                      disabled={isViewing || indicator.measurementType?.id === 1}
+                      options={
+                        allOomfMastersData?.units?.map((item) => ({
+                          id: item.id,
+                          name: item.name,
+                        })) || []
+                      }
+                      value={indicator.unit || null}
+                      getOptionLabel={(option) => option?.name || ""}
+                      isOptionEqualToValue={(option, value) => option.id === value.id}
+                      onChange={(event, newValue) => {
+                        const updatedIndicators = [...indicatorList];
+                        updatedIndicators[index].unit = newValue || null;
+                        setIndicatorList(updatedIndicators);
+                      }}
+                      renderInput={(params) => (
+                        <TextField
+                          {...params}
+                          label="Unit"
+                          placeholder="Select Unit"
+                          required
+                          error={Boolean(errors?.[`indicatorList[${index}].unit`])}
+                          helperText={errors?.[`indicatorList[${index}].unit`] || ""}
+                        />
+                      )}
+                    />
+                  </Grid>
+                  {indicator.measurementType?.id !== 1 && (
+                    <Grid size={{ xs: 12, sm: 6 }}>
+                      <Autocomplete
+                        disabled={isViewing}
+                        options={
+                          allOomfMastersData?.scales?.map((item) => ({
+                            id: item.id,
+                            name: item.name,
+                          })) || []
+                        }
+                        value={indicator.scale || null}
+                        getOptionLabel={(option) => option?.name || ""}
+                        isOptionEqualToValue={(option, value) => option.id === value.id}
+                        onChange={(event, newValue) => {
+                          const updatedIndicators = [...indicatorList];
+                          updatedIndicators[index].scale = newValue || null;
+                          setIndicatorList(updatedIndicators);
+                        }}
+                        renderInput={(params) => (
+                          <TextField
+                            {...params}
+                            label="Scale"
+                            placeholder="Select Scale"
+                            required
+                            error={Boolean(errors?.[`indicatorList[${index}].scale`])}
+                            helperText={errors?.[`indicatorList[${index}].scale`] || ""}
+                          />
+                        )}
+                      />
+                    </Grid>
                   )}
-                />
-              </Grid>
-              <Grid size={{ xs: 12, sm: 5 }}>
-                <TextField
-                  fullWidth
-                  label="Output/Outcome Name"
-                  placeholder="Enter Output/Outcome Name"
-                  value={statement.name || ""}
-                  onChange={(e) => {
-                    const updatedStatements = [...statements];
-                    updatedStatements[index].name = e.target.value;
-                    setStatements(updatedStatements);
-                  }}
-                  required
-                  error={Boolean(errors?.[`name_${index}`])}
-                  helperText={errors?.[`name_${index}`] || ""}
-                  disabled={isViewing}
-                />
-              </Grid>
-              <Grid size={{ xs: 12, sm: 2 }} sx={{ display: 'flex', alignItems: 'center' }}>
-                <Button
-                  variant="outlined"
-                  color="error"
-                  onClick={() => {
-                    const updatedStatements = statements.filter((_, i) => i !== index);
-                    setStatements(updatedStatements);
-                  }}
-                  disabled={isViewing || statements.length === 1}
-                >
-                  Remove
-                </Button>
-              </Grid>
-            </Grid>
+                  <Grid size={{ xs: 12, sm: 6 }}>
+                    <Autocomplete
+                      disabled={isViewing}
+                      options={
+                        allOomfMastersData?.measurementAreas?.map((item) => ({
+                          id: item.id,
+                          name: item.name,
+                        })) || []
+                      }
+                      value={indicator.measurementArea || null}
+                      getOptionLabel={(option) => option?.name || ""}
+                      isOptionEqualToValue={(option, value) => option.id === value.id}
+                      onChange={(event, newValue) => {
+                        const updatedIndicators = [...indicatorList];
+                        updatedIndicators[index].measurementArea = newValue || null;
+                        setIndicatorList(updatedIndicators);
+                      }}
+                      renderInput={(params) => (
+                        <TextField
+                          {...params}
+                          label="Measurement Area"
+                          placeholder="Select Measurement Area"
+                          required
+                          error={Boolean(errors?.[`indicatorList[${index}].measurementArea`])}
+                          helperText={errors?.[`indicatorList[${index}].measurementArea`] || ""}
+                        />
+                      )}
+                    />
+                  </Grid>
+                  <Grid size={{ xs: 12, sm: 6 }}>
+                    <Autocomplete
+                      disabled={isViewing}
+                      options={
+                        allOomfMastersData?.indicatorRises?.map((item) => ({
+                          id: item.id,
+                          name: item.name,
+                        })) || []
+                      }
+                      value={indicator.indicatorRise || null}
+                      getOptionLabel={(option) => option?.name || ""}
+                      isOptionEqualToValue={(option, value) => option.id === value.id}
+                      onChange={(event, newValue) => {
+                        const updatedIndicators = [...indicatorList];
+                        updatedIndicators[index].indicatorRise = newValue || null;
+                        setIndicatorList(updatedIndicators);
+                      }}
+                      renderInput={(params) => (
+                        <TextField
+                          {...params}
+                          label="Indicator Rise"
+                          placeholder="Select Indicator Rise"
+                          required
+                          error={Boolean(errors?.[`indicatorList[${index}].indicatorRise`])}
+                          helperText={errors?.[`indicatorList[${index}].indicatorRise`] || ""}
+                        />
+                      )}
+                    />
+                  </Grid>
+                  <Grid size={{ xs: 12, sm: 6 }}>
+                    <Autocomplete
+                      disabled={isViewing}
+                      options={
+                        allOomfMastersData?.sdg?.map((item) => ({
+                          id: item.id,
+                          name: item.name,
+                        })) || []
+                      }
+                      value={indicator.sdg || null}
+                      getOptionLabel={(option) => option?.name || ""}
+                      isOptionEqualToValue={(option, value) => option.id === value.id}
+                      onChange={(event, newValue) => {
+                        const updatedIndicators = [...indicatorList];
+                        updatedIndicators[index].sdg = newValue || null;
+                        setIndicatorList(updatedIndicators);
+                      }}
+                      renderInput={(params) => (
+                        <TextField
+                          {...params}
+                          label="SDG"
+                          placeholder="Select SDG"
+                          error={Boolean(errors?.[`indicatorList[${index}].sdg`])}
+                          helperText={errors?.[`indicatorList[${index}].sdg`] || ""}
+                        />
+                      )}
+                    />
+                  </Grid>
+                  <Grid size={{ xs: 12, sm: 6 }}>
+                    <Autocomplete
+                      disabled={isViewing}
+                      options={
+                        allOomfMastersData?.categories?.map((item) => ({
+                          id: item.id,
+                          name: item.name,
+                        })) || []
+                      }
+                      value={indicator.category || null}
+                      getOptionLabel={(option) => option?.name || ""}
+                      isOptionEqualToValue={(option, value) => option.id === value.id}
+                      onChange={(event, newValue) => {
+                        const updatedIndicators = [...indicatorList];
+                        updatedIndicators[index].category = newValue || null;
+                        setIndicatorList(updatedIndicators);
+                      }}
+                      renderInput={(params) => (
+                        <TextField
+                          {...params}
+                          label="Category"
+                          placeholder="Select Category"
+                          error={Boolean(errors?.[`indicatorList[${index}].category`])}
+                          helperText={errors?.[`indicatorList[${index}].category`] || ""}
+                        />
+                      )}
+                    />
+                  </Grid>
+                  <Grid size={{ xs: 12, sm: 6 }}>
+                    <Autocomplete
+                      disabled={isViewing}
+                      options={
+                        allOomfMastersData?.periods?.map((item) => ({
+                          id: item.id,
+                          name: item.name,
+                        })) || []
+                      }
+                      value={indicator.period || null}
+                      getOptionLabel={(option) => option?.name || ""}
+                      isOptionEqualToValue={(option, value) => option.id === value.id}
+                      onChange={(event, newValue) => {
+                        const updatedIndicators = [...indicatorList];
+                        updatedIndicators[index].period = newValue || null;
+                        setIndicatorList(updatedIndicators);
+                      }}
+                      renderInput={(params) => (
+                        <TextField
+                          {...params}
+                          label="Period"
+                          placeholder="Select Period"
+                          required
+                          error={Boolean(errors?.[`indicatorList[${index}].period`])}
+                          helperText={errors?.[`indicatorList[${index}].period`] || ""}
+                        />
+                      )}
+                    />
+                  </Grid>
+                  <Grid size={12} sx={{ display: 'flex', justifyContent: 'flex-end' }}>
+                    <Button
+                      variant="outlined"
+                      color="error"
+                      onClick={() => {
+                        const updatedIndicators = indicatorList.filter((_, i) => i !== index);
+                        setIndicatorList(updatedIndicators);
+                      }}
+                      disabled={isViewing || indicatorList.length === 1}
+                    >
+                      Remove Indicator
+                    </Button>
+                  </Grid>
+                </Grid>
+              </AccordionDetails>
+            </Accordion>
           ))}
           <Button
             variant="contained"
             onClick={() => {
-              setStatements([...statements, { statementType: "", name: "" }]);
+              setIndicatorList([
+                ...indicatorList,
+                {
+                  indicatorType: "",
+                  indicatorName: "",
+                  measurementType: null,
+                  unit: null,
+                  scale: null,
+                  measurementArea: null,
+                  indicatorRise: null,
+                  sdg: null,
+                  category: null,
+                  period: null,
+                },
+              ]);
             }}
             disabled={isViewing}
             sx={{ mt: 1 }}
           >
-            Add Statement
+            Add Indicator
           </Button>
         </Grid>
 
@@ -637,8 +889,9 @@ const OutputOutcome = ({ modalState, populateReadOnly=false }) => {
             label={newRow?.status ? "Active" : "In Active"}
           />
         </FormControl>
+
       </Grid>
     </>
   );
 };
-export default OutputOutcome;
+export default Indicator;
