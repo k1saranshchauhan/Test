@@ -82,6 +82,7 @@ const OutputOutcomeMaster = ({ masterState, prefillParams }) => {
   const [activeMode, setActiveMode] = useState("statements");
   const isIndicatorView = activeMode === "indicator";
   const [indicatorToggleSeq, setIndicatorToggleSeq] = useState(0);
+  const prefillAppliedRef = useRef(false);
 
   const handleAddIndicator = (row) => {
     if (!row) return;
@@ -821,6 +822,31 @@ const enrichedMasterState = {
   },
 };
 
+useEffect(() => {
+  if (!hasPrefillParams) return;
+
+  const isReady =
+    (!prefillMinistryId || selectedMinistries.length > 0) &&
+    (!prefillDepartmentId || selectedDepartments.length > 0) &&
+    (!prefillSchemeId || selectedSchemes.length > 0) &&
+    (!prefillStatementType || selectedStatement) &&
+    (prefillIsSubScheme === null || selectedIsSubScheme !== null);
+
+  if (isReady && !prefillAppliedRef.current) {
+    prefillAppliedRef.current = true;
+
+    fetchOutputOutcomes({
+      page: 0,
+      pageSize: paginationModel.pageSize,
+    });
+  }
+}, [
+  selectedMinistries,
+  selectedDepartments,
+  selectedSchemes,
+  selectedStatement,
+  selectedIsSubScheme,
+]);
   
   return (
     <Box>
