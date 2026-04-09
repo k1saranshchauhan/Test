@@ -5,11 +5,12 @@ import {
   TextField,
   Button,
   CircularProgress,
-  Grid,
-  Divider,
   Card,
-  Paper,
+  Divider,
+  Grid,
   Stack,
+  Paper,
+  ToggleButton, ToggleButtonGroup,
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
 import SearchIcon from "@mui/icons-material/Search";
@@ -24,15 +25,18 @@ import { deepSearch, generateRowsForColumns } from "@/utils/unifiedHelpers";
 import { getMasterExampleRow } from "../UnifiedMastersDataGridRows";
 import { ColumnReorderManager } from "@/utils/columnReorderManager";
 import { useDispatch, useSelector } from "react-redux";
-import {
-  validateDepartmentFields,
-  validateIndicatorFields,
-} from "../ModalsFields/Validation";
 import { setError, setSuccess } from "@/store/slices/errorSlice";
-import Department from "../ModalsFields/Department";
-import { CustomAutoCompleteWithoutFormik } from "../CustomAutoCompleteWithoutFormik";
+import {
+  validateDistrictFields,
+  validateOutputOutcomeFields,
+  validateUnitsFields,
+} from "../ModalsFields/Validation";
+import District from "../ModalsFields/District";
 import MainFormHeader from "../../DashboardUI/MainFormHeader";
-import Indicator from "../ModalsFields/Indicator";
+import { CustomAutoCompleteWithoutFormik } from "../CustomAutoCompleteWithoutFormik";
+import Units from "../ModalsFields/Units";
+import OutputOutcome from "../ModalsFields/OutputOutcome";
+import IndicatorMaster from "./IndicatorMaster";
 import CommonViewMasterDialog from "../commonViewProfileDialog";
 import { usePrivileges } from "@/src/context/privilegeContextProvider";
 import { SECTION_KEY } from "@/src/constants/privilegesSectionKeys/sectionKeys";
@@ -40,8 +44,9 @@ import AuditDataGrid from "../../AuditDetailsDialog";
 import { AuditTrailDialog } from "../../audit";
 import axios from "axios";
 import { applyCustomLogic } from "@/utils/niti/datagridUtils";
+import { useSearchParams } from "next/navigation";
 
-const IndicatorMaster = ({ masterState }) => {
+const OutputOutcomeMaster = ({ masterState, prefillParams }) => {
   const {
     newRow,
     handleNewChange,
@@ -55,27 +60,50 @@ const IndicatorMaster = ({ masterState }) => {
     handleEdit,
     setSchemeData,
     urlModal,
+    baseUrlModal,
+    overrideModal,
+    setOverrideModal,
     handleSwitchChange,
-    setParentRows,
     selected,
+    setSelected,
     jsonData,
-    sdgNames,
     setErrors,
-    associatedFrameworks,
-    targetGroups,
     showAccordion,
     setShowAccordion,
     handleJsonDataChange,
-    initialUploadDocuments,
     uploadMultipleFiles,
     errors,
-    statementFilters,
   } = masterState;
-
   const dispatch = useDispatch();
-  const [ministries, setMinistries] = useState([]);
+  const [populateReadOnly, setPopulateReadOnly] = useState(false);
+  const [ministryNames, SetMinistryNames] = useState([]);
   const [departments, setDepartments] = useState([]);
   const [schemes, setSchemes] = useState([]);
+  const [activeMode, setActiveMode] = useState("statements");
+  const isIndicatorView = activeMode === "indicator";
+  const [indicatorToggleSeq, setIndicatorToggleSeq] = useState(0);
+  const prefillAppliedRef = useRef(false);
+
+  const handleAddIndicator = (row) => {
+    if (!row) return;
+    setOverrideModal("indicator");
+    setIsEditing(false);
+    setIsViewing(false);
+    setShowAccordion(true);
+    setEditId(null);
+    setErrors({});
+    setSelected(row);
+    setNewRow({
+      status: true,
+      jsonData: {
+        ministry: row?.ministry || null,
+        department: row?.department || null,
+        schemeType: row?.schemeType || null,
+        scheme: row?.scheme || null,
+        subScheme: row?.subScheme || null,
+      },
+    });
+  };
   const [isSubSchemes, setIsSubSchemes] = useState([
     { id: 1, name: "Yes" },
     { id: 2, name: "No" },
@@ -89,38 +117,19 @@ const IndicatorMaster = ({ masterState }) => {
   const [selectedSchemes, setSelectedSchemes] = useState([]);
   const [selectedIsSubScheme, setSelectedIsSubScheme] = useState(null);
   const [selectedStatement, setSelectedStatement] = useState();
-  const [indicators, setIndicators] = useState([]);
-  const [filteredIndicators, setFilteredIndicators] = useState([]);
-  const [indicatorList, setIndicatorList] = useState([
-    {
-      indicatorType: "",
-      indicatorName: "",
-      measurementType: null,
-      unit: null,
-      scale: null,
-      measurementArea: null,
-      indicatorRise: null,
-      sdg: null,
-      category: null,
-      period: null,
-    },
-  ]);
+  const [outputOutcomes, setOutputOutcomes] = useState([]);
+  const [filteredOutputOutcomes, setFilteredOutputOutcomes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [auditParams, setAuditParams] = useState({});
   const [search, setSearch] = useState("");
   const [auditDialogOpen, setAuditDialogOpen] = useState(false);
   const apiRef = useGridApiRef();
-  const [allOomfMastersData, setAllOomfMastersData] = useState({});
-  const [indicatorMasterflag, setIndicatorMasterflag] = useState(false);
   const [paginationModel, setPaginationModel] = useState({
     page: 0, // MUI is 0-based
     pageSize: 10, // number of rows per page
   });
   const [totalRows, setTotalRows] = useState(0);
-  const abortRef = useRef(null);
-  const inFlightRef = useRef(false);
-  const firstLoadRef = useRef(true);
-  const filterSyncRef = useRef(false); // Track if we've synced filters from parent
+  const [statements, setStatements] = useState([{ statementType: '', name: '' }]);
   const {
     mappedPrivileges,
     hasAddAccess,
@@ -128,7 +137,15 @@ const IndicatorMaster = ({ masterState }) => {
     hasViewAccess,
     hasAuditTrailViewAccess,
     refresh,
-  } = usePrivileges(SECTION_KEY.INDICATORS);
+  } = usePrivileges(SECTION_KEY.OUTPUT_OUTCOME_STATEMENT);
+
+  const {
+      hasAddAccess:hasIndicatorAddAccess,
+    } = usePrivileges(SECTION_KEY.INDICATORS);
+
+  const abortRef = useRef(null);
+  const inFlightRef = useRef(false);
+  const firstLoadRef = useRef(true);
   const userData = useSelector((state) => state.config.userData);
   const handleViewAuditTrail = async (row) => {
     if (!row?.id || !mappedPrivileges?.sectionId) return;
@@ -148,76 +165,249 @@ const IndicatorMaster = ({ masterState }) => {
       handleEdit,
       handleViewAuditTrail,
       setIsViewing,
-      urlModal,
+      urlModal: baseUrlModal,
       setSchemeData,
+      onAddIndicator: handleAddIndicator,
+      hasIndicatorAddAccess
     }),
     [
       hasAddAccess,
       hasEditAccess,
       hasViewAccess,
       handleEdit,
+      handleViewAuditTrail,
       hasAuditTrailViewAccess,
       setIsViewing,
       urlModal,
       setSchemeData,
+      handleAddIndicator,
+      hasIndicatorAddAccess,
     ],
   );
 
   const userMinistryIds = userData?.userRelationships[0]?.ministryIds;
   const userDepartmentIds = userData?.userRelationships[0]?.departmentIds;
   const userSchemeIds = userData?.userRelationships[0]?.schemeIds;
-  const toggleSeqRef = useRef(0);
-       useEffect(() => {
-         console.log("indic::", indicatorList);
-       }, []);
 
-  // Sync filters from parent OutputOutcomeMaster when in indicator view
-  // useEffect(() => {
-  //   if (statementFilters && statementFilters.isIndicatorView && !filterSyncRef.current) {
-  //     filterSyncRef.current = true;
-      
-  //     if (statementFilters.selectedMinistries?.length > 0) {
-  //       setSelectedMinistries(statementFilters.selectedMinistries);
-  //     }
-  //     if (statementFilters.selectedDepartments?.length > 0) {
-  //       setSelectedDepartments(statementFilters.selectedDepartments);
-  //     }
-  //     if (statementFilters.selectedSchemes?.length > 0) {
-  //       setSelectedSchemes(statementFilters.selectedSchemes);
-  //     }
-  //     if (statementFilters.selectedIsSubScheme) {
-  //       setSelectedIsSubScheme(statementFilters.selectedIsSubScheme);
-  //     }
-  //     if (statementFilters.selectedStatement) {
-  //       setSelectedStatement(statementFilters.selectedStatement);
-  //     }
-  //   }
-  // }, [statementFilters?.isIndicatorView]);
+  const routeSearchParams = useSearchParams();
+  const searchParams = prefillParams
+    ? new URLSearchParams(prefillParams)
+    : routeSearchParams;
+  const prefillMinistryId = searchParams.get("ministryId");
+  const prefillMinistryName = searchParams.get("ministryName");
+
+  const prefillDepartmentId = searchParams.get("departmentId");
+  const prefillDepartmentName = searchParams.get("departmentName");
+
+  const prefillSchemeTypeId = searchParams.get("schemeTypeId");
+  const prefillSchemeTypeName = searchParams.get("schemeTypeName");
+
+  const prefillSchemeId = searchParams.get("schemeId");
+  const prefillSchemeName = searchParams.get("schemeName");
+
+  const prefillSubSchemeId = searchParams.get("subSchemeId");
+  const prefillSubSchemeName = searchParams.get("subSchemeName");
+
+  const prefillIsSubScheme = searchParams.get("isSubScheme");
+  const prefillStatementType = searchParams.get("statementType");
+
+const hasPrefillParams = Boolean(
+  prefillMinistryId ||
+  prefillDepartmentId ||
+  prefillSchemeTypeId ||
+  prefillSchemeId ||
+  prefillSubSchemeId ||
+  prefillIsSubScheme ||
+  prefillStatementType,
+);
+
+const prefilledObject = hasPrefillParams
+  ? {
+      ministry: {
+        id: prefillMinistryId ? Number(prefillMinistryId) : null,
+        name: prefillMinistryName || null,
+        associatedFramework: [],
+      },
+      department: {
+        id: prefillDepartmentId ? Number(prefillDepartmentId) : null,
+        name: prefillDepartmentName || null,
+        associatedFramework: [],
+      },
+      schemeType: {
+        id: prefillSchemeTypeId ? Number(prefillSchemeTypeId) : null,
+        name: prefillSchemeTypeName || null,
+      },
+      scheme: {
+        id: prefillSchemeId ? Number(prefillSchemeId) : null,
+        name: prefillSchemeName || null,
+        associatedFramework: [],
+      },
+      subScheme: prefillSubSchemeId
+        ? {
+            id: Number(prefillSubSchemeId),
+            name: prefillSubSchemeName || null,
+          }
+        : null,
+    }
+  : {};
+
+
 useEffect(() => {
-  if (statementFilters && statementFilters.isIndicatorView && !filterSyncRef.current) {
-    
-    if (statementFilters.selectedMinistries?.length > 0) {
-      setSelectedMinistries(statementFilters.selectedMinistries);
+  if (!prefillMinistryId || ministryNames.length === 0) return;
+
+  const matchedMinistry = ministryNames.find(
+    (item) => String(item.id) === String(prefillMinistryId),
+  );
+
+  if (matchedMinistry) {
+    setSelectedMinistries([matchedMinistry]);
+  }
+}, [prefillMinistryId, ministryNames]);
+
+useEffect(() => {
+  if (!prefillDepartmentId || departments.length === 0) return;
+
+  const matchedDepartment = departments.find(
+    (item) => String(item.id) === String(prefillDepartmentId),
+  );
+
+  if (matchedDepartment) {
+    setSelectedDepartments([matchedDepartment]);
+  }
+}, [prefillDepartmentId, departments]);
+
+useEffect(() => {
+  if (!prefillSchemeId || schemes.length === 0) return;
+
+  const matchedScheme = schemes.find(
+    (item) => String(item.id) === String(prefillSchemeId),
+  );
+
+  if (matchedScheme) {
+    setSelectedSchemes([matchedScheme]);
+  }
+}, [prefillSchemeId, schemes]);
+
+useEffect(() => {
+  if (prefillStatementType) {
+    const matchedStatement = statementTypes.find(
+      (item) =>
+        item.name.toLowerCase() === prefillStatementType.toLowerCase(),
+    );
+
+    if (matchedStatement) {
+      setSelectedStatement(matchedStatement);
     }
-    if (statementFilters.selectedDepartments?.length > 0) {
-      setSelectedDepartments(statementFilters.selectedDepartments);
+  }
+
+  if (prefillIsSubScheme === "true") {
+    const yesOption = isSubSchemes.find((item) => item.name === "Yes");
+    if (yesOption) setSelectedIsSubScheme(yesOption);
+  } else if (prefillIsSubScheme === "false") {
+    const noOption = isSubSchemes.find((item) => item.name === "No");
+    if (noOption) setSelectedIsSubScheme(noOption);
+  }
+}, [prefillStatementType, prefillIsSubScheme]);
+
+// useEffect(() => {
+//   // Trigger search only when data is loaded & prefill values have executed
+//   if (
+//     ministryNames.length > 0 &&
+//     departments.length > 0 &&
+//     schemes.length > 0
+//   ) {
+//     // Conditions: If any prefill param exists → auto trigger search
+//     if (
+//       prefillMinistryId ||
+//       prefillDepartmentId ||
+//       prefillSchemeId ||
+//       prefillIsSubScheme ||
+//       prefillStatementType
+//     ) {
+//       fetchOutputOutcomes({
+//         page: 0,
+//         pageSize: paginationModel.pageSize,
+//       });
+//     }
+//   }
+// }, [
+//   ministryNames,
+//   departments,
+//   schemes,
+//   prefillMinistryId,
+//   prefillDepartmentId,
+//   prefillSchemeId,
+//   prefillIsSubScheme,
+//   prefillStatementType
+// ]);
+
+useEffect(() => {
+  // If any URL param is present → populate filter values but don't open the AddRecordDialog
+  if (
+    prefillMinistryId ||
+    prefillDepartmentId ||
+    prefillSchemeId ||
+    prefillSubSchemeId ||
+    prefillStatementType ||
+    prefillIsSubScheme
+  ) {
+    setIsViewing(false);
+    setIsEditing(false);
+    setPopulateReadOnly(true); // This can be used inside the modal to conditionally render fields as read-only
+
+    // Auto-populate filter values based on prefilled object
+    if (prefilledObject?.ministry) {
+      setSelectedMinistries([prefilledObject.ministry]);
     }
-    if (statementFilters.selectedSchemes?.length > 0) {
-      setSelectedSchemes(statementFilters.selectedSchemes);
+    if (prefilledObject?.department) {
+      setSelectedDepartments([prefilledObject.department]);
     }
-    if (statementFilters.selectedIsSubScheme) {
-      setSelectedIsSubScheme(statementFilters.selectedIsSubScheme);
+    // if (prefilledObject?.subScheme) {
+    //   setSelectedIsSubScheme(prefilledObject.subScheme);
+    // }
+    if (prefilledObject?.subScheme) {
+      const yesOption = isSubSchemes.find((x) => x.name === "Yes");
+      setSelectedIsSubScheme(yesOption);
+    } else if (prefillIsSubScheme === "false") {
+      const noOption = isSubSchemes.find((x) => x.name === "No");
+      setSelectedIsSubScheme(noOption);
     }
-    if (statementFilters.selectedStatement) {
-      setSelectedStatement(statementFilters.selectedStatement);
+    if (prefilledObject?.statementType) {
+      const statementObj = statementTypes.find(
+        (st) => st.name.toLowerCase() === prefilledObject.statementType.toLowerCase()
+      );
+      if (statementObj) setSelectedStatement(statementObj);
     }
 
-    // ✅ Delay marking sync complete
-    setTimeout(() => {
-      filterSyncRef.current = true;
-    }, 0);
+    //  Fill the newRow.jsonData with prefilled values
+    setNewRow((prev) => ({
+      ...prev,
+      jsonData: prefilledObject,
+      status: true
+    }));
+
+    if (prefillStatementType) {
+      setStatements([{ statementType: prefillStatementType, name: '' }]);
+    }
   }
-}, [statementFilters?.isIndicatorView]);
+}, [
+  prefillMinistryId,
+  prefillDepartmentId,
+  prefillSchemeId,
+  prefillSubSchemeId,
+  prefillStatementType,
+  prefillIsSubScheme
+]);
+
+  //helper
+  const pickIdName = (obj) => {
+    if (!obj) return null;
+    return {
+      id: obj.id,
+      name: obj.name,
+    };
+  };
+
   useEffect(() => {
     // 🔥 Skip FIRST RUN
     if (firstLoadRef.current) {
@@ -227,7 +417,7 @@ useEffect(() => {
 
     const handle = setTimeout(() => {
       if (!search?.trim() || search.trim().length >= 3)
-        fetchIndicators({
+        fetchOutputOutcomes({
           page: paginationModel.page,
           pageSize: paginationModel.pageSize,
         });
@@ -237,41 +427,24 @@ useEffect(() => {
       clearTimeout(handle);
     };
   }, [search]);
-  //helper
-  const pickIdName = (obj) => {
-    if (!obj) return null;
-    return { id: obj.id, name: obj.name };
-  };
 
-  // 🔹 Fetch Sectors
   const fetchMinistries = async () => {
     try {
-      const response = await apiClient.post("api/dynamic-model-details/data", {
-        modelName: "ministry",
-        filters: userData?.userRelationships?.[0]?.ministryIds?.length
-          ? {
-              where: {
-                id: {
-                  in: userData?.userRelationships?.[0]?.ministryIds || [],
-                },
-                status: true,
-              },
-            } // ✅ filter by userData
-          : {}, // ✅ else fetch all
-      });
-
-      const { data } = response.data || {};
-      const formattedData = data?.map((item) => ({
+      const response = await apiClient.get(
+        "api/master/fetch-ministries-dropdown",
+      );
+      const res = response?.data?.result || [];
+      const formattedRes = res?.map((item) => ({
         id: item?.id,
         name: item?.name,
         associatedFramework: item?.jsonData?.associatedFramework,
       }));
-      setMinistries(formattedData || []);
-    } catch (error) {
-      console.error("Error fetching ministries:", error);
-      setMinistries([]);
+      SetMinistryNames(formattedRes);
+    } catch (err) {
+      console.error("Error fetching ministries:", err);
     }
   };
+
   const fetchDepartments = async (selectedMinistryIds = []) => {
     setLoading(true);
     try {
@@ -367,21 +540,14 @@ useEffect(() => {
     // Fetch departments for selected ministries
     fetchSchemes(selectedDepartmentIds);
   }, [selectedDepartments]);
-  const fetchAllMastersData = async () => {
-    try {
-      const response = await apiClient.get(`api/master/all-oomf-masters`);
-      setAllOomfMastersData(response?.data?.data);
-    } catch (error) {
-      console.error("Failed to fetch master data:", error);
-    }
-  };
 
-  const fetchIndicators = async ({
+  const fetchOutputOutcomes = async ({
     page = paginationModel.page,
     pageSize = paginationModel.pageSize,
     isReset = false,
   } = {}) => {
     setLoading(true);
+
     // 💥 SAFE & CORRECT ABORT
     if (
       inFlightRef.current &&
@@ -394,9 +560,7 @@ useEffect(() => {
     abortRef.current = new AbortController();
     const signal = abortRef.current.signal;
     inFlightRef.current = true;
-
-    const apiPage = page + 1; // backend needs 1-based
-
+    const apiPage = page + 1;
     const selectedMinistryIds = isReset
       ? userMinistryIds
       : selectedMinistries?.map((item) => item?.id);
@@ -409,21 +573,30 @@ useEffect(() => {
       ? userSchemeIds
       : selectedSchemes?.map((item) => item?.id);
 
+    // const isSubScheme = isReset
+    //   ? null
+    //   : !selectedIsSubScheme?.name
+    //     ? null
+    //     : selectedIsSubScheme.name.trim() === "Yes";
+    
     const isSubScheme = isReset
       ? null
-      : !selectedIsSubScheme?.name
-        ? null
-        : selectedIsSubScheme.name.trim() === "Yes";
+      : selectedIsSubScheme?.name === "Yes"
+        ? true
+        : selectedIsSubScheme?.name === "No"
+          ? false
+          : null;
 
     const statementType = isReset
       ? null
       : selectedStatement?.name?.trim() || "";
+
     const payload = {
       ministryIds: selectedMinistryIds,
       departmentIds: selectedDepartmentIds,
       schemeIds: selectedSchemeIds,
       isSubScheme,
-      indicatorType: statementType?.toLowerCase().trim(),
+      statementType: statementType?.toLowerCase().trim(),
       page: apiPage,
       limit: pageSize,
       searchQuery: search.trim(),
@@ -432,36 +605,35 @@ useEffect(() => {
 
     try {
       const response = await apiClient.post(
-        "api/master/get-all-indicators",
+        "/api/master/get-all-output-outcomes",
         payload,
         { signal, throwIfAborted: false },
       );
+
       const { data: rows, total } = response?.data?.data || {};
       setTotalRows(total ?? 0);
 
       if (!rows?.length) {
-        setIndicators([]);
-        setFilteredIndicators([]);
+        setOutputOutcomes([]);
+        setFilteredOutputOutcomes([]);
         return;
       }
 
-      // Global Serial Number (correct)
       const offset = page * pageSize;
-      const rowsWithSerial = rows.map((row, index) => ({
+      const withSerial = rows.map((row, index) => ({
         ...row,
         serial: offset + index + 1,
       }));
 
-      // Transform rows to match DataGrid columns
       const masterRow = getMasterExampleRow(urlModal) || {};
       const finalRows = generateRowsForColumns(
-        rowsWithSerial,
+        withSerial,
         gridColumns,
         masterRow,
       );
 
-      setIndicators(finalRows);
-      setFilteredIndicators(finalRows);
+      setOutputOutcomes(finalRows);
+      setFilteredOutputOutcomes(finalRows);
     } catch (err) {
       if (axios.isCancel(err) || err.code === "ERR_CANCELED") {
         // 🔇 Silent — do not log, do not show error
@@ -475,80 +647,68 @@ useEffect(() => {
     }
   };
 
-  async function handleIndicatorSubmit() {
-    if (urlModal === "indicator") {
+  async function handleOutputOutcomeSubmit() {
+    if (baseUrlModal === "outputOutcome") {
       // Validate common fields
-      const validationErrors = validateIndicatorFields(newRow, jsonData || {});
-      // Validate indicators array
-      const indicatorErrors = {};
-      indicatorList.forEach((indicator, index) => {
-        if (!indicator.indicatorType) {
-          indicatorErrors[`indicatorList[${index}].indicatorType`] = "Indicator Type is required";
+      const validationErrors = validateOutputOutcomeFields(
+        newRow,
+        jsonData || {},
+      );
+      setErrors(validationErrors);
+
+      // Validate statements
+      const statementErrors = {};
+      statements?.forEach((statement, index) => {
+        if (!statement.statementType) {
+          statementErrors[`statementType_${index}`] = "Statement Type is required";
         }
-        if (!indicator.indicatorName) {
-          indicatorErrors[`indicatorList[${index}].indicatorName`] = "Indicator Name is required";
-        }
-        if (!indicator.measurementType) {
-          indicatorErrors[`indicatorList[${index}].measurementType`] = "Measurement Type is required";
-        }
-        if (!indicator.unit) {
-          indicatorErrors[`indicatorList[${index}].unit`] = "Unit is required";
-        }
-        if (indicator.measurementType?.id !== 1 && !indicator.scale) {
-          indicatorErrors[`indicatorList[${index}].scale`] = "Scale is required";
-        }
-        if (!indicator.measurementArea) {
-          indicatorErrors[`indicatorList[${index}].measurementArea`] = "Measurement Area is required";
-        }
-        if (!indicator.indicatorRise) {
-          indicatorErrors[`indicatorList[${index}].indicatorRise`] = "Indicator Rise is required";
-        }
-        if (!indicator.period) {
-          indicatorErrors[`indicatorList[${index}].period`] = "Period is required";
+        if (!statement.name?.trim()) {
+          statementErrors[`name_${index}`] = "Output/Outcome Name is required";
         }
       });
-      const allErrors = { ...validationErrors, ...indicatorErrors };
-      setErrors(allErrors);
 
-      if (Object.keys(allErrors).length > 0) {
+      if (Object.keys(validationErrors).length > 0 || Object.keys(statementErrors).length > 0) {
+        setErrors({ ...validationErrors, ...statementErrors });
         dispatch(setError("Please fill required fields before submitting."));
         return;
       }
+
       try {
         const cleanedJsonData = {
           ...jsonData,
           ministry: pickIdName(jsonData?.ministry),
           department: pickIdName(jsonData?.department),
           scheme: pickIdName(jsonData?.scheme),
-          subScheme: pickIdName(jsonData?.subScheme),
+          // subScheme: pickIdName(jsonData?.subScheme),
+          subScheme:
+            selectedIsSubScheme?.name === "Yes"
+              ? pickIdName(jsonData?.subScheme)
+              : null, //  clear subScheme if No
         };
         let payload;
-
         if(editId){
           payload = {
-            name: indicatorList[0]?.indicatorName?.trim(),
-            parentId: newRow?.parentId || null,
-            status: newRow?.status,
-            parentScheme: newRow?.parentScheme,
-            jsonData: {
-              ...cleanedJsonData,
-              indicatorType:indicatorList[0]?.indicatorType,
-              category: indicatorList[0]?.category,
-              indicatorRise: indicatorList[0]?.indicatorRise,
-              measurementArea: indicatorList[0]?.measurementArea,
-              measurementType: indicatorList[0]?.measurementType,
-              period: indicatorList[0]?.period,
-              scale: indicatorList[0]?.scale,
-              unit: indicatorList[0]?.unit,
-              sdg: indicatorList[0]?.sdg,
-            },
-            createdBy: userData?.id,
-          };
+          name: statements[0]?.name?.trim(),
+          description: newRow?.description?.trim() || null,
+          status: newRow?.status,
+          parentScheme: newRow?.parentScheme,
+          jsonData: {
+            ...cleanedJsonData,
+            statementType:statements[0]?.statementType,
+          },
+          createdBy: userData?.id,
+        };
         }else{
           payload = {
           jsonData: cleanedJsonData,
-          indicators: indicatorList,
-          createdBy: userData?.id,
+          statements: statements?.map(s => ({
+            statementType: s.statementType,
+            name: s.name.trim(),
+            status: newRow?.status,
+            description: newRow?.description?.trim() || null,
+            parentScheme: newRow?.parentScheme,
+            createdBy: userData?.id,
+          })),
         };
         }
 
@@ -558,60 +718,63 @@ useEffect(() => {
         }
 
         const response = await apiClient.post(
-          `api/master/create-or-update-indicator`,
+          `api/master/create-or-update-output-outcome`,
           payload,
         );
+
         const result = response?.data;
 
+        // ✅ Handle backend validation / duplicate errors
         if (!result?.success) {
-          dispatch(setError(result?.message || "Failed to save Indicator"));
+          dispatch(
+            setError(result?.message || "Failed to save Output outcome"),
+          );
           return;
         }
 
         dispatch(setSuccess(result?.message));
         setShowAccordion(false);
         setNewRow({
-          status: true,
+          status: true, // Ensure Active by default
+          // other fields...
         });
-        setIndicatorList([{ indicatorType: "", indicatorName: "", measurementType: "", unit: "", scale: "", measurementArea: "", indicatorRise: "", sdg: "", category: "", period: "" }]);
         setEditId(null);
         setErrors({});
-
-        fetchIndicators();
+        setStatements([{ statementType: '', name: '' }]);
+        // Refresh associated framework data
+        fetchOutputOutcomes();
       } catch (error) {
-        console.error("Failed to add/update Indicator:", error);
-        dispatch(setError("Server error while saving Indicator"));
+        console.error("Failed to add Output outcome:", error);
+        dispatch(setError("Server error while saving Output outcome"));
       }
     }
   }
 
   useEffect(() => {
     fetchMinistries();
-    fetchAllMastersData();
-    fetchIndicators();
+    fetchOutputOutcomes();
   }, []);
 
   const gridColumns = React.useMemo(() => {
-    return getMasterColumns(urlModal, actionsConfig);
-  }, [urlModal, actionsConfig]);
-
+    return getMasterColumns(baseUrlModal, actionsConfig);
+  }, [baseUrlModal, actionsConfig]);
   // // 🔹 Search Filter
   // useEffect(() => {
   //   const trimmedSearch = (search || "").trim().toLowerCase();
   //   if (!trimmedSearch) {
-  //     setFilteredIndicators(indicators || []);
+  //     setFilteredOutputOutcomes(outputOutcomes || []);
   //     return;
   //   }
-  //   const filtered = (indicators || []).filter((item) =>
+  //   const filtered = (outputOutcomes || []).filter((item) =>
   //     deepSearch(item, trimmedSearch),
   //   );
-  //   setFilteredIndicators(filtered);
-  // }, [search, indicators]);
+  //   setFilteredOutputOutcomes(filtered);
+  // }, [search, outputOutcomes]);
 
   // 🔹 Column Management
 
   const handleSearch = () => {
-    fetchIndicators();
+    fetchOutputOutcomes();
   };
   const [columns, setColumns] = useState([]);
   const [columnVisibilityModel, setColumnVisibilityModel] = useState({});
@@ -625,481 +788,563 @@ useEffect(() => {
     });
 
     setColumnVisibilityModel(visibilityModel);
-  }, [gridColumns]);
+  }, [hasAddAccess,hasEditAccess,hasViewAccess,hasAuditTrailViewAccess]);
 
   const modalState = {
     newRow,
     isViewing,
+    isEditing,
     errors,
     handleNewChange,
-    ministryNames: ministries,
-    allOomfMastersData,
     handleSwitchChange,
-    jsonData: newRow.jsonData,
+    ministryNames,
+    jsonData:
+      newRow?.jsonData && Object.keys(newRow.jsonData).length > 0
+        ? newRow.jsonData
+        : hasPrefillParams
+        ? prefilledObject
+        : {},
     initialUploadDocuments: newRow?.jsonData?.supportingDocuments,
     uploadMultipleFiles,
     handleJsonDataChange,
-    indicatorList,
-    setIndicatorList,
+    statements,
+    setStatements,
+    // Pass filter values to IndicatorMaster
+    statementFilters: {
+      selectedMinistries,
+      selectedDepartments,
+      selectedSchemes,
+      selectedIsSubScheme,
+      selectedStatement,
+      ministryNames,
+      departments,
+      schemes,
+      isSubSchemes,
+      statementTypes,
+      isIndicatorView,
+      indicatorToggleSeq
+    },
   };
 
-  useEffect(() => {
-  if (
-    !statementFilters?.selectedMinistries?.length ||
-    ministries.length === 0
-  )
-    return;
-
-  const matched = ministries.filter(opt =>
-    statementFilters.selectedMinistries.some(sel => sel.id === opt.id)
-  );
-
-  if (matched.length) {
-    setSelectedMinistries(matched);
-  }
-}, [ministries]);
+  
+const enrichedMasterState = {
+  ...masterState,
+  statementFilters: {
+    selectedMinistries,
+    selectedDepartments,
+    selectedSchemes,
+    selectedIsSubScheme,
+    selectedStatement,
+    isIndicatorView,
+  },
+};
 
 useEffect(() => {
-  if (
-    !statementFilters?.selectedDepartments?.length ||
-    departments.length === 0
-  )
-    return;
+  if (!hasPrefillParams) return;
 
-  const matched = departments.filter(opt =>
-    statementFilters.selectedDepartments.some(sel => sel.id === opt.id)
-  );
+  const isReady =
+    (!prefillMinistryId || selectedMinistries.length > 0) &&
+    (!prefillDepartmentId || selectedDepartments.length > 0) &&
+    (!prefillSchemeId || selectedSchemes.length > 0) &&
+    (!prefillStatementType || selectedStatement) &&
+    (prefillIsSubScheme === null || selectedIsSubScheme !== null);
 
-  if (matched.length) {
-    setSelectedDepartments(matched);
-  }
-}, [departments]);
+  if (isReady && !prefillAppliedRef.current) {
+    prefillAppliedRef.current = true;
 
-useEffect(() => {
-  if (
-    !statementFilters?.selectedSchemes?.length ||
-    schemes.length === 0
-  )
-    return;
-
-  const matched = schemes.filter(opt =>
-    statementFilters.selectedSchemes.some(sel => sel.id === opt.id)
-  );
-
-  if (matched.length) {
-    setSelectedSchemes(matched);
-  }
-}, [schemes]);
-
-useEffect(() => {
-  if (
-    !statementFilters?.indicatorToggleSeq ||
-    statementFilters.indicatorToggleSeq === toggleSeqRef.current
-  ) {
-    return;
-  }
-
-  toggleSeqRef.current = statementFilters.indicatorToggleSeq;
-
-  // ✅ Apply filters
-  setSelectedMinistries(statementFilters.selectedMinistries || []);
-  setSelectedDepartments(statementFilters.selectedDepartments || []);
-  setSelectedSchemes(statementFilters.selectedSchemes || []);
-  setSelectedIsSubScheme(statementFilters.selectedIsSubScheme || null);
-  setSelectedStatement(statementFilters.selectedStatement || null);
-
-  // ✅ AUTO SEARCH (after state flush)
-  setTimeout(() => {
-    fetchIndicators({
+    fetchOutputOutcomes({
       page: 0,
       pageSize: paginationModel.pageSize,
     });
-  }, 0);
-}, [statementFilters?.indicatorToggleSeq]);
-
-useEffect(() => {
-  // ❌ Skip first load (already handled elsewhere)
-  if (firstLoadRef.current) return;
-
-  // ❌ Avoid firing while filters are being synced initially
-  if (!filterSyncRef.current) return;
-
-  const timeout = setTimeout(() => {
-    fetchIndicators({
-      page: 0,
-      pageSize: paginationModel.pageSize,
-    });
-  }, 300); // small debounce
-
-  return () => clearTimeout(timeout);
+  }
 }, [
   selectedMinistries,
   selectedDepartments,
   selectedSchemes,
-  selectedIsSubScheme,
   selectedStatement,
+  selectedIsSubScheme,
 ]);
+  
+
+const hasSubScheme =
+  selectedIsSubScheme &&
+  typeof selectedIsSubScheme === "object" &&
+  selectedIsSubScheme?.name;
+const isSubSchemeValue = hasSubScheme
+  ? isSubSchemes.find(x => x.name === "Yes")
+  : isSubSchemes.find(x => x.name === "No");
+const disableFilters = hasPrefillParams;
 
   return (
     <Box>
-      <Card
-        elevation={3}
-        sx={{
-          p: 3,
-          mb: 4,
-          borderRadius: 3,
-        }}
-      >
-        <MainFormHeader title="Filter Indicators by Ministries and Departments" />
-        <Divider sx={{ my: 2 }} />
-
-        <Grid container spacing={2} alignItems="center">
-          <Grid size={{ xs: 12, md: 6 }}>
-            <CustomAutoCompleteWithoutFormik
-              name="ministries"
-              multiple
-              selectAll
-              label="Choose Ministries"
-              options={ministries}
-              value={selectedMinistries ?? []}
-              fullWidth
-              onChange={(event, newValue) =>
-                setSelectedMinistries(newValue || [])
-              }
-            />
-          </Grid>
-          <Grid size={{ xs: 12, md: 6 }}>
-            <CustomAutoCompleteWithoutFormik
-              name="departments"
-              multiple
-              selectAll
-              label="Choose Departments"
-              options={departments}
-              value={selectedDepartments ?? []}
-              fullWidth
-              onChange={(event, newValue) =>
-                setSelectedDepartments(newValue || [])
-              }
-            />
-          </Grid>
-          <Grid size={{ xs: 12, md: 6 }}>
-            <CustomAutoCompleteWithoutFormik
-              name="schemes"
-              multiple
-              selectAll
-              label="Choose Schemes"
-              options={schemes}
-              value={selectedSchemes ?? []}
-              fullWidth
-              onChange={(event, newValue) => setSelectedSchemes(newValue || [])}
-            />
-          </Grid>
-          <Grid size={{ xs: 12, md: 6 }}>
-            <CustomAutoCompleteWithoutFormik
-              name="isSubScheme"
-              multiple={false}
-              selectAll={false}
-              label="Choose Is Sub Scheme"
-              options={isSubSchemes}
-              value={selectedIsSubScheme ?? null}
-              fullWidth
-              onChange={(event, newValue) =>
-                setSelectedIsSubScheme(newValue || null)
-              }
-            />
-          </Grid>
-          <Grid size={{ xs: 12, md: 6 }}>
-            <CustomAutoCompleteWithoutFormik
-              name="statementType"
-              label="Choose Indicator Type"
-              selectAll={false}
-              multiple={false}
-              options={statementTypes}
-              value={selectedStatement ?? {}}
-              fullWidth
-              onChange={(event, newValue) =>
-                setSelectedStatement(newValue || {})
-              }
-            />
-          </Grid>
-
-          <Grid size={{ xs: 12 }}>
-            <Stack
-              direction="row"
-              spacing={2}
-              justifyContent="center"
-              sx={{ mt: 2 }}
-            >
-              <Button
-                variant="contained"
-                color="primary"
-                startIcon={<SearchIcon />}
-                onClick={handleSearch}
-                sx={{ minWidth: 150 }}
-              >
-                Search
-              </Button>
-              <Button
-                variant="outlined"
-                sx={{ color: "#45154F" }}
-                startIcon={<RestartAltIcon />}
-                onClick={() => {
-                  setSelectedMinistries([]);
-                  setSelectedDepartments([]);
-                  setSelectedSchemes([]);
-                  setSelectedIsSubScheme(null);
-                  setSelectedStatement({});
-                  fetchIndicators({ isReset: true });
-                }}
-              >
-                Reset
-              </Button>
-            </Stack>
-          </Grid>
-        </Grid>
-      </Card>
-      {/* Add/Edit Dialog */}
-      <AddRecordDialog
-        open={!isViewing ? showAccordion : false}
-        onClose={() => {
-          setShowAccordion(false);
-          setNewRow({
-            status: true, // Ensure Active by default
-            // other fields...
-          });
-          setIndicatorList([
-            {
-              indicatorType: "",
-              indicatorName: "",
-              measurementType: null,
-              unit: null,
-              scale: null,
-              measurementArea: null,
-              indicatorRise: null,
-              sdg: null,
-              category: null,
-              period: null,
-            },
-          ]);
-          setEditId(null);
-          setErrors({});
-        }}
-        onSubmit={handleIndicatorSubmit}
-        urlModal={urlModal}
-        isViewing={isViewing}
-        isEditing={isEditing}
-        selected={selected}
-      >
-        <Indicator modalState={modalState} />
-      </AddRecordDialog>
-
-      {isViewing && (
-        <CommonViewMasterDialog
-          open={showAccordion}
-          handleClose={() => {
-            setShowAccordion(false);
-            setNewRow({
-              status: true, // Ensure Active by default
-              // other fields...
-            });
-            setEditId(null);
-            setErrors({});
+      <Stack mb={3} alignItems="center">
+        <ToggleButtonGroup
+          exclusive
+          value={isIndicatorView ? "indicator" : "statements"}
+          onChange={(_, value) => {
+            if (!value) return;
+            setActiveMode(value);
+            setOverrideModal(value === "indicator" ? "indicator" : null);
+            if (value === "indicator") {
+              setIndicatorToggleSeq((prev) => prev + 1); //trigger autopopulate for indicator filter
+            }
           }}
-          title="Indicator Details"
-          data={{
-            ...selected,
-            subScheme: selected?.subScheme?.name,
-            indicatorType: selected?.indicatorType
-              ? selected.indicatorType.charAt(0).toUpperCase() +
-                selected.indicatorType.slice(1)
-              : selected?.indicatorType,
-          }}
-          exampleRow={gridColumns}
-        />
-      )}
-      <Paper
-        elevation={3}
-        sx={{ p: 2, borderRadius: 3, backgroundColor: "#ffffff" }}
-      >
-        {/* Header */}
-        <Box
           sx={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            mb: 2,
-            mt: 2,
-            flexWrap: "wrap",
-            gap: 2,
+            background: "#f1e9f5",
+            borderRadius: "999px",
+            padding: "4px",
+            gap: "4px",
           }}
         >
-          {/* Left: Search + Export */}
-          <Box
+          <ToggleButton
+            value="statements"
             sx={{
-              display: "flex",
-              gap: 2,
-              flexDirection: { xs: "column", sm: "row" },
+              borderRadius: "999px !important",
+              textTransform: "none",
+              fontWeight: 600,
+              px: 3,
+              border: "none",
+              color: "#6b4b7c",
+
+              "&.Mui-selected": {
+                background: "linear-gradient(90deg, #6a1b9a, #8e24aa)",
+                color: "#fff",
+              },
+              "&.Mui-selected:hover": {
+                background: "linear-gradient(90deg, #6a1b9a, #8e24aa)",
+              },
             }}
           >
-            <Box display="flex" alignItems="center">
-              <SearchIcon sx={{ mr: 1 }} />
-              <TextField
-                size="small"
-                placeholder="Search..."
-                value={search}
-                disabled={loading ? true : false}
-                onChange={(e) => setSearch(e.target.value)}
-                error={search.trim().length > 0 && search.trim().length < 3}
-                helperText={
-                  search.trim().length > 0 && search.trim().length < 3
-                    ? "Enter at least 3 characters to search"
-                    : ""
-                }
-                sx={{ width: { xs: "100%", sm: "auto" } }}
+            Statement
+          </ToggleButton>
+
+          <ToggleButton
+            value="indicator"
+            sx={{
+              borderRadius: "999px !important",
+              textTransform: "none",
+              fontWeight: 600,
+              px: 3,
+              border: "none",
+              color: "#6b4b7c",
+
+              "&.Mui-selected": {
+                background: "linear-gradient(90deg, #45154f, #8e24aa)",
+                color: "#fff",
+              },
+              "&.Mui-selected:hover": {
+                background: "linear-gradient(90deg, #45154f, #8e24aa)",
+              },
+            }}
+          >
+            Indicator
+          </ToggleButton>
+        </ToggleButtonGroup>
+      </Stack>
+
+      {overrideModal === "indicator" && !isIndicatorView && (
+        <Box sx={{ display: "none" }}>
+          <IndicatorMaster masterState={enrichedMasterState} />
+        </Box>
+      )}
+
+      {isIndicatorView ? (
+        <IndicatorMaster masterState={enrichedMasterState} />
+      ) : (
+        <>
+          <Card
+            elevation={3}
+            sx={{
+              p: 3,
+              mb: 4,
+              borderRadius: 3,
+            }}
+          >
+            <MainFormHeader title="Filter Statements by Ministries and Departments" />
+            <Divider sx={{ my: 2 }} />
+
+            <Grid container spacing={2} alignItems="center">
+              <Grid size={{ xs: 12, md: 6 }}>
+                <CustomAutoCompleteWithoutFormik
+                  name="ministries"
+                  multiple
+                  selectAll
+                  label="Choose Ministries"
+                  options={ministryNames}
+                  value={selectedMinistries ?? []}
+                  fullWidth
+                  onChange={(event, newValue) =>
+                    setSelectedMinistries(newValue || [])
+                  }
+                  readOnly={disableFilters}
+                />
+              </Grid>
+              <Grid size={{ xs: 12, md: 6 }}>
+                <CustomAutoCompleteWithoutFormik
+                  name="departments"
+                  multiple
+                  selectAll
+                  label="Choose Departments"
+                  options={departments}
+                  value={selectedDepartments ?? []}
+                  fullWidth
+                  onChange={(event, newValue) =>
+                    setSelectedDepartments(newValue || [])
+                  }
+                  readOnly={disableFilters}
+                />
+              </Grid>
+              <Grid size={{ xs: 12, md: 6 }}>
+                <CustomAutoCompleteWithoutFormik
+                  name="schemes"
+                  multiple
+                  selectAll
+                  label="Choose Schemes"
+                  options={schemes}
+                  value={selectedSchemes ?? []}
+                  fullWidth
+                  onChange={(event, newValue) =>
+                    setSelectedSchemes(newValue || [])
+                  }
+                  readOnly={disableFilters}
+                />
+              </Grid>
+              <Grid size={{ xs: 12, md: 6 }}>
+                <CustomAutoCompleteWithoutFormik
+                  name="isSubScheme"
+                  multiple={false}
+                  selectAll={false}
+                  label="Choose Is Sub Scheme"
+                  options={isSubSchemes}
+                  value={selectedIsSubScheme ?? null}
+                  fullWidth
+                  onChange={(event, newValue) =>
+                    setSelectedIsSubScheme(newValue || null)
+                  }
+                  readOnly={disableFilters}
+                />
+              </Grid>
+              <Grid size={{ xs: 12, md: 6 }}>
+                <CustomAutoCompleteWithoutFormik
+                  name="statementType"
+                  label="Choose Statement Type"
+                  selectAll={false}
+                  multiple={false}
+                  options={statementTypes}
+                  value={selectedStatement ?? {}}
+                  fullWidth
+                  onChange={(event, newValue) =>
+                    setSelectedStatement(newValue || {})
+                  }
+                  readOnly={disableFilters}
+                />
+              </Grid>
+
+              <Grid
+                size={{ xs: 12 }}
+                sx={{
+                  display: disableFilters ? "none" : "flex",
+                  justifyContent: "center",
+                }}
+              >
+                <Stack
+                  direction="row"
+                  spacing={2}
+                  justifyContent="center"
+                  sx={{ mt: 2 }}
+                >
+                  <Button
+                    variant="contained"
+                    color="primary"
+                    startIcon={<SearchIcon />}
+                    onClick={handleSearch}
+                    sx={{ minWidth: 150 }}
+                  >
+                    Search
+                  </Button>
+                  <Button
+                    variant="outlined"
+                    sx={{ color: "#45154F" }}
+                    startIcon={<RestartAltIcon />}
+                    onClick={() => {
+                      setSelectedMinistries([]);
+                      setSelectedDepartments([]);
+                      setSelectedSchemes([]);
+                      setSelectedIsSubScheme(null);
+                      setSelectedStatement({});
+                      fetchOutputOutcomes({ isReset: true });
+                    }}
+                  >
+                    Reset
+                  </Button>
+                </Stack>
+              </Grid>
+            </Grid>
+          </Card>
+          {/* Add/Edit Dialog */}
+          <AddRecordDialog
+            open={!isViewing && showAccordion && overrideModal !== "indicator"}
+            onClose={() => {
+              setShowAccordion(false);
+              setOverrideModal(null);
+              setNewRow({
+                status: true, // Ensure Active by default
+                // other fields...
+              });
+              setEditId(null);
+              setErrors({});
+              setStatements([{ statementType: "", name: "" }]);
+            }}
+            onSubmit={handleOutputOutcomeSubmit}
+            isViewing={isViewing}
+            isEditing={isEditing}
+            urlModal={baseUrlModal}
+            selected={selected}
+          >
+            <OutputOutcome
+              modalState={modalState}
+              populateReadOnly={populateReadOnly}
+              disableFilters={disableFilters}
+            />
+          </AddRecordDialog>
+          {isViewing && (
+            <CommonViewMasterDialog
+              open={showAccordion}
+              handleClose={() => {
+                setShowAccordion(false);
+                setNewRow({
+                  status: true, // Ensure Active by default
+                  // other fields...
+                });
+                setEditId(null);
+                setErrors({});
+              }}
+              title="Output Outcome Details"
+              data={{
+                ...selected,
+                subScheme: selected?.subScheme?.name,
+                statementType: selected?.statementType
+                  ? selected.statementType.charAt(0).toUpperCase() +
+                    selected.statementType.slice(1)
+                  : selected?.statementType,
+              }}
+              exampleRow={gridColumns}
+            />
+          )}
+
+          <Paper
+            elevation={3}
+            sx={{ p: 2, borderRadius: 3, backgroundColor: "#ffffff" }}
+          >
+            {/* Header */}
+            <Box
+              sx={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                mb: 2,
+                mt: 2,
+                flexWrap: "wrap",
+                gap: 2,
+              }}
+            >
+              {/* Left: Search + Export */}
+              <Box
+                sx={{
+                  display: "flex",
+                  gap: 2,
+                  flexDirection: { xs: "column", sm: "row" },
+                }}
+              >
+                <Box display="flex" alignItems="center">
+                  <SearchIcon sx={{ mr: 1 }} />
+                  <TextField
+                    size="small"
+                    placeholder="Search..."
+                    value={search}
+                    disabled={loading ? true : false}
+                    onChange={(e) => setSearch(e.target.value)}
+                    error={search.trim().length > 0 && search.trim().length < 3}
+                    helperText={
+                      search.trim().length > 0 && search.trim().length < 3
+                        ? "Enter at least 3 characters to search"
+                        : ""
+                    }
+                    sx={{ width: { xs: "100%", sm: "auto" } }}
+                  />
+                </Box>
+                <ExportCsvButton
+                  apiRef={apiRef}
+                  modal={urlModal}
+                  columns={columns}
+                  // rows={filteredOutputOutcomes}
+                  rows={filteredOutputOutcomes.map((row) => ({
+                    ...row,
+                    subScheme: row?.subScheme?.label || "",
+                  }))}
+                  columnVisibilityModel={columnVisibilityModel}
+                  fileName={urlModal}
+                />
+              </Box>
+
+              {/* Right: Add Record Button */}
+              {hasAddAccess && (
+                <Button
+                  variant="outlined"
+                  onClick={() => {
+                    setOverrideModal(null);
+                    setIsEditing(false);
+                    setIsViewing(false);
+                    setShowAccordion(true);
+                  }}
+                  // onClick={() => {
+                  //   setOverrideModal(null);
+                  //   setIsEditing(false);
+                  //   setIsViewing(false);
+                  //   setShowAccordion(true);
+
+                  //   const ministry = selectedMinistries?.[0] || null;
+                  //   const department = selectedDepartments?.[0] || null;
+                  //   const scheme = selectedSchemes?.[0] || null;
+
+                  //   const isSubSchemeValue =
+                  //     selectedIsSubScheme?.name === "Yes"
+                  //       ? true
+                  //       : selectedIsSubScheme?.name === "No"
+                  //         ? false
+                  //         : null;
+
+                  //   const statementTypeValue = selectedStatement?.name
+                  //     ? selectedStatement.name.toLowerCase()
+                  //     : "";
+
+                  //   //  SET FULL JSON DATA
+                  //   setNewRow({
+                  //     status: true,
+                  //     jsonData: {
+                  //       ministry,
+                  //       department,
+                  //       schemeType: null, //  you don't have this in filters
+                  //       scheme,
+                  //       subScheme: null,
+                  //       isSubScheme: isSubSchemeValue,
+                  //       statementType: statementTypeValue,
+                  //     },
+                  //   });
+
+                  //   //  SET STATEMENTS
+                  //   if (statementTypeValue) {
+                  //     setStatements([
+                  //       {
+                  //         statementType: statementTypeValue,
+                  //         name: "",
+                  //       },
+                  //     ]);
+                  //   } else {
+                  //     setStatements([{ statementType: "", name: "" }]);
+                  //   }
+                  // }}
+                  disabled={!selected}
+                  startIcon={<AddIcon />}
+                  sx={{ whiteSpace: "nowrap" }}
+                >
+                  Add Record in{" "}
+                  {`${baseUrlModal
+                    ?.replace(/([a-z])([A-Z])/g, "$1 $2")
+                    ?.replace(/\b\w/g, (char) => char.toUpperCase())} Master`}
+                </Button>
+              )}
+            </Box>
+
+            <Box
+              sx={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                mb: 2,
+                mt: 2,
+                flexWrap: "wrap", // responsive wrapping
+                gap: 2,
+              }}
+            >
+              {auditParams?.auditableId && auditParams?.sectionId && (
+                // <AuditDataGrid
+                //   {...auditParams}
+                //   auditDialogOpen={auditDialogOpen}
+                //   setAuditDialogOpen={setAuditDialogOpen}
+                // />
+                <AuditTrailDialog
+                  auditDialogOpen={auditDialogOpen}
+                  setAuditDialogOpen={setAuditDialogOpen}
+                  auditableId={auditParams.auditableId}
+                  sectionId={auditParams.sectionId}
+                />
+              )}
+            </Box>
+            <Box
+              sx={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                mb: 2,
+              }}
+            >
+              <MainFormHeader title="Output Outcome List" />
+              <Divider sx={{ my: 2 }} />
+              <ColumnReorderManager
+                gridColumns={gridColumns}
+                columns={columns}
+                setColumns={setColumns}
+                columnVisibilityModel={columnVisibilityModel}
+                setColumnVisibilityModel={setColumnVisibilityModel}
               />
             </Box>
 
-            <ExportCsvButton
-              apiRef={apiRef}
-              modal={urlModal}
-              columns={columns}
-              // rows={filteredIndicators}
-              rows={filteredIndicators.map((row) => ({
-                ...row,
-                subScheme: row?.subScheme?.label || "",
-              }))}
-              columnVisibilityModel={columnVisibilityModel}
-              fileName={urlModal}
-            />
-          </Box>
-
-          {/* Right: Add Record Button */}
-          {hasAddAccess && (
-            <>
-              {/*
-              <Button
-                variant="outlined"
-                onClick={() => {
-                  setIsEditing(false);
-                  setIsViewing(false);
-                  setShowAccordion(true);
-                }}
-                disabled={!selected}
-                startIcon={<AddIcon />}
-                sx={{ whiteSpace: "nowrap" }}
+            {/* DataGrid */}
+            {loading ? (
+              <Box
+                display="flex"
+                justifyContent="center"
+                alignItems="center"
+                minHeight="300px"
               >
-                Add Record in{" "}
-                {`${urlModal
-                  ?.replace(/([a-z])([A-Z])/g, "$1 $2")
-                  ?.replace(/\b\w/g, (char) => char.toUpperCase())} Master`}
-              </Button>
-              */}
-            </>
-          )}
-        </Box>
-        <Box
-          sx={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            mb: 2,
-            mt: 2,
-            flexWrap: "wrap", // responsive wrapping
-            gap: 2,
-          }}
-        >
-          {auditParams?.auditableId && auditParams?.sectionId && (
-            // <AuditDataGrid
-            //   {...auditParams}
-            //   auditDialogOpen={auditDialogOpen}
-            //   setAuditDialogOpen={setAuditDialogOpen}
-            // />
-            <AuditTrailDialog
-              auditDialogOpen={auditDialogOpen}
-              setAuditDialogOpen={setAuditDialogOpen}
-              auditableId={auditParams.auditableId}
-              sectionId={auditParams.sectionId}
-            />
-          )}
-        </Box>
-
-        <Box
-          sx={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            mb: 2,
-          }}
-        >
-          <MainFormHeader title="Indicators List" />
-          <Divider sx={{ my: 2 }} />
-          <ColumnReorderManager
-            gridColumns={gridColumns}
-            columns={columns}
-            setColumns={setColumns}
-            columnVisibilityModel={columnVisibilityModel}
-            setColumnVisibilityModel={setColumnVisibilityModel}
-          />
-        </Box>
-
-        {/* DataGrid */}
-        {loading ? (
-          <Box
-            display="flex"
-            justifyContent="center"
-            alignItems="center"
-            minHeight="300px"
-          >
-            <CircularProgress />
-          </Box>
-        ) : (
-          <div style={{ height: 450, width: "100%" }}>
-            {/* <DataGrid
-              sortingOrder={["asc", "desc"]}
-              rows={filteredIndicators}
-              columns={columns}
-              pageSizeOptions={[10, 20, 30, 40, 50, 100]} // ✅ replaces rowsPerPageOptions
-              initialState={{
-                pagination: {
-                  paginationModel: { pageSize: 10, page: 0 }, // ✅ replaces pageSize
-                },
-              }}
-              pagination
-              disableSelectionOnClick
-              //disableColumnFilter
-              columnVisibilityModel={columnVisibilityModel}
-              onColumnVisibilityModelChange={(newModel) =>
-                setColumnVisibilityModel(newModel)
-              }
-            /> */}
-            <DataGrid
-              apiRef={apiRef}
-              rows={filteredIndicators}
-              columns={applyCustomLogic(columns)}
-              rowCount={totalRows} // 🔥 total rows from backend
-              paginationMode="server" // 🔥 important
-              paginationModel={paginationModel}
-              onPaginationModelChange={(model) => {
-                setPaginationModel(model);
-                fetchIndicators({ page: model.page, pageSize: model.pageSize }); // <— pass fresh values
-              }}
-              pageSizeOptions={[10, 20, 30, 40, 50, 100]}
-              sortingOrder={["asc", "desc"]}
-              disableSelectionOnClick
-              columnVisibilityModel={columnVisibilityModel}
-              onColumnVisibilityModelChange={(newValue) =>
-                setColumnVisibilityModel(newValue)
-              }
-              localeText={{
-                columnMenuSortAsc: "Sort as A to Z",
-                columnMenuSortDesc: "Sort as Z to A",
-              }}
-            />
-          </div>
-        )}
-      </Paper>
+                <CircularProgress />
+              </Box>
+            ) : (
+              <div style={{ height: 450, width: "100%" }}>
+                <DataGrid
+                  apiRef={apiRef}
+                  sortingOrder={["asc", "desc"]}
+                  rows={filteredOutputOutcomes}
+                  columns={applyCustomLogic(columns)}
+                  rowCount={totalRows} // 🔥 total rows from backend
+                  paginationMode="server" // 🔥 important
+                  paginationModel={paginationModel}
+                  onPaginationModelChange={(model) => {
+                    setPaginationModel(model);
+                    fetchOutputOutcomes({
+                      page: model.page,
+                      pageSize: model.pageSize,
+                    }); // <— pass fresh values
+                  }}
+                  pageSizeOptions={[10, 20, 30, 40, 50, 100]}
+                  disableSelectionOnClick
+                  columnVisibilityModel={columnVisibilityModel}
+                  onColumnVisibilityModelChange={(newModel) =>
+                    setColumnVisibilityModel(newModel)
+                  }
+                  localeText={{
+                    columnMenuSortAsc: "Sort as A to Z",
+                    columnMenuSortDesc: "Sort as Z to A",
+                  }}
+                />
+              </div>
+            )}
+          </Paper>
+        </>
+      )}
     </Box>
   );
 };
 
-export default IndicatorMaster;
+export default OutputOutcomeMaster;
