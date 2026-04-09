@@ -15,7 +15,7 @@ import {
 import AddIcon from "@mui/icons-material/Add";
 import SearchIcon from "@mui/icons-material/Search";
 import RestartAltIcon from "@mui/icons-material/RestartAlt";
-import { DataGrid } from "@mui/x-data-grid";
+import { DataGrid, useGridApiRef } from "@mui/x-data-grid";
 import apiClient from "@/utils/apiClient";
 import ExportCsvButton from "../ExportCSV";
 import Ministry from "../ModalsFields/Ministry";
@@ -123,6 +123,7 @@ const OutputOutcomeMaster = ({ masterState, prefillParams }) => {
   const [auditParams, setAuditParams] = useState({});
   const [search, setSearch] = useState("");
   const [auditDialogOpen, setAuditDialogOpen] = useState(false);
+  const apiRef = useGridApiRef();
   const [paginationModel, setPaginationModel] = useState({
     page: 0, // MUI is 0-based
     pageSize: 10, // number of rows per page
@@ -137,6 +138,11 @@ const OutputOutcomeMaster = ({ masterState, prefillParams }) => {
     hasAuditTrailViewAccess,
     refresh,
   } = usePrivileges(SECTION_KEY.OUTPUT_OUTCOME_STATEMENT);
+
+  const {
+      hasAddAccess:hasIndicatorAddAccess,
+    } = usePrivileges(SECTION_KEY.INDICATORS);
+
   const abortRef = useRef(null);
   const inFlightRef = useRef(false);
   const firstLoadRef = useRef(true);
@@ -162,6 +168,7 @@ const OutputOutcomeMaster = ({ masterState, prefillParams }) => {
       urlModal: baseUrlModal,
       setSchemeData,
       onAddIndicator: handleAddIndicator,
+      hasIndicatorAddAccess
     }),
     [
       hasAddAccess,
@@ -174,6 +181,7 @@ const OutputOutcomeMaster = ({ masterState, prefillParams }) => {
       urlModal,
       setSchemeData,
       handleAddIndicator,
+      hasIndicatorAddAccess,
     ],
   );
 
@@ -240,7 +248,6 @@ const prefilledObject = hasPrefillParams
             name: prefillSubSchemeName || null,
           }
         : null,
-      statementType: prefillStatementType || null,
     }
   : {};
 
@@ -302,37 +309,37 @@ useEffect(() => {
   }
 }, [prefillStatementType, prefillIsSubScheme]);
 
-useEffect(() => {
-  // Trigger search only when data is loaded & prefill values have executed
-  if (
-    ministryNames.length > 0 &&
-    departments.length > 0 &&
-    schemes.length > 0
-  ) {
-    // Conditions: If any prefill param exists → auto trigger search
-    if (
-      prefillMinistryId ||
-      prefillDepartmentId ||
-      prefillSchemeId ||
-      prefillIsSubScheme ||
-      prefillStatementType
-    ) {
-      fetchOutputOutcomes({
-        page: 0,
-        pageSize: paginationModel.pageSize,
-      });
-    }
-  }
-}, [
-  ministryNames,
-  departments,
-  schemes,
-  prefillMinistryId,
-  prefillDepartmentId,
-  prefillSchemeId,
-  prefillIsSubScheme,
-  prefillStatementType
-]);
+// useEffect(() => {
+//   // Trigger search only when data is loaded & prefill values have executed
+//   if (
+//     ministryNames.length > 0 &&
+//     departments.length > 0 &&
+//     schemes.length > 0
+//   ) {
+//     // Conditions: If any prefill param exists → auto trigger search
+//     if (
+//       prefillMinistryId ||
+//       prefillDepartmentId ||
+//       prefillSchemeId ||
+//       prefillIsSubScheme ||
+//       prefillStatementType
+//     ) {
+//       fetchOutputOutcomes({
+//         page: 0,
+//         pageSize: paginationModel.pageSize,
+//       });
+//     }
+//   }
+// }, [
+//   ministryNames,
+//   departments,
+//   schemes,
+//   prefillMinistryId,
+//   prefillDepartmentId,
+//   prefillSchemeId,
+//   prefillIsSubScheme,
+//   prefillStatementType
+// ]);
 
 useEffect(() => {
   // If any URL param is present → populate filter values but don't open the AddRecordDialog
@@ -355,11 +362,15 @@ useEffect(() => {
     if (prefilledObject?.department) {
       setSelectedDepartments([prefilledObject.department]);
     }
-    if (prefilledObject?.scheme) {
-      setSelectedSchemes([prefilledObject.scheme]);
-    }
+    // if (prefilledObject?.subScheme) {
+    //   setSelectedIsSubScheme(prefilledObject.subScheme);
+    // }
     if (prefilledObject?.subScheme) {
-      setSelectedIsSubScheme(prefilledObject.subScheme);
+      const yesOption = isSubSchemes.find((x) => x.name === "Yes");
+      setSelectedIsSubScheme(yesOption);
+    } else if (prefillIsSubScheme === "false") {
+      const noOption = isSubSchemes.find((x) => x.name === "No");
+      setSelectedIsSubScheme(noOption);
     }
     if (prefilledObject?.statementType) {
       const statementObj = statementTypes.find(
@@ -374,6 +385,10 @@ useEffect(() => {
       jsonData: prefilledObject,
       status: true
     }));
+
+    if (prefillStatementType) {
+      setStatements([{ statementType: prefillStatementType, name: '' }]);
+    }
   }
 }, [
   prefillMinistryId,
@@ -558,11 +573,19 @@ useEffect(() => {
       ? userSchemeIds
       : selectedSchemes?.map((item) => item?.id);
 
+    // const isSubScheme = isReset
+    //   ? null
+    //   : !selectedIsSubScheme?.name
+    //     ? null
+    //     : selectedIsSubScheme.name.trim() === "Yes";
+    
     const isSubScheme = isReset
       ? null
-      : !selectedIsSubScheme?.name
-        ? null
-        : selectedIsSubScheme.name.trim() === "Yes";
+      : selectedIsSubScheme?.name === "Yes"
+        ? true
+        : selectedIsSubScheme?.name === "No"
+          ? false
+          : null;
 
     const statementType = isReset
       ? null
@@ -656,7 +679,11 @@ useEffect(() => {
           ministry: pickIdName(jsonData?.ministry),
           department: pickIdName(jsonData?.department),
           scheme: pickIdName(jsonData?.scheme),
-          subScheme: pickIdName(jsonData?.subScheme),
+          // subScheme: pickIdName(jsonData?.subScheme),
+          subScheme:
+            selectedIsSubScheme?.name === "Yes"
+              ? pickIdName(jsonData?.subScheme)
+              : null, //  clear subScheme if No
         };
         let payload;
         if(editId){
@@ -731,7 +758,6 @@ useEffect(() => {
   const gridColumns = React.useMemo(() => {
     return getMasterColumns(baseUrlModal, actionsConfig);
   }, [baseUrlModal, actionsConfig]);
-
   // // 🔹 Search Filter
   // useEffect(() => {
   //   const trimmedSearch = (search || "").trim().toLowerCase();
@@ -753,30 +779,21 @@ useEffect(() => {
   const [columns, setColumns] = useState([]);
   const [columnVisibilityModel, setColumnVisibilityModel] = useState({});
 
-  // useEffect(() => {
-  //   setColumns(gridColumns);
-
-  //   const visibilityModel = {};
-  //   gridColumns.forEach((col) => {
-  //     visibilityModel[col.field] = true;
-  //   });
-
-  //   setColumnVisibilityModel(visibilityModel);
-  // }, [gridColumns]);
-
   useEffect(() => {
     setColumns(gridColumns);
 
-    const visibilityModel = Object.fromEntries(
-      gridColumns.map((col) => [col.field, true]),
-    );
+    const visibilityModel = {};
+    gridColumns.forEach((col) => {
+      visibilityModel[col.field] = true;
+    });
 
     setColumnVisibilityModel(visibilityModel);
-  }, [gridColumns.length]);
+  }, [hasAddAccess,hasEditAccess,hasViewAccess,hasAuditTrailViewAccess]);
 
   const modalState = {
     newRow,
     isViewing,
+    isEditing,
     errors,
     handleNewChange,
     handleSwitchChange,
@@ -848,6 +865,14 @@ useEffect(() => {
   selectedIsSubScheme,
 ]);
   
+
+const hasSubScheme =
+  selectedIsSubScheme &&
+  typeof selectedIsSubScheme === "object" &&
+  selectedIsSubScheme?.name;
+const isSubSchemeValue = hasSubScheme
+  ? isSubSchemes.find(x => x.name === "Yes")
+  : isSubSchemes.find(x => x.name === "No");
   return (
     <Box>
       <Stack mb={3} alignItems="center">
@@ -1135,6 +1160,7 @@ useEffect(() => {
                   />
                 </Box>
                 <ExportCsvButton
+                  apiRef={apiRef}
                   modal={urlModal}
                   columns={columns}
                   // rows={filteredOutputOutcomes}
@@ -1226,6 +1252,7 @@ useEffect(() => {
             ) : (
               <div style={{ height: 450, width: "100%" }}>
                 <DataGrid
+                  apiRef={apiRef}
                   sortingOrder={["asc", "desc"]}
                   rows={filteredOutputOutcomes}
                   columns={applyCustomLogic(columns)}
